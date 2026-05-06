@@ -1,2 +1,3 @@
-2026/04/20-22:19:19.981 1948 Creating DB D:\server sellubrick\reilway\housetenerife\.wwebjs_auth_ht\session-housetenerife-wa\Default\Service Worker\Database since it was missing.
-2026/04/20-22:19:19.987 1948 Reusing MANIFEST D:\server sellubrick\reilway\housetenerife\.wwebjs_auth_ht\session-housetenerife-wa\Default\Service Worker\Database/MANIFEST-000001
+2026/05/07-01:28:25.464 be30 Reusing MANIFEST D:\housetenerife\.wwebjs_auth_ht\session-housetenerife-wa\Default\Service Worker\Database/MANIFEST-000001
+2026/05/07-01:28:25.466 be30 Recovering log #3
+2026/05/07-01:28:25.468 be30 Reusing old log D:\housetenerife\.wwebjs_auth_ht\session-housetenerife-wa\Default\Service Worker\Database/000003.log 

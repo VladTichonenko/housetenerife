@@ -1,2 +1,3 @@
-2026/04/20-22:19:15.613 5810 Creating DB D:\server sellubrick\reilway\housetenerife\.wwebjs_auth_ht\session-housetenerife-wa\Default\shared_proto_db\metadata since it was missing.
-2026/04/20-22:19:15.622 5810 Reusing MANIFEST D:\server sellubrick\reilway\housetenerife\.wwebjs_auth_ht\session-housetenerife-wa\Default\shared_proto_db\metadata/MANIFEST-000001
+2026/05/07-01:28:25.622 75c4 Reusing MANIFEST D:\housetenerife\.wwebjs_auth_ht\session-housetenerife-wa\Default\shared_proto_db\metadata/MANIFEST-000001
+2026/05/07-01:28:25.623 75c4 Recovering log #3
+2026/05/07-01:28:25.623 75c4 Reusing old log D:\housetenerife\.wwebjs_auth_ht\session-housetenerife-wa\Default\shared_proto_db\metadata/000003.log 

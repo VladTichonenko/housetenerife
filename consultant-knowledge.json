@@ -1,8 +1,14 @@
 {
   "brand": {
     "name": "House Tenerife",
+    "legal_name": "House Tenerife S.L.",
+    "site": "https://housetenerife.eu",
     "site_ru": "https://housetenerife.eu/ru/",
-    "focus": "Недвижимость на Тенерифе и Канарах, консультации по покупке в Испании"
+    "focus": "Недвижимость на Тенерифе и Канарах, консультации по покупке в Испании",
+    "experience": "Более 9 лет на рынке недвижимости и бизнеса в Испании; специализация — Канары (в первую очередь Тенерифе)",
+    "positioning": "Надёжный партнёр для прибыльных инвестиций и бизнес-проектов",
+    "representative": "Максим Куликов (Maksim Kulikov)",
+    "office_address": "Local N9, Grand Hotel Del Duque, Adeje, Tenerife, Islas Canarias"
   },
   "disclaimer": "Ты не юрист и не налоговый консультант. По визам, налогам и сделкам всегда советуй проверить актуальные правила у официальных органов и нанять местного abogado (юриста) и гесторía/асессорía. Канарские острова — зона особого налогового режима; уточняй, что речь про Испанию/Канары.",
   "spain_property_pros_cons": {
@@ -29,5 +35,801 @@
     "nie": "NIE — идентификационный номер иностранца, нужен для многих сделок и налогов. Порядок получения зависит от консульства/нахождения в Испании; актуальные шаги — только с официальных источников.",
     "golden_visa": "Инвестиционное ВНЖ (часто называют «золотой визой») в Испании подлежало изменениям закона. Не фиксируй суммы и условия как вечные — направляй на extranjeros.inclusion.gob.es и к иммиграционному юристу.",
     "canarias": "Канарские острова — автономия с особыми налоговыми режимами (например, IGIC вместо части IVA в ряде операций). Это важно для коммерции и части расходов, не путай с материковой Испанией без оговорки."
-  }
+  },
+  "concierge_playbook": {
+    "role": "Senior real estate concierge at House Tenerife",
+    "core_logic": [
+      "Сразу давай объекты (ценность через ссылки из каталога сайта)",
+      "Вовлекай клиента короткими репликами",
+      "Уточняй через один вопрос за раз",
+      "Затем дай более точную подборку",
+      "Менеджера / офф-маркет / просмотры — только после доверия, мягко"
+    ],
+    "rules": [
+      "Цель не толкать на звонок сразу",
+      "Короткие сообщения, 1-3 строки когда уместно",
+      "Один вопрос за раз",
+      "Вести себя как человек, не как скрипт-робот",
+      "Показать ценность рано — реальные объекты со ссылками",
+      "Держать вовлечённость",
+      "Мягкий follow-up, не агрессивный «дожим»"
+    ],
+    "routing_question": "Уточни сегмент: investment / private property / business / commercial / hotel?",
+    "start_messages": [
+      "Hi 👋",
+      "Thanks for your request — got it 👍",
+      "I’ll show you a few options first so you can see what fits you best",
+      "👉 Just to guide correctly — what are you looking for: investment / private property / business / commercial / hotel?"
+    ],
+    "flows": {
+      "investment": {
+        "open": ["Perfect 👍", "I’ll pick a few good investment options for you", "👉 (отправить 2-5 релевантных ссылок из каталога)", "Here are a few interesting ones 👇"],
+        "follow_up_questions": [
+          "Which one feels closer to what you want?",
+          "Are you more into stable income or resale profit?",
+          "Budget range so I refine better? 💶"
+        ],
+        "second_round": "Got it 👌 I’ll narrow it down and send more precise deals.",
+        "handoff_soft": "If you want, I can connect you with a manager who will show you the best off-market deals as well."
+      },
+      "private_residential": {
+        "open": ["Got it 👍", "Let me show you a few options to get a feel", "(сразу 2-5 ссылок на объекты из каталога)", "Here are some nice options 👇"],
+        "follow_up_questions": [
+          "Which one do you like most?",
+          "Apartment or villa direction?",
+          "Any preferred area or still exploring?",
+          "Budget range? 💶"
+        ],
+        "second_round": "Perfect 👌 I’ll send you more tailored options.",
+        "handoff_soft": "If needed, I can connect you with a manager to organise viewings."
+      },
+      "business_not_hotel": {
+        "open": ["Great 👍", "Let me show you a few running businesses", "(ссылки из каталога на бизнес-лоты)"],
+        "follow_up_questions": [
+          "Which type feels closer?",
+          "Passive or active involvement?",
+          "Budget? 💶"
+        ],
+        "second_round": "Got it 👌 I’ll send more relevant options.",
+        "handoff_soft": "We can also connect you with a specialist to go through numbers."
+      },
+      "commercial": {
+        "open": ["Perfect 👍", "Let me show you a few commercial options", "(ссылки)"],
+        "follow_up_questions": [
+          "Which one fits more?",
+          "Looking for rental income or own use?",
+          "Budget? 💶"
+        ],
+        "second_round": "Great 👌 I’ll refine selection.",
+        "handoff_soft": "If needed, I’ll connect you with a manager for deeper details."
+      },
+      "hotels": {
+        "open": ["Great 👍", "I’ll show you a few hotel opportunities", "(ссылки)"],
+        "follow_up_questions": [
+          "Which direction feels right?",
+          "Running hotel or project?",
+          "Budget? 💶"
+        ],
+        "second_round": "Got it 👌 I’ll prepare more targeted options.",
+        "handoff_soft": "We also have off-market deals — manager can share those if needed."
+      }
+    },
+    "language_note": "Адаптируй язык ответа клиенту (RU/EN/др.) но логику и порядок шагов сохраняй; при смешении языков в переписке отвечай на языке пользователя из контекста.",
+    "internal_listings_note": "featured_properties может не совпасть с каталогом сайта — URL не выдумывать; интерес → менеджер + housetenerife.eu. La Ola: банкротство. Vegrosa IX / Esmeralda: ипотека (Vegrosa + суд Güimar №3 — с первых слов). Jardín Arménime: два финварианта ROI. Девелопмент и flip: все цифры из презентаций. Callao Salvaje luxury: сумм нет — у агента. Hotel Las Américas / Costa Adeje aparthotel: уточнять условия. portfolio_quick_reference — только шпаргалка."
+  },
+  "contacts": {
+    "office_phone": "+34 822 621 012",
+    "mobile_whatsapp": "+34 631 252 060",
+    "mobile_note": "WhatsApp / телефон CEO",
+    "email": "info@housetenerife.eu",
+    "website": "https://housetenerife.eu",
+    "office_address": "Local N9, Grand Hotel Del Duque, Adeje, Tenerife, Islas Canarias",
+    "office_address_short": "Local N9, Grand Hotel Del Duque, Adeje"
+  },
+  "company_services": {
+    "full_cycle": [
+      { "service": "Поиск недвижимости", "description": "Подбор жилых, коммерческих объектов и аукционной недвижимости под запрос клиента" },
+      { "service": "Анализ рынка", "description": "Тренды, оценка рынка, прогнозы" },
+      { "service": "Юридическая поддержка", "description": "Проверка документов, Due Diligence, сопровождение сделок" },
+      { "service": "Консалтинг и администрирование", "description": "Финансовые стратегии, налоговые льготы (общий консалтинг), операционное планирование" }
+    ],
+    "additional": [
+      "Открытие банковского счёта в Испании",
+      "Получение NIE",
+      "Регистрация компании в Испании",
+      "Получение лицензий для бизнеса",
+      "Помощь с резиденцией (вид на жительство)"
+    ],
+    "full_package_eur_3000": {
+      "name": "Полное сопровождение (стандартные объекты)",
+      "price_eur": 3000,
+      "guaranteed_search_months": 6,
+      "includes": [
+        "Индивидуальный поиск",
+        "Анализ рынка",
+        "Юридическая проверка",
+        "Управление транзакцией",
+        "Помощь с резиденцией",
+        "Регистрация компании",
+        "Получение NIE",
+        "Открытие банковского счёта",
+        "Помощь с ипотекой",
+        "Вся документация"
+      ]
+    },
+    "auction_credit_package_eur_5000": {
+      "name": "Аукционная недвижимость / кредиты",
+      "price_eur": 5000,
+      "guaranteed_search_months": 6,
+      "description": "Всё из пакета €3 000 + специализированное сопровождение по кредитным обязательствам и аукционам",
+      "includes_standard_package": true
+    },
+    "packages_public_summary": [
+      {
+        "name": "Полное сопровождение (стандарт)",
+        "price_eur": 3000,
+        "covers": "Поиск, анализ рынка, юридическая проверка, NIE, банковский счёт, ипотека, регистрация компании, резиденция, документация"
+      },
+      {
+        "name": "Аукционы / кредиты",
+        "price_eur": 5000,
+        "covers": "То же, что €3 000 + специализированное сопровождение по кредитным обязательствам и аукционам"
+      }
+    ]
+  },
+  "credit_and_auction_investing": {
+    "note": "Описание механизмов и доходности — маркетинговые ориентиры из материалов компании; не обещание результата. Всегда нужны юрист и собственная оценка риска.",
+    "buying_credit_mechanism": "Покупка у банка кредитного обязательства, обеспеченного недвижимостью; типичная скидка к рынку в материалах указывается как 40–50%.",
+    "earning_paths": [
+      "Перепродажа прав требования другому инвестору — в материалах указывается доходность порядка 50–70%",
+      "Выход на собственность и продажа объекта — в материалах до порядка 130% (формулировать как потенциал, не гарантию)"
+    ],
+    "house_tenerife_inventory": {
+      "approx_assets_in_pipeline": "~100 объектов в базе (укрупнённо)",
+      "service": "Полное сопровождение от участия в торгах до юридического оформления"
+    },
+    "guaranteed_search_months": 6
+  },
+  "nda_working_terms_summary": {
+    "purpose": "Покупатель уполномочивает агента (Максима Куликова) представлять интересы ИСКЛЮЧИТЕЛЬНО для поиска и получения информации об объектах на Канарах. Решение о покупке — только у покупателя.",
+    "agent_duties": [
+      "Информация по объектам, на которые есть разрешение собственника",
+      "Due Diligence (юридические, технические, финансовые риски)"
+    ],
+    "confidentiality": "Стороны не используют конфиденциальную информацию без письменного согласия; устная и письменная информация конфиденциальна; не разглашать третьим лицам.",
+    "exclusivity": "На объектах «Presented» (полная информация, просмотр, встречи с собственниками) House Tenerife S.L./М. Куликов — эксклюзивный агент.",
+    "governing_law": "Право Испании; суды Тенерифе, Лос-Кристианос, Санта-Крус-де-Тенерифе.",
+    "document_metadata": "Штамп NDA: 240519f (формат даты может интерпретироваться как май 2019 или 2024); подпись «I Agree with this conditions».",
+    "short_client_facts": [
+      "Эксклюзивный агент по объектам, представленным через House Tenerife S.L.: Максим Куликов",
+      "Без разглашения информации третьим лицам без письменного согласия",
+      "Применимое право: Испания; суды: Тенерифе, Лос-Кристианос, Санта-Крус-де-Тенерифе",
+      "Агент: полный Due Diligence (юридический, технический, финансовый блок)",
+      "Обременения: Vegrosa IX (суд в Гуимаре — см. карточку объекта); Edificio Esmeralda (ипотека на весь комплекс)"
+    ]
+  },
+  "glossary": {
+    "NIE": "Идентификационный номер иностранца в Испании (Número de Identificación de Extranjero)",
+    "IBI": "Налог на недвижимость в Испании (Impuesto sobre Bienes Inmuebles)",
+    "Due Diligence": "Полная проверка объекта: юридическая, техническая, финансовая",
+    "production_unit": "Производственная единица — объект, продаваемый как работающий актив",
+    "yield": "Доходность (Yield) — годовой арендный доход / цена объекта, %",
+    "anchor_tenant": "Якорный арендатор — крупный арендатор, привлекающий поток клиентов",
+    "mortgage_encumbrance": "Обременение ипотекой — на объекте есть долг перед банком; сделка требует особой юридической работы",
+    "credit_obligation": "Кредитное обязательство — долг банка, права на который можно приобрести со скидкой к стоимости обеспечения"
+  },
+  "portfolio_quick_reference": {
+    "note": "Укрупнённая шпаргалка для бота; все ROI/прибыль — из маркетинговых файлов (не обещание). Детали в featured_properties.",
+    "rows": [
+      { "name": "17 вилл Adeje Golf", "type": "Проект", "price_or_investment": "Земля €9M + лицензия €450k+IGIC7% + стр-во €7.5M+IGIC7%", "roi_or_profit": "Прогноз ROI 83.63%; прибыль ≈ €15M" },
+      { "name": "5 вилл Los Cristianos", "type": "Проект", "price_or_investment": "Всего €5 300 000", "roi_or_profit": "Прибыль €6 200 000 (прогноз)" },
+      { "name": "6+2 апартаментов Los Cristianos", "type": "Проект", "price_or_investment": "€1 080 000", "roi_or_profit": "Прибыль после налога 20% €1 288 000; с доп. этажом €2 248 000" },
+      { "name": "Adeje Town Apartments", "type": "Проект", "price_or_investment": "€830 000", "roi_or_profit": "Прогноз ROI 60.24%" },
+      { "name": "Jardín de Arménime", "type": "Проект", "price_or_investment": "≈ €8.56–8.9M (по версии файла)", "roi_or_profit": "41–50% ROI; квартиры €239k–563k (см. варианты в карточке)" },
+      { "name": "Aparthotel Costa Adeje", "type": "Готовый бизнес", "price_or_investment": "€5 800 000", "roi_or_profit": "Заполняемость в материалах >80%" },
+      { "name": "Ocean-View Villa Flip", "type": "Flip", "price_or_investment": "Инвест. ≈ €1 300 000", "roi_or_profit": "Прогноз ROI 76.92%" },
+      { "name": "San Eugenio Luxury Villa", "type": "Flip", "price_or_investment": "Покупка €1 439 000", "roi_or_profit": "~19% (кап. прирост); прибыль €301k–451k" },
+      { "name": "Las Galletas Building", "type": "Здание", "price_or_investment": "€315 000", "roi_or_profit": "—" },
+      { "name": "San Isidro 14 участков + 6 квартир", "type": "Земля + дома", "price_or_investment": "€800 000 (с реновацией)", "roi_or_profit": "50% ROI; срок 3–6 мес." },
+      { "name": "Vegrosa IX", "type": "Лот", "price_or_investment": "€607 500", "roi_or_profit": "Сценарий до 40% наценки; ипотека + суд Güimar — см. карточку" },
+      { "name": "168 Fincas Guímar", "type": "Лот", "price_or_investment": "€3 945 000", "roi_or_profit": "—" },
+      { "name": "Edificio Esmeralda", "type": "Квартиры (со скидкой)", "price_or_investment": "от €91 200", "roi_or_profit": "Экономия к рынку 40–50%; ипотека на весь комплекс" },
+      { "name": "La Ola ТЦ", "type": "Коммерция", "price_or_investment": "€10 500 000", "roi_or_profit": "Yield 8.4%; банкротство — см. карточку" }
+    ]
+  },
+  "featured_properties": [
+    {
+      "id": "la_ola_santa_cruz",
+      "title": "Торговый центр «La Ola»",
+      "title_en": "La Ola shopping center",
+      "city": "Санта-Крус-де-Тенерифе",
+      "address": "Угол улицы Fernandez Navarro и проспекта Tres de Mayo",
+      "deal_type": "Продажа производственной единицы как актива, единым лотом",
+      "legal_status": "Объект в процедуре банкротства; представлен и обсуждается план ликвидации; ожидается одобрение продажи",
+      "commercial": {
+        "asking_price_eur": 10500000,
+        "yield_percent": 8.4,
+        "monthly_rent_income_eur": 69530,
+        "annual_rent_income_eur": 834360,
+        "insolvency_manager_2022": {
+          "revenue_eur": 912078.41,
+          "expenses_eur": 196000,
+          "expenses_note": "Без оптимизации управления"
+        }
+      },
+      "physical": {
+        "total_commercial_area_m2": 4509,
+        "built_up_area_m2": 11963,
+        "commercial_units_count": 8,
+        "floors_description": "3 этажа: 1 надземный + 2 подземных",
+        "parking_spaces": 82,
+        "registered_properties_in_production_unit": 4
+      },
+      "anchor_tenants": [
+        {
+          "name": "Mercadona",
+          "type": "Продуктовый супермаркет, якорный арендатор",
+          "mandatory_performance_until": "2029",
+          "lease_end": "22.11.2047",
+          "location": "Часть супермаркета на первом подземном этаже"
+        },
+        {
+          "name": "Adeslas",
+          "type": "Медицинский центр",
+          "mandatory_performance_until": "2025",
+          "renewal": "До 3 раз по 5 лет",
+          "location": "Первый надземный этаж (ground floor)"
+        },
+        {
+          "name": "Diverlandia",
+          "type": "Детский развлекательный центр",
+          "mandatory_performance_until": "2027",
+          "renewal": "До 3 раз по 5 лет, максимум до 2032",
+          "location": "Ground floor"
+        }
+      ],
+      "other_tenants_ground_floor": ["Memouki (обувь)", "Магазин товаров для дома"],
+      "other_tenants_basement_1": ["Магазин табачных изделий"],
+      "owner_costs": ["Содержание общего имущества — за счёт собственника", "IBI — за счёт собственника"],
+      "demographics": {
+        "city_population": 209194,
+        "city_population_growth_last_quarter_percent": 0.91,
+        "age_35_64_share_percent": 46.7,
+        "tenerife_island_population": 928604
+      },
+      "location_highlights": [
+        "Юго-восток острова",
+        "Зона с высоким уровнем дохода",
+        "Ограниченная парковка в районе — ценность парковки объекта",
+        "Высокая пешеходная проходимость",
+        "Tres de Mayo — главная транспортная артерия",
+        "Близость к El Corte Inglés и ТЦ Nivaria",
+        "Постоянный поток посетителей"
+      ]
+    },
+    {
+      "id": "san_isidro_residential_land",
+      "title": "Жилой проект «Сан-Исидро»",
+      "title_en": "San Isidro Residential Development",
+      "type": "Земельный участок под жилую застройку",
+      "location": "Сан-Исидро, Тенерифе",
+      "market_note": "Район с растущим спросом на современное жильё",
+      "price_eur": 185000,
+      "plot_area_m2": 318,
+      "allowed_building": {
+        "basement": true,
+        "upper_floors": 2,
+        "roof": "Может использоваться под застройку"
+      },
+      "apartments": {
+        "base_layout": "3 квартиры на каждом из трёх этажей = 9 квартир",
+        "bedrooms_per_unit": 2,
+        "roof_original_use": "Прачечные; может быть преобразована в 3 дополнительные квартиры",
+        "max_apartments": 12,
+        "avg_apartment_size_m2_approx": 70
+      },
+      "investment_highlights": [
+        "Спрос на аренду и продажу (туризм, экспаты)",
+        "Городской рост Сан-Исидро",
+        "Налоговый контекст Канар (формулировать осторожно, не обещать конкретные льготы без юриста)",
+        "Стабильная экономика (общая характеристика региона)"
+      ]
+    },
+    {
+      "id": "luxury_seaside_project",
+      "title": "Проект элитной недвижимости у моря",
+      "title_en": "Luxury Seaside Project",
+      "type": "Крупный девелоперский проект (3 стратегических участка)",
+      "total_land_area_m2": 11560,
+      "financials_forecast": {
+        "note": "Прогнозы из инвестиционных материалов; не гарантия; год для Q4 ROI в исходнике не указан",
+        "total_investment_eur": 16900000,
+        "land_acquisition_fixed_eur": 10000000,
+        "forecast_gross_sales_eur": 26670000,
+        "forecast_net_profit_eur": 9770000,
+        "roi_percent": 37,
+        "value_increase_percent": 58,
+        "forecast_roi_quarter": "Q4"
+      },
+      "parcels": [
+        {
+          "code": "A",
+          "concept": "Апарт-отель",
+          "current_state": "Гостиница, готова к реабилитации",
+          "existing_keys": 76,
+          "after_conversion_keys_or_places": 158,
+          "renovation_investment_eur": 1600000,
+          "forecast_sale_value_after_eur": 11400000
+        },
+        {
+          "code": "B",
+          "concept": "Апартаменты у моря",
+          "current_state": "Устаревший ресторан/дискотека",
+          "after_conversion": "35 люксовых апартаментов, вид на океан, 72–78 м² каждый",
+          "development_investment_eur": 2420000,
+          "forecast_sale_value_eur": 7450000
+        },
+        {
+          "code": "C",
+          "concept": "Эксклюзивные виллы",
+          "villas_count": 12,
+          "each_built_m2": "190–245 м² застройки",
+          "development_investment_eur": 2860000,
+          "forecast_sale_value_eur": 7820000
+        }
+      ]
+    },
+    {
+      "id": "guimar_168_fincas",
+      "listing_category": "direct_sale",
+      "title": "168 Fincas — Гуимар (Guímar)",
+      "address": "Av. Tomás Cruz García, 21, Guímar",
+      "composition_one_line": "54 квартиры + 75 паркингов + 22 кладовые + 17 коммерческих помещений",
+      "building_year": 2004,
+      "type": "Жилой комплекс",
+      "building_total_area_m2": 12082.55,
+      "floors": 5,
+      "objects_in_lot": 168,
+      "lot_price_eur": 3945000,
+      "lot_mix": {
+        "apartments": {
+          "count": 54,
+          "bedrooms": 3,
+          "bathrooms": 2,
+          "area_m2": "72–117",
+          "note": "+ террасы"
+        },
+        "parking_spaces": { "count": 75, "location": "Подвал", "area_m2": "11–63" },
+        "storages": { "count": 22, "area_m2": "5–94" },
+        "commercial_units": { "count": 17, "area_m2": "30–1195", "note": "большинство на 2-м этаже" }
+      },
+      "apartments_distribution_by_floor": { "floor_1": 12, "floor_2": 21, "floor_3": 15, "floor_4": 6 },
+      "sample_apartments_m2": [
+        { "unit": 23, "interior": 113.89, "terrace": 16.8, "solarium": 6.53 },
+        { "unit": 27, "interior": 117.91, "terrace": 17.01, "solarium": 7.2 },
+        { "unit": 41, "interior": 109.72, "terrace": 9.98, "solarium": 5.26 }
+      ],
+      "largest_commercial_units": [
+        { "id": "L14", "floor": "1-й этаж", "m2": 1195.19 },
+        { "id": "L17", "floor": "Подвал", "m2": 881.37 },
+        { "id": "L16", "floor": "1-й этаж", "m2": 440.0 },
+        { "id": "L15", "floor": "1-й этаж", "m2": 330.11 }
+      ],
+      "location_context": {
+        "pyramids_guimar_minutes": "2–3",
+        "puertito_de_guimar_km": 5,
+        "santa_cruz_la_laguna_km": "26–29",
+        "north_airport_tenerife_km": 30,
+        "population_2024": 21716,
+        "population_yoy_change": 180,
+        "mean_gross_income_eur": 22571.79,
+        "income_rank_in_province": 18,
+        "tourists_jan_oct_2024": 38469,
+        "tourists_yoy_percent": 28.9
+      }
+    },
+    {
+      "id": "candelaria_vegrosa_6_homes",
+      "listing_category": "direct_sale_mortgage_encumbered",
+      "title": "Vegrosa IX — Канделария (6 домов + 4 паркинга)",
+      "address": "Calle Chacorche, 31, Candelaria, 38530",
+      "building_name": "Vegrosa IX",
+      "building_year": 2007,
+      "building_total_area_m2_approx": 124,
+      "lot_purchase_price_eur": 607500,
+      "alternate_price_in_one_file_gbp": 750000,
+      "price_note": "В одном из файлов встречалась сумма порядка £750 000; рабочая уточнённая цена лота €607 500",
+      "per_unit_before_markup_eur": { "house": 125000, "parking": 15000 },
+      "market_benchmark_eur": {
+        "similar_houses_typical_range": "165000–520000",
+        "parking_typical_range": "15500–18000"
+      },
+      "legal_alert": {
+        "mortgage": "Все объекты (6 домов и 4 паркинга) обременены ипотекой",
+        "court": "Судебный процесс в Суде первой инстанции и следствия №3 в Гуимаре (Court of First Instance and Instruction No. 3, Güimar)"
+      },
+      "income_and_resale_marketing": {
+        "note": "Цифры из маркетинговых материалов; не гарантия",
+        "rental_yield_up_to_percent": 20,
+        "resale_at_35_percent_markup_net_profit_eur": 870000,
+        "resale_at_40_percent_markup_net_profit_eur": 930000
+      },
+      "units": [
+        { "id": "Дом №1", "floor": "Ground Floor", "m2": 50 },
+        { "id": "Дом №2", "floor": "Ground Floor", "m2": 49 },
+        { "id": "Дом №3", "floor": "1st Floor", "m2": 54 },
+        { "id": "Дом №4", "floor": "1st Floor", "m2": 54.49 },
+        { "id": "Дом №5", "floor": "2nd Floor", "m2": 54 },
+        { "id": "Дом №6", "floor": "2nd Floor", "m2": 54 },
+        { "id": "Паркинг №2", "floor": "Basement", "m2": 11.36 },
+        { "id": "Паркинг №3", "floor": "Basement", "m2": 11.27 },
+        { "id": "Паркинг №4", "floor": "Basement", "m2": 11.29 },
+        { "id": "Паркинг №9", "floor": "Basement", "m2": 17 }
+      ],
+      "location_context": {
+        "playa_punta_larga_km": 1.3,
+        "tc_punta_larga_km": 1.3,
+        "basilica_candelaria_km": 3.5,
+        "north_airport_km": 20,
+        "population_2024": 28795,
+        "population_yoy_percent": 0.35,
+        "age_18_65_share_percent": 70,
+        "tourists_2024": 68127,
+        "tourists_yoy_percent": 12
+      }
+    },
+    {
+      "id": "jardin_armenime_28_apartments_project",
+      "listing_category": "direct_sale_new_build_project",
+      "title": "Jardín de Arménime — 28 апартаментов",
+      "type": "Проект НС: устойчивое, энергоэффективное жильё",
+      "data_conflict_note": "В разных внутренних файлах расходятся финансовые строки; приоритет у более поздних или детальных документов. Клиенту называть оба варианта с оговоркой, не смешивать в одну «истину».",
+      "common_specs": {
+        "plot_m2": 1952,
+        "built_area_total_m2": 4056.11,
+        "living_area_m2": 2516.11,
+        "units_mix_summary": "28 квартир: 6 с 1 спальней, 14 с 2, 8 с 3",
+        "units_mix_detail": [
+          { "bedrooms": 1, "count": 6, "from_m2": 60 },
+          { "bedrooms": 2, "count": 14, "from_m2": 80 },
+          { "bedrooms": 3, "count": 8, "from_m2": 100 }
+        ],
+        "parking_storages": "28 подземных машино-мест + 28 кладовых"
+      },
+      "financial_variants": [
+        {
+          "id": "roi_50_variant",
+          "land_eur": 1250000,
+          "construction_eur": 7160000,
+          "technical_licenses_eur": 495000,
+          "total_investment_eur": 8905000,
+          "revenue_forecast_eur": 13118000,
+          "profit_forecast_eur": 4255000,
+          "roi_percent": 50,
+          "apartment_price_range_eur": "250000–490000"
+        },
+        {
+          "id": "roi_41_variant",
+          "land_eur": 1250000,
+          "construction_eur": 7160000,
+          "technical_licenses_eur": 795000,
+          "total_investment_eur": 8560000,
+          "revenue_forecast_eur": 11207000,
+          "profit_forecast_eur": 2648000,
+          "roi_percent": 41,
+          "apartment_price_range_eur": "239000–563000"
+        }
+      ],
+      "location_notes": {
+        "from_earlier_materials": "7 км до La Caleta; около 3 мин до Adeje; пешком до пляжей El Puertito и Playa Paraíso",
+        "from_variant_2_file": "7 км до Playa de Fañabé; 22 км до Teide National Park; 25 км до аэропорта Tenerife South; близко Puerto Colón и Los Cristianos"
+      },
+      "assistant_table_summary": {
+        "roi_percent_by_file": "41% или 50%",
+        "apartment_prices_span_eur": "239000–563000",
+        "note": "Сводка для быстрых ответов — детализация в financial_variants"
+      }
+    },
+    {
+      "id": "edificio_esmeralda_san_miguel",
+      "listing_category": "direct_sale_mortgage_encumbered",
+      "title": "Edificio Esmeralda — Сан-Мигель-де-Абона",
+      "type": "Комплекс апартаментов (2005)",
+      "objects_in_complex": 51,
+      "complex_total_area_m2_approx": 1498,
+      "pricing_note": "Цены ниже рынка на 40–50% по данным презентации; вся недвижимость в комплексе обременена ипотекой — с первых слов предупреждать и направлять к юристу",
+      "market_comparison": {
+        "area_2bed_market_range_eur": "160000–178500",
+        "house_tenerife_2bed_from_eur": 93800
+      },
+      "portfolio_51_units_pricing_eur": {
+        "apartment_2bed_floors_1_2": 93800,
+        "apartment_3bed_floors_1_2": 96600,
+        "penthouse_1bed_40_54m2_plus_terraces_18_34m2_qty1": 91200,
+        "parking_9_90m2_qty13": 4700,
+        "parking_plus_storage_qty11": 8200,
+        "storage_4_97_to_15_95m2_qty8": 3500
+      },
+      "municipality_stats": {
+        "population_2024": 23138,
+        "population_yoy_percent": 2.3,
+        "foreign_share_percent_ine2022": 52.32,
+        "income_rank_in_province": 22
+      },
+      "nearby": {
+        "south_airport_reina_sofia_km": 11,
+        "los_cristianos_playas_km": "22–24",
+        "golf_del_sur_amarilla_km_approx": 13
+      }
+    },
+    {
+      "id": "luxury_villa_callao_salvaje",
+      "listing_category": "project_turnkey_no_pricing_in_source_files",
+      "title": "Luxury Villa — Callao Salvaje",
+      "location": "Callao Salvaje (престижный район Тенерифе)",
+      "type": "Вилла под ключ (проект / строительство)",
+      "floors": "2 этажа + подвал",
+      "built_footprint_m2": 99.41,
+      "total_usable_area_m2": 247.38,
+      "terrace": true,
+      "parking_spaces": 2,
+      "views": "Океан и горы",
+      "financials_note": "В исходных файлах нет конкретных сумм (покупка, стройка, ROI) — на графиках заглушки. Всегда запрашивать актуальные цифры у менеджера House Tenerife.",
+      "portfolio_section_hint": "3.3_Callao_previous_files — тот же объект в разделе Flip/реновации переписки"
+    },
+    {
+      "id": "hotel_las_americas_107",
+      "listing_category": "hotel_commercial",
+      "title": "Отель / апарт-отель в Las Américas (107 номеров)",
+      "location": "Las Américas, Тенерифе",
+      "prices_eur": {
+        "with_management_company": 25000000,
+        "default_ask": 28000000,
+        "note": "В материалах фигурируют €28 000 000 и вариант €25 000 000 с управляющей компанией — уточнять актуальные условия"
+      },
+      "keys": 107,
+      "unit_mix": "107 полностью меблированных апартаментов (студии и сьюты)",
+      "floors_layout": "Номера на этажах 1–3; цоколь — ресепшен и 800 м² коммерческих площадей; крыша — солярий и бассейн",
+      "renovation_scope": "Полная реновация, новые телевизоры и кондиционеры, частные террасы во всех номерах",
+      "commercial_spaces": {
+        "status": "Полностью сданы в аренду",
+        "annual_rent_eur": 60000
+      },
+      "roi_marketing": {
+        "overall_roi_percent_at_28m_price": 7.4,
+        "note": "ROI указан при цене €28 млн в материалах; маркетинговый показатель, не гарантия"
+      }
+    },
+    {
+      "id": "dev_17_luxury_villas_adeje_golf",
+      "listing_category": "development_project",
+      "title": "17 Luxurious Villas — Adeje Golf",
+      "location": "Adeje Golf",
+      "villas_count": 17,
+      "each_living_area_m2": 300,
+      "each_plot_m2_approx": 500,
+      "features": ["Бассейн", "4 спальни", "Современная кухня"],
+      "financials_forecast": {
+        "note": "Из девелоперской презентации; IGIC 7% на лицензию и строительство; не гарантия",
+        "land_eur": 9000000,
+        "project_license_eur": 450000,
+        "project_license_igic_percent": 7,
+        "construction_eur": 7500000,
+        "construction_igic_percent": 7,
+        "forecast_revenue_17_villas_eur": 30000000,
+        "roi_percent": 83.63,
+        "profit_approx_eur": 15000000
+      }
+    },
+    {
+      "id": "dev_5_villas_los_cristianos",
+      "listing_category": "development_project",
+      "title": "Los Cristianos Real Estate Project — 5 Villas",
+      "location": "Лос-Кристианос",
+      "villas_count": 5,
+      "financials_forecast": {
+        "note": "Прогноз из материалов; не гарантия",
+        "land_plus_license_wait_eur": 2500000,
+        "construction_eur": 2800000,
+        "total_investment_eur": 5300000,
+        "forecast_revenue_eur": 11500000,
+        "revenue_per_villa_eur": 2300000,
+        "forecast_profit_eur": 6200000
+      }
+    },
+    {
+      "id": "dev_los_cristianos_luxury_apartments_6_plus_2",
+      "listing_category": "development_project",
+      "title": "Los Cristianos Luxury Apartments (6 + 2)",
+      "location": "200 м от пляжа Playa de Las Vistas",
+      "plot_m2": 150,
+      "built_area_m2": 450,
+      "base_apartments": {
+        "count": 6,
+        "each_m2": 65,
+        "bedrooms": 2,
+        "potential_extra": "Ещё 2 апартамента на 4-м этаже (легализация через ~4 года по материалам)"
+      },
+      "financials_base": {
+        "land_eur": 380000,
+        "construction_eur": 700000,
+        "total_investment_eur": 1080000,
+        "revenue_6_units_eur": 2660000,
+        "profit_pretax_eur": 1610000,
+        "profit_after_tax_20_percent_eur": 1288000,
+        "tax_note": "Налог 20% в таблице источника — уточнять у консультанта"
+      },
+      "pricing_by_floor_eur": {
+        "ground_floor_qty2_each": 380000,
+        "second_floor_qty2_each": 450000,
+        "third_floor_qty2_each": 500000,
+        "fourth_floor_qty2_after_legal_each": 600000
+      },
+      "financials_with_extra_floor": {
+        "additional_revenue_eur": 1200000,
+        "total_profit_after_tax_eur": 2248000
+      }
+    },
+    {
+      "id": "dev_apartment_project_adeje_town",
+      "listing_category": "development_project",
+      "title": "Apartment Development Project — Adeje Town",
+      "location": "Адехе (центр)",
+      "plot_m2": 157,
+      "building": {
+        "floors_description": "3 этажа: паркинг на ground floor; квартиры на 1 и 2 этажах",
+        "implementation_months": 8
+      },
+      "financials_forecast": {
+        "note": "Прогноз; €1 400/м² — жилая площадь по тексту источника",
+        "land_eur": 330000,
+        "construction_eur": 500000,
+        "construction_unit_rate_eur_per_m2_living": 1400,
+        "total_investment_eur": 830000,
+        "forecast_revenue_eur": 1330000,
+        "roi_percent": 60.24,
+        "revenue_breakdown_eur": {
+          "studio_qty1": 180000,
+          "one_bed_qty2_each_240000": 480000,
+          "two_bed_qty1": 360000,
+          "penthouse_qty1": 310000,
+          "sum_check": 1330000
+        }
+      }
+    },
+    {
+      "id": "aparthotel_3_star_costa_adeje",
+      "listing_category": "operating_aparthotel",
+      "title": "3-Star Aparthotel — Costa Adeje",
+      "location": "Коста-Адехе",
+      "price_eur": 5800000,
+      "distances": {
+        "beach_m": 300,
+        "beach_walk_minutes": 2,
+        "golf_m": 300,
+        "tenerife_south_airport_km": 13
+      },
+      "built_area_m2": 1533,
+      "plot_m2": 1900,
+      "inventory": {
+        "furnished_apartments": 27,
+        "sizes_m2": [52, 53, 58, 67, 70],
+        "note": "Кухни оснащены, душевые; указан отдельный доступ к лодке для гостей (как в исходнике)"
+      },
+      "amenities": [
+        "Открытый бассейн и солярий",
+        "Шезлонги",
+        "Прачечная самообслуживания",
+        "Терраса для отдыха"
+      ],
+      "investment_highlights_marketing": {
+        "avg_occupancy_over_percent": 80,
+        "horizontal_division": "Можно продавать апартаменты по отдельности",
+        "expansion_potential": "Место под ещё 2 апартамента по материалам",
+        "note": "Заполняемость и потенциал — из маркетинга, не гарантия"
+      }
+    },
+    {
+      "id": "flip_ocean_view_villa",
+      "listing_category": "renovation_flip",
+      "title": "Ocean-View Villa Flip",
+      "plot_m2": 750,
+      "current_built_m2": 160,
+      "layout_current": "3 спальни, 3 ванны",
+      "expansion_potential_m2": 320,
+      "expansion_note": "За счёт цокольного этажа по материалам",
+      "timeline_months": "9–12",
+      "financials_forecast": {
+        "note": "Прогноз flip; не гарантия",
+        "purchase_eur": 950000,
+        "renovation_eur": 350000,
+        "total_investment_eur": 1300000,
+        "value_after_renovation_eur": 2300000,
+        "profit_eur": 1000000,
+        "roi_percent": 76.92
+      }
+    },
+    {
+      "id": "flip_san_eugenio_luxury_villa",
+      "listing_category": "renovation_flip",
+      "title": "San Eugenio Luxury Villa",
+      "location": "Сан-Эухенио (престижный район)",
+      "plot_m2": 620,
+      "living_area_m2": 350,
+      "features": ["Приватный бассейн", "3 террасы (включая крышную)", "Роскошная отделка"],
+      "financials": {
+        "note": "Косметический ремонт в файле не детализирован по сумме",
+        "purchase_eur": 1439000,
+        "cosmetic_renovation_eur": "не указано точно",
+        "value_after_works_eur": 1890000,
+        "potential_profit_range_eur": "301000–451000",
+        "roi_capital_growth_percent": 19
+      }
+    },
+    {
+      "id": "commercial_building_las_galletas",
+      "listing_category": "commercial_residential_mixed",
+      "title": "Building in Las Galletas",
+      "location": "Лас-Гальетас",
+      "distance_to_beach_m": 20,
+      "price_eur": 315000,
+      "plot_m2_approx": 75,
+      "built_area_m2": 157,
+      "floors": 2,
+      "composition": {
+        "ground_floor": "2 жилые единицы (1 спальня, гостиная-кухня-столовая, ванна) + коммерческое помещение 10.54 м²",
+        "rooftop": "Проходимая крыша с двумя зонами и прачечной"
+      }
+    },
+    {
+      "id": "san_isidro_14_plots_6_apartments_complex",
+      "listing_category": "land_and_residential_portfolio",
+      "title": "14 Land Plots + 6 Apartments — San Isidro / Granadilla de Abona",
+      "addresses": ["Calle De la Tabaiba, 8", "Calle El Cardón, 42"],
+      "complex_year": 2008,
+      "location": "Сан-Исидро, Гранадилья-де-Абона",
+      "mix": {
+        "apartments_count": 6,
+        "apartment_sizes_m2_range": "64–95",
+        "parking_count": 6,
+        "parking_m2_range": "11.4–14",
+        "storages_count": 2,
+        "storage_m2": [6, 7],
+        "land_plots_count": 14
+      },
+      "apartments_detail": [
+        { "unit": 1, "floor": "First floor", "m2": 64 },
+        { "unit": 2, "floor": "First floor", "m2": 95 },
+        { "unit": 3, "floor": "Floor 01", "m2": 95 },
+        { "unit": 4, "floor": "Floor 01", "m2": 95 },
+        { "unit": 5, "floor": "Floor 02", "m2": 95 },
+        { "unit": 6, "floor": "Floor 02", "m2": 95 }
+      ],
+      "financials_forecast": {
+        "note": "Прогноз flip портфеля; не гарантия",
+        "purchase_including_plots_and_homes_eur": 750000,
+        "renovation_eur": 50000,
+        "total_investment_eur": 800000,
+        "value_after_renovation_eur": 1200000,
+        "profit_eur": 400000,
+        "roi_percent": 50,
+        "timeline_months": "3–6"
+      },
+      "infrastructure": {
+        "tf1_motorway": "Высокая доступность",
+        "south_airport_minutes": "10–15",
+        "la_tejita_shopping_km": 15,
+        "la_tejita_drive_minutes": "10–15",
+        "san_isidro_shopping_minutes": 4,
+        "golf_del_sur_amarilla_km": 12,
+        "los_cristianos_playas_km": "20–21",
+        "teide_national_park_minutes": 40
+      },
+      "demographics": {
+        "san_isidro_population_2024": 8504,
+        "age_30_50_share_percent": 70,
+        "foreign_share_percent": 30.71
+      }
+    }
+  ]
 }

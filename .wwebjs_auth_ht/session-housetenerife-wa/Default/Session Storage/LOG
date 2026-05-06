@@ -1,2 +1,3 @@
-2026/04/20-22:19:15.628 3adc Creating DB D:\server sellubrick\reilway\housetenerife\.wwebjs_auth_ht\session-housetenerife-wa\Default\Session Storage since it was missing.
-2026/04/20-22:19:15.656 3adc Reusing MANIFEST D:\server sellubrick\reilway\housetenerife\.wwebjs_auth_ht\session-housetenerife-wa\Default\Session Storage/MANIFEST-000001
+2026/05/07-01:28:26.171 2168 Reusing MANIFEST D:\housetenerife\.wwebjs_auth_ht\session-housetenerife-wa\Default\Session Storage/MANIFEST-000001
+2026/05/07-01:28:26.174 2168 Recovering log #3
+2026/05/07-01:28:26.177 2168 Reusing old log D:\housetenerife\.wwebjs_auth_ht\session-housetenerife-wa\Default\Session Storage/000003.log 

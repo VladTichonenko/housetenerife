@@ -98,6 +98,13 @@ async function sendMessageSafely(msg, text, client) {
 // В Railway данные сохраняются в volume, локально - в текущей директории
 const sessionPath = process.env.SESSION_PATH || './.wwebjs_auth_ht';
 console.log(`📁 Путь к сессии: ${sessionPath}`);
+const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+if (isRailway && !path.isAbsolute(sessionPath)) {
+  console.warn(
+    '⚠️ Railway: SESSION_PATH не на постоянном диске (нужен абсолютный путь на Volume). Сессия WhatsApp сотрётся после деплоя.'
+  );
+  console.warn('   Volume → mount, например /data; Variables → SESSION_PATH=/data/.wwebjs_auth_ht; затем один раз QR в логах.');
+}
 const client = new Client({
   authStrategy: new LocalAuth({
     dataPath: sessionPath,
