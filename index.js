@@ -10,11 +10,17 @@ const { getLanguageFromPhone, getTranslation, getCountryFromPhone } = require('.
 const { askAI } = require('./ai-service');
 const { detectLanguageFromText, getLanguageName } = require('./language-detector');
 const { registerAdminRoutes } = require('./admin-api');
+const { setupAdminPanel, getAdminPanelStatus } = require('./admin-panel');
 
 // Создаем Express сервер для API
 const app = express();
-// Railway автоматически устанавливает переменную PORT
-const BOT_PORT = process.env.PORT || process.env.BOT_PORT || 3001;
+// Railway автоматически задаёт PORT — не переопределяйте PORT в Variables (иначе 502)
+const BOT_PORT = Number(process.env.PORT) || Number(process.env.BOT_PORT) || 3001;
+if (process.env.RAILWAY_ENVIRONMENT && process.env.PORT && process.env.BOT_PORT) {
+  console.warn(
+    '⚠️ Railway: удалите BOT_PORT из Variables, используйте только автоматический PORT от Railway.'
+  );
+}
 
 app.use(cors());
 app.use(express.json());
@@ -1230,20 +1236,27 @@ app.get('/', (req, res) => {
  */
 app.get('/health', async (req, res) => {
   const memoryUsage = process.memoryUsage();
-  
-  // Проверяем состояние клиента
-  let clientState = 'unknown';
-  try {
-    if (client) {
-      clientState = await client.getState();
+  const panel = getAdminPanelStatus();
+
+  // Быстрый healthcheck для Railway — без блокировки на Puppeteer
+  let clientState = 'initializing';
+  if (botReady && client) {
+    try {
+      clientState = await Promise.race([
+        client.getState(),
+        new Promise((resolve) => setTimeout(() => resolve('busy'), 1500))
+      ]);
+    } catch (error) {
+      clientState = 'error: ' + error.message;
     }
-  } catch (error) {
-    clientState = 'error: ' + error.message;
   }
-  
+
   res.status(200).json({
     success: true,
     service: 'House Tenerife WhatsApp',
+    adminPanel: panel.adminUi ? '/admin/' : false,
+    adminUi: panel.adminUi,
+    adminAssets: panel.adminAssets,
     ready: botReady,
     status: botReady ? 'ready' : 'initializing',
     clientState: clientState,
@@ -1287,22 +1300,15 @@ registerAdminRoutes(app, {
   client
 });
 
-// Веб-панель администратора (React build) — после API, чтобы /api не перехватывался
-const adminDist = path.join(__dirname, 'web', 'dist');
-if (fs.existsSync(adminDist)) {
-  app.use('/admin', express.static(adminDist));
-  app.get(['/admin', '/admin/'], (req, res) => {
-    res.sendFile(path.join(adminDist, 'index.html'));
-  });
-  app.get('/admin/*', (req, res, next) => {
-    if (/\.[a-z0-9]+$/i.test(req.path)) return next();
-    res.sendFile(path.join(adminDist, 'index.html'));
-  });
-} else {
-  console.warn(
-    '⚠️ React-панель не найдена (web/dist). Локально: npm run build:web. На Railway/Docker: пересоберите образ.'
-  );
-}
+// Веб-панель /admin — после API, чтобы /api не перехватывался
+setupAdminPanel(app);
+
+app.use((err, req, res, next) => {
+  console.error('HTTP error:', req.method, req.path, err.message);
+  if (!res.headersSent) {
+    res.status(500).json({ success: false, message: 'Внутренняя ошибка сервера' });
+  }
+});
 
 // Keep-alive механизм для предотвращения idle timeout на Railway
 // Railway может перезапускать контейнеры, если нет активности
@@ -1338,8 +1344,14 @@ function startKeepAlive() {
 
 // Запускаем HTTP сервер СНАЧАЛА (чтобы Railway не убил процесс)
 const server = app.listen(BOT_PORT, '0.0.0.0', () => {
-  console.log(`🌐 API сервер бота запущен на порту ${BOT_PORT}`);
-  console.log(`📡 Endpoints: GET /, GET /health, GET /api/status, GET /admin`);
+  const panel = getAdminPanelStatus();
+  console.log(`🌐 HTTP сервер: 0.0.0.0:${BOT_PORT}`);
+  if (process.env.RAILWAY_ENVIRONMENT) {
+    console.log('🚂 Railway: не задавайте PORT в Variables — только ADMIN_CODE и AI_API_KEY');
+  }
+  console.log(
+    `📡 Endpoints: GET /health, GET /admin/ ${panel.adminUi ? '(панель OK)' : '(панель НЕ собрана)'}`
+  );
   console.log(`✅ HTTP сервер готов, Railway может проверить healthcheck`);
   
   // Запускаем keep-alive механизм
