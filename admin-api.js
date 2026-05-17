@@ -7,6 +7,15 @@ const { listProperties } = require('./property-catalog');
 const ADMIN_CODE = process.env.ADMIN_CODE || '0397';
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
+if (
+  (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) &&
+  !process.env.ADMIN_CODE
+) {
+  console.warn(
+    '⚠️ Railway: задайте переменную ADMIN_CODE (пароль панели /admin). Сейчас используется код по умолчанию.'
+  );
+}
+
 const sessions = new Map();
 
 function createToken() {

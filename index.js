@@ -1205,16 +1205,21 @@ debugEvents.forEach(eventName => {
  * Также используется для keep-alive, чтобы предотвратить idle timeout
  */
 app.get('/', (req, res) => {
-  // Отвечаем сразу, не ждем готовности WhatsApp
+  // Браузер → панель; Railway/curl (?format=json) → JSON healthcheck
+  if (req.accepts('html') && req.query.format !== 'json') {
+    return res.redirect(302, '/admin/');
+  }
+
   res.status(200).json({
     success: true,
     service: 'House Tenerife WhatsApp',
+    adminPanel: '/admin/',
     ready: botReady,
     status: botReady ? 'ready' : 'initializing',
     uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
-    message: botReady 
-      ? 'Бот готов к работе' 
+    message: botReady
+      ? 'Бот готов к работе'
       : 'Бот инициализируется. HTTP сервер работает.'
   });
 });
@@ -1294,7 +1299,9 @@ if (fs.existsSync(adminDist)) {
     res.sendFile(path.join(adminDist, 'index.html'));
   });
 } else {
-  console.warn('⚠️ React-панель не собрана. Выполните: npm run build:web');
+  console.warn(
+    '⚠️ React-панель не найдена (web/dist). Локально: npm run build:web. На Railway/Docker: пересоберите образ.'
+  );
 }
 
 // Keep-alive механизм для предотвращения idle timeout на Railway

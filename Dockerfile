@@ -1,4 +1,23 @@
-# Node + системный Chromium для whatsapp-web.js / Puppeteer (Railway, Docker)
+# =============================================================================
+# Stage 1: сборка React-панели (Vite → web/dist)
+# =============================================================================
+FROM node:20-bookworm-slim AS web-build
+
+WORKDIR /build/web
+
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --include=dev
+
+COPY web/index.html web/vite.config.js ./
+COPY web/src ./src/
+
+RUN npm run build \
+  && test -f dist/index.html \
+  && test -d dist/assets
+
+# =============================================================================
+# Stage 2: WhatsApp-бот + готовая панель /admin
+# =============================================================================
 FROM node:20-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -34,22 +53,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV NODE_ENV=production
+ENV DOCKER=true
 
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
-COPY web/package.json web/package-lock.json* ./web/
-# Vite в devDependencies — без --include=dev сборка падает с «vite: not found»
-RUN npm ci --prefix web --include=dev
-
-# Исходники нужны до vite build (index.html ещё не был в образе)
-COPY web/index.html web/vite.config.js ./web/
-COPY web/src ./web/src/
-RUN npm run build --prefix web && rm -rf web/node_modules
-
+# Код приложения (web/dist в .dockerignore — не перезапишет сборку)
 COPY . .
 
+# Панель из stage 1 — всегда свежая после git push
+COPY --from=web-build /build/web/dist ./web/dist
+
+RUN test -f web/dist/index.html \
+  && test -d web/dist/assets \
+  && echo "✅ Admin panel built: web/dist"
+
 EXPOSE 8080
+
 CMD ["node", "index.js"]
