@@ -42,9 +42,12 @@ RUN npm ci --omit=dev
 
 COPY web/package.json web/package-lock.json* ./web/
 # Vite в devDependencies — без --include=dev сборка падает с «vite: not found»
-RUN npm ci --prefix web --include=dev \
-  && npm run build --prefix web \
-  && rm -rf web/node_modules
+RUN npm ci --prefix web --include=dev
+
+# Исходники нужны до vite build (index.html ещё не был в образе)
+COPY web/index.html web/vite.config.js ./web/
+COPY web/src ./web/src/
+RUN npm run build --prefix web && rm -rf web/node_modules
 
 COPY . .
 
