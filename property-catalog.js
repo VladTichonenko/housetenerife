@@ -93,4 +93,74 @@ function searchForContext(query, limit = 8) {
   };
 }
 
-module.exports = { load, reload, searchForContext };
+function cleanDescription(s) {
+  let d = String(s || '').replace(/\s+/g, ' ').trim();
+  const cut = d.search(/\bDetails\b|\t{3,}/i);
+  if (cut > 80) d = d.slice(0, cut).trim();
+  if (d.length > 320) d = `${d.slice(0, 320)}…`;
+  return d;
+}
+
+function extractPropertyType(overview) {
+  const m = String(overview || '').match(/Property type\s*\|\s*([^|]+)/i);
+  return m ? m[1].trim() : '';
+}
+
+/**
+ * Список объектов для админ-панели (поиск + пагинация).
+ */
+function listProperties({ q = '', page = 1, limit = 24 } = {}) {
+  const data = load();
+  const items = data.items || [];
+  const query = String(q || '').trim().toLowerCase();
+  let filtered = items;
+
+  if (query) {
+    const tokens = tokenize(query);
+    filtered = items
+      .map((item) => ({ item, s: scoreItem(item, tokens) }))
+      .filter((x) => x.s > 0)
+      .sort((a, b) => b.s - a.s)
+      .map((x) => x.item);
+    if (!filtered.length) {
+      filtered = items.filter((item) => {
+        const blob = [item.title, item.description, item.overview, item.price, item.url]
+          .join(' ')
+          .toLowerCase();
+        return blob.includes(query);
+      });
+    }
+  } else {
+    filtered = [...items].sort((a, b) =>
+      String(a.title || '').localeCompare(String(b.title || ''), 'ru')
+    );
+  }
+
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 24, 1), 100);
+  const safePage = Math.max(parseInt(page, 10) || 1, 1);
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  const currentPage = Math.min(safePage, totalPages);
+  const start = (currentPage - 1) * safeLimit;
+  const slice = filtered.slice(start, start + safeLimit);
+
+  return {
+    items: slice.map((item) => ({
+      url: item.url,
+      title: item.title || 'Без названия',
+      price: item.price || null,
+      overview: item.overview || null,
+      propertyType: extractPropertyType(item.overview),
+      description: cleanDescription(item.description)
+    })),
+    total,
+    page: currentPage,
+    limit: safeLimit,
+    totalPages,
+    syncedAt: data.syncedAt || null,
+    source: data.source || null,
+    countInDb: data.count ?? items.length
+  };
+}
+
+module.exports = { load, reload, searchForContext, listProperties };

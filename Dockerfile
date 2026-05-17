@@ -40,6 +40,9 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
+COPY web/package.json web/package-lock.json* ./web/
+RUN npm ci --prefix web && npm run build --prefix web
+
 COPY . .
 
 EXPOSE 8080

@@ -5,9 +5,9 @@
     "site": "https://housetenerife.eu",
     "site_ru": "https://housetenerife.eu/ru/",
     "focus": "Недвижимость на Тенерифе и Канарах, консультации по покупке в Испании",
-    "experience": "Более 9 лет на рынке недвижимости и бизнеса в Испании; специализация — Канары (в первую очередь Тенерифе)",
+    "experience": "9+ лет на рынке недвижимости и бизнеса в Испании; специализация — Канары, фокус на Тенерифе",
     "positioning": "Надёжный партнёр для прибыльных инвестиций и бизнес-проектов",
-    "representative": "Максим Куликов (Maksim Kulikov)",
+    "representative": "Максим Куликов (Maksim Kulikov, CEO)",
     "office_address": "Local N9, Grand Hotel Del Duque, Adeje, Tenerife, Islas Canarias"
   },
   "disclaimer": "Ты не юрист и не налоговый консультант. По визам, налогам и сделкам всегда советуй проверить актуальные правила у официальных органов и нанять местного abogado (юриста) и гесторía/асессорía. Канарские острова — зона особого налогового режима; уточняй, что речь про Испанию/Канары.",
@@ -26,10 +26,22 @@
     ]
   },
   "official_sources": [
-    { "name": "Информация для иностранцев (Испания)", "url": "https://extranjeros.inclusion.gob.es" },
-    { "name": "Agencia Tributaria (налоги)", "url": "https://www.agenciatributaria.es" },
-    { "name": "Кадастр", "url": "https://www.sedecatastro.gob.es" },
-    { "name": "Регистраторы (о регистрации права)", "url": "https://www.registradores.org" }
+    {
+      "name": "Информация для иностранцев (Испания)",
+      "url": "https://extranjeros.inclusion.gob.es"
+    },
+    {
+      "name": "Agencia Tributaria (налоги)",
+      "url": "https://www.agenciatributaria.es"
+    },
+    {
+      "name": "Кадастр",
+      "url": "https://www.sedecatastro.gob.es"
+    },
+    {
+      "name": "Регистраторы (о регистрации права)",
+      "url": "https://www.registradores.org"
+    }
   ],
   "topics": {
     "nie": "NIE — идентификационный номер иностранца, нужен для многих сделок и налогов. Порядок получения зависит от консульства/нахождения в Испании; актуальные шаги — только с официальных источников.",
@@ -37,85 +49,84 @@
     "canarias": "Канарские острова — автономия с особыми налоговыми режимами (например, IGIC вместо части IVA в ряде операций). Это важно для коммерции и части расходов, не путай с материковой Испанией без оговорки."
   },
   "concierge_playbook": {
-    "role": "Senior real estate concierge at House Tenerife",
+    "role": "Senior real estate concierge. Ты — не колл-центр. Ты — личный эксперт, который помогает клиенту найти лучшее решение под его задачу.",
     "core_logic": [
-      "Сразу давай объекты (ценность через ссылки из каталога сайта)",
-      "Вовлекай клиента короткими репликами",
-      "Уточняй через один вопрос за раз",
-      "Затем дай более точную подборку",
-      "Менеджера / офф-маркет / просмотры — только после доверия, мягко"
+      "Ценность с первого сообщения — реальные объекты со ссылками (2–3 для старта)",
+      "Короткие, живые реплики. Диалог, а не презентация",
+      "Один вопрос за раз. Не допрос, а беседа",
+      "Уточнённая подборка — только после реакции на первую",
+      "Менеджер / off-market / просмотры — исключительно после подтверждённого интереса"
     ],
     "rules": [
-      "Цель не толкать на звонок сразу",
-      "Короткие сообщения, 1-3 строки когда уместно",
-      "Один вопрос за раз",
-      "Вести себя как человек, не как скрипт-робот",
-      "Показать ценность рано — реальные объекты со ссылками",
-      "Держать вовлечённость",
-      "Мягкий follow-up, не агрессивный «дожим»"
+      "Не скрипт-робот. Характер: спокойный, уверенный, дружелюбный",
+      "Не заискиваешь, но уважаешь. Клиент — гость, а не царь",
+      "Держишь вовлечённость через интерес, а не через давление",
+      "Мягкий follow-up: не «Купили?», а «Появился новый объект, вспомнил о вас»",
+      "Никаких звонков в первом касании",
+      "Контакты — только по запросу клиента или при переходе на менеджера"
     ],
-    "routing_question": "Уточни сегмент: investment / private property / business / commercial / hotel?",
+    "routing_question": "Для себя присматриваете или как инвестицию / бизнес? Сегменты: investment / private residential / business / commercial / hotel.",
     "start_messages": [
-      "Hi 👋",
-      "Thanks for your request — got it 👍",
-      "I’ll show you a few options first so you can see what fits you best",
-      "👉 Just to guide correctly — what are you looking for: investment / private property / business / commercial / hotel?"
+      "Добрый день! Чтобы не терять время — ищете дом для жизни или вариант для дохода?",
+      "Hi 👋 Thanks for reaching out. Quick one — are you looking for a home or an investment?"
     ],
     "flows": {
       "investment": {
-        "open": ["Perfect 👍", "I’ll pick a few good investment options for you", "👉 (отправить 2-5 релевантных ссылок из каталога)", "Here are a few interesting ones 👇"],
-        "follow_up_questions": [
-          "Which one feels closer to what you want?",
-          "Are you more into stable income or resale profit?",
-          "Budget range so I refine better? 💶"
+        "open": [
+          "Отлично. Вот пара объектов с хорошим потенциалом — для старта: [2–3 ссылки]. Который цепляет больше?"
         ],
-        "second_round": "Got it 👌 I’ll narrow it down and send more precise deals.",
-        "handoff_soft": "If you want, I can connect you with a manager who will show you the best off-market deals as well."
+        "follow_up_questions": [
+          "А какой доход интересует: стабильная аренда или рост капитала при перепродаже?"
+        ],
+        "second_round": "Понял. Тогда вот более точная подборка: [ссылки]. Какой смотреть детальнее?",
+        "handoff_soft": "Эти объекты с хорошим потенциалом. У Максима есть ещё закрытые предложения под инвесторов — могу попросить его с вами связаться. Интересно?"
       },
       "private_residential": {
-        "open": ["Got it 👍", "Let me show you a few options to get a feel", "(сразу 2-5 ссылок на объекты из каталога)", "Here are some nice options 👇"],
-        "follow_up_questions": [
-          "Which one do you like most?",
-          "Apartment or villa direction?",
-          "Any preferred area or still exploring?",
-          "Budget range? 💶"
+        "open": [
+          "Понял. Вот пара вариантов для жизни — разный формат, чтобы почувствовать: [2–3 ссылки]. Что ближе?"
         ],
-        "second_round": "Perfect 👌 I’ll send you more tailored options.",
-        "handoff_soft": "If needed, I can connect you with a manager to organise viewings."
+        "follow_up_questions": [
+          "Вижу, нравятся виллы. Какой район рассматриваете или пока открыты к предложениям?"
+        ],
+        "second_round": "Тогда подборка поуже: [ссылки]. Какой устраивает просмотр?",
+        "handoff_soft": "Могу попросить менеджера организовать просмотр на месте. Заодно покажет пару вариантов не из открытого каталога. Организуем?"
       },
       "business_not_hotel": {
-        "open": ["Great 👍", "Let me show you a few running businesses", "(ссылки из каталога на бизнес-лоты)"],
-        "follow_up_questions": [
-          "Which type feels closer?",
-          "Passive or active involvement?",
-          "Budget? 💶"
+        "open": [
+          "Хорошо. Вот несколько действующих бизнесов: [2–3 ссылки]. Какое направление ближе?"
         ],
-        "second_round": "Got it 👌 I’ll send more relevant options.",
-        "handoff_soft": "We can also connect you with a specialist to go through numbers."
+        "follow_up_questions": [
+          "Интересует пассивный доход или планируете участвовать в управлении?"
+        ],
+        "second_round": "Ясно. Вот уточнённый список: [ссылки]. Какой заинтересовал?",
+        "handoff_soft": "Мы можем подключить профильного специалиста, он детально разберёт цифры. Нужен контакт?"
       },
       "commercial": {
-        "open": ["Perfect 👍", "Let me show you a few commercial options", "(ссылки)"],
-        "follow_up_questions": [
-          "Which one fits more?",
-          "Looking for rental income or own use?",
-          "Budget? 💶"
+        "open": [
+          "Отлично. Вот подборка коммерческих лотов: [2–3 ссылки]. Что из этого похоже на искомое?"
         ],
-        "second_round": "Great 👌 I’ll refine selection.",
-        "handoff_soft": "If needed, I’ll connect you with a manager for deeper details."
+        "follow_up_questions": [
+          "Под сдачу в аренду или под собственный проект?"
+        ],
+        "second_round": "Тогда точнее: [ссылки]. Какой смотреть?",
+        "handoff_soft": "Могу соединить с менеджером по коммерции — у него полная картина по доходности и условиям. Стоит?"
       },
       "hotels": {
-        "open": ["Great 👍", "I’ll show you a few hotel opportunities", "(ссылки)"],
-        "follow_up_questions": [
-          "Which direction feels right?",
-          "Running hotel or project?",
-          "Budget? 💶"
+        "open": [
+          "Интересный сегмент. Вот что есть: [2–3 ссылки]. Какое направление цепляет?"
         ],
-        "second_round": "Got it 👌 I’ll prepare more targeted options.",
-        "handoff_soft": "We also have off-market deals — manager can share those if needed."
+        "follow_up_questions": [
+          "Готовый работающий отель или проект под запуск?"
+        ],
+        "second_round": "Понял. Вот профильная подборка: [ссылки]. Какой изучаем?",
+        "handoff_soft": "По отелям у нас есть закрытые предложения. Если интересно — подключу Максима, он покажет полную картину."
       }
     },
-    "language_note": "Адаптируй язык ответа клиенту (RU/EN/др.) но логику и порядок шагов сохраняй; при смешении языков в переписке отвечай на языке пользователя из контекста.",
-    "internal_listings_note": "featured_properties может не совпасть с каталогом сайта — URL не выдумывать; интерес → менеджер + housetenerife.eu. La Ola: банкротство. Vegrosa IX / Esmeralda: ипотека (Vegrosa + суд Güimar №3 — с первых слов). Jardín Arménime: два финварианта ROI. Девелопмент и flip: все цифры из презентаций. Callao Salvaje luxury: сумм нет — у агента. Hotel Las Américas / Costa Adeje aparthotel: уточнять условия. portfolio_quick_reference — только шпаргалка."
+    "language_note": "Адаптируешься под язык клиента полностью. Если клиент мешает языки — отвечаешь на том, которого больше в его сообщении.",
+    "internal_listings_note": "Featured_properties могут расходиться с открытым каталогом. URL не выдумываешь. Объекты со спецусловиями — коротко, детали через менеджера. Цифры только из базы; сумм нет — «уточню у агента».",
+    "services_usage": "Услуги и пакеты не вываливаешь списком — только когда вопрос совпадает. Пакет €3 000 полное сопровождение 6 мес.; €5 000 аукционы/кредиты.",
+    "catalog_guidance": "~626 объектов. Формат: название, цена, ссылка. Первая подборка широкая (2–3), вторая точная (2–3).",
+    "contacts_note": "Контакты только по запросу или при переходе на менеджера. CEO: Максим Куликов +34 631 252 060."
   },
   "contacts": {
     "office_phone": "+34 822 621 012",
@@ -128,10 +139,22 @@
   },
   "company_services": {
     "full_cycle": [
-      { "service": "Поиск недвижимости", "description": "Подбор жилых, коммерческих объектов и аукционной недвижимости под запрос клиента" },
-      { "service": "Анализ рынка", "description": "Тренды, оценка рынка, прогнозы" },
-      { "service": "Юридическая поддержка", "description": "Проверка документов, Due Diligence, сопровождение сделок" },
-      { "service": "Консалтинг и администрирование", "description": "Финансовые стратегии, налоговые льготы (общий консалтинг), операционное планирование" }
+      {
+        "service": "Поиск недвижимости",
+        "description": "Подбор жилых, коммерческих объектов и аукционной недвижимости под запрос клиента"
+      },
+      {
+        "service": "Анализ рынка",
+        "description": "Тренды, оценка рынка, прогнозы"
+      },
+      {
+        "service": "Юридическая поддержка",
+        "description": "Проверка документов, Due Diligence, сопровождение сделок"
+      },
+      {
+        "service": "Консалтинг и администрирование",
+        "description": "Финансовые стратегии, налоговые льготы (общий консалтинг), операционное планирование"
+      }
     ],
     "additional": [
       "Открытие банковского счёта в Испании",
@@ -221,20 +244,90 @@
   "portfolio_quick_reference": {
     "note": "Укрупнённая шпаргалка для бота; все ROI/прибыль — из маркетинговых файлов (не обещание). Детали в featured_properties.",
     "rows": [
-      { "name": "17 вилл Adeje Golf", "type": "Проект", "price_or_investment": "Земля €9M + лицензия €450k+IGIC7% + стр-во €7.5M+IGIC7%", "roi_or_profit": "Прогноз ROI 83.63%; прибыль ≈ €15M" },
-      { "name": "5 вилл Los Cristianos", "type": "Проект", "price_or_investment": "Всего €5 300 000", "roi_or_profit": "Прибыль €6 200 000 (прогноз)" },
-      { "name": "6+2 апартаментов Los Cristianos", "type": "Проект", "price_or_investment": "€1 080 000", "roi_or_profit": "Прибыль после налога 20% €1 288 000; с доп. этажом €2 248 000" },
-      { "name": "Adeje Town Apartments", "type": "Проект", "price_or_investment": "€830 000", "roi_or_profit": "Прогноз ROI 60.24%" },
-      { "name": "Jardín de Arménime", "type": "Проект", "price_or_investment": "≈ €8.56–8.9M (по версии файла)", "roi_or_profit": "41–50% ROI; квартиры €239k–563k (см. варианты в карточке)" },
-      { "name": "Aparthotel Costa Adeje", "type": "Готовый бизнес", "price_or_investment": "€5 800 000", "roi_or_profit": "Заполняемость в материалах >80%" },
-      { "name": "Ocean-View Villa Flip", "type": "Flip", "price_or_investment": "Инвест. ≈ €1 300 000", "roi_or_profit": "Прогноз ROI 76.92%" },
-      { "name": "San Eugenio Luxury Villa", "type": "Flip", "price_or_investment": "Покупка €1 439 000", "roi_or_profit": "~19% (кап. прирост); прибыль €301k–451k" },
-      { "name": "Las Galletas Building", "type": "Здание", "price_or_investment": "€315 000", "roi_or_profit": "—" },
-      { "name": "San Isidro 14 участков + 6 квартир", "type": "Земля + дома", "price_or_investment": "€800 000 (с реновацией)", "roi_or_profit": "50% ROI; срок 3–6 мес." },
-      { "name": "Vegrosa IX", "type": "Лот", "price_or_investment": "€607 500", "roi_or_profit": "Сценарий до 40% наценки; ипотека + суд Güimar — см. карточку" },
-      { "name": "168 Fincas Guímar", "type": "Лот", "price_or_investment": "€3 945 000", "roi_or_profit": "—" },
-      { "name": "Edificio Esmeralda", "type": "Квартиры (со скидкой)", "price_or_investment": "от €91 200", "roi_or_profit": "Экономия к рынку 40–50%; ипотека на весь комплекс" },
-      { "name": "La Ola ТЦ", "type": "Коммерция", "price_or_investment": "€10 500 000", "roi_or_profit": "Yield 8.4%; банкротство — см. карточку" }
+      {
+        "name": "17 вилл Adeje Golf",
+        "type": "Проект",
+        "price_or_investment": "Земля €9M + лицензия €450k+IGIC7% + стр-во €7.5M+IGIC7%",
+        "roi_or_profit": "Прогноз ROI 83.63%; прибыль ≈ €15M"
+      },
+      {
+        "name": "5 вилл Los Cristianos",
+        "type": "Проект",
+        "price_or_investment": "Всего €5 300 000",
+        "roi_or_profit": "Прибыль €6 200 000 (прогноз)"
+      },
+      {
+        "name": "6+2 апартаментов Los Cristianos",
+        "type": "Проект",
+        "price_or_investment": "€1 080 000",
+        "roi_or_profit": "Прибыль после налога 20% €1 288 000; с доп. этажом €2 248 000"
+      },
+      {
+        "name": "Adeje Town Apartments",
+        "type": "Проект",
+        "price_or_investment": "€830 000",
+        "roi_or_profit": "Прогноз ROI 60.24%"
+      },
+      {
+        "name": "Jardín de Arménime",
+        "type": "Проект",
+        "price_or_investment": "≈ €8.56–8.9M (по версии файла)",
+        "roi_or_profit": "41–50% ROI; квартиры €239k–563k (см. варианты в карточке)"
+      },
+      {
+        "name": "Aparthotel Costa Adeje",
+        "type": "Готовый бизнес",
+        "price_or_investment": "€5 800 000",
+        "roi_or_profit": "Заполняемость в материалах >80%"
+      },
+      {
+        "name": "Ocean-View Villa Flip",
+        "type": "Flip",
+        "price_or_investment": "Инвест. ≈ €1 300 000",
+        "roi_or_profit": "Прогноз ROI 76.92%"
+      },
+      {
+        "name": "San Eugenio Luxury Villa",
+        "type": "Flip",
+        "price_or_investment": "Покупка €1 439 000",
+        "roi_or_profit": "~19% (кап. прирост); прибыль €301k–451k"
+      },
+      {
+        "name": "Las Galletas Building",
+        "type": "Здание",
+        "price_or_investment": "€315 000",
+        "roi_or_profit": "—"
+      },
+      {
+        "name": "San Isidro 14 участков + 6 квартир",
+        "type": "Земля + дома",
+        "price_or_investment": "€800 000 (с реновацией)",
+        "roi_or_profit": "50% ROI; срок 3–6 мес."
+      },
+      {
+        "name": "Vegrosa IX",
+        "type": "Лот",
+        "price_or_investment": "€607 500",
+        "roi_or_profit": "Сценарий до 40% наценки; ипотека + суд Güimar — см. карточку"
+      },
+      {
+        "name": "168 Fincas Guímar",
+        "type": "Лот",
+        "price_or_investment": "€3 945 000",
+        "roi_or_profit": "—"
+      },
+      {
+        "name": "Edificio Esmeralda",
+        "type": "Квартиры (со скидкой)",
+        "price_or_investment": "от €91 200",
+        "roi_or_profit": "Экономия к рынку 40–50%; ипотека на весь комплекс"
+      },
+      {
+        "name": "La Ola ТЦ",
+        "type": "Коммерция",
+        "price_or_investment": "€10 500 000",
+        "roi_or_profit": "Yield 8.4%; банкротство — см. карточку"
+      }
     ]
   },
   "featured_properties": [
@@ -288,9 +381,17 @@
           "location": "Ground floor"
         }
       ],
-      "other_tenants_ground_floor": ["Memouki (обувь)", "Магазин товаров для дома"],
-      "other_tenants_basement_1": ["Магазин табачных изделий"],
-      "owner_costs": ["Содержание общего имущества — за счёт собственника", "IBI — за счёт собственника"],
+      "other_tenants_ground_floor": [
+        "Memouki (обувь)",
+        "Магазин товаров для дома"
+      ],
+      "other_tenants_basement_1": [
+        "Магазин табачных изделий"
+      ],
+      "owner_costs": [
+        "Содержание общего имущества — за счёт собственника",
+        "IBI — за счёт собственника"
+      ],
       "demographics": {
         "city_population": 209194,
         "city_population_growth_last_quarter_percent": 0.91,
@@ -399,21 +500,68 @@
           "area_m2": "72–117",
           "note": "+ террасы"
         },
-        "parking_spaces": { "count": 75, "location": "Подвал", "area_m2": "11–63" },
-        "storages": { "count": 22, "area_m2": "5–94" },
-        "commercial_units": { "count": 17, "area_m2": "30–1195", "note": "большинство на 2-м этаже" }
+        "parking_spaces": {
+          "count": 75,
+          "location": "Подвал",
+          "area_m2": "11–63"
+        },
+        "storages": {
+          "count": 22,
+          "area_m2": "5–94"
+        },
+        "commercial_units": {
+          "count": 17,
+          "area_m2": "30–1195",
+          "note": "большинство на 2-м этаже"
+        }
       },
-      "apartments_distribution_by_floor": { "floor_1": 12, "floor_2": 21, "floor_3": 15, "floor_4": 6 },
+      "apartments_distribution_by_floor": {
+        "floor_1": 12,
+        "floor_2": 21,
+        "floor_3": 15,
+        "floor_4": 6
+      },
       "sample_apartments_m2": [
-        { "unit": 23, "interior": 113.89, "terrace": 16.8, "solarium": 6.53 },
-        { "unit": 27, "interior": 117.91, "terrace": 17.01, "solarium": 7.2 },
-        { "unit": 41, "interior": 109.72, "terrace": 9.98, "solarium": 5.26 }
+        {
+          "unit": 23,
+          "interior": 113.89,
+          "terrace": 16.8,
+          "solarium": 6.53
+        },
+        {
+          "unit": 27,
+          "interior": 117.91,
+          "terrace": 17.01,
+          "solarium": 7.2
+        },
+        {
+          "unit": 41,
+          "interior": 109.72,
+          "terrace": 9.98,
+          "solarium": 5.26
+        }
       ],
       "largest_commercial_units": [
-        { "id": "L14", "floor": "1-й этаж", "m2": 1195.19 },
-        { "id": "L17", "floor": "Подвал", "m2": 881.37 },
-        { "id": "L16", "floor": "1-й этаж", "m2": 440.0 },
-        { "id": "L15", "floor": "1-й этаж", "m2": 330.11 }
+        {
+          "id": "L14",
+          "floor": "1-й этаж",
+          "m2": 1195.19
+        },
+        {
+          "id": "L17",
+          "floor": "Подвал",
+          "m2": 881.37
+        },
+        {
+          "id": "L16",
+          "floor": "1-й этаж",
+          "m2": 440
+        },
+        {
+          "id": "L15",
+          "floor": "1-й этаж",
+          "m2": 330.11
+        }
       ],
       "location_context": {
         "pyramids_guimar_minutes": "2–3",
@@ -439,7 +587,10 @@
       "lot_purchase_price_eur": 607500,
       "alternate_price_in_one_file_gbp": 750000,
       "price_note": "В одном из файлов встречалась сумма порядка £750 000; рабочая уточнённая цена лота €607 500",
-      "per_unit_before_markup_eur": { "house": 125000, "parking": 15000 },
+      "per_unit_before_markup_eur": {
+        "house": 125000,
+        "parking": 15000
+      },
       "market_benchmark_eur": {
         "similar_houses_typical_range": "165000–520000",
         "parking_typical_range": "15500–18000"
@@ -455,16 +606,56 @@
         "resale_at_40_percent_markup_net_profit_eur": 930000
       },
       "units": [
-        { "id": "Дом №1", "floor": "Ground Floor", "m2": 50 },
-        { "id": "Дом №2", "floor": "Ground Floor", "m2": 49 },
-        { "id": "Дом №3", "floor": "1st Floor", "m2": 54 },
-        { "id": "Дом №4", "floor": "1st Floor", "m2": 54.49 },
-        { "id": "Дом №5", "floor": "2nd Floor", "m2": 54 },
-        { "id": "Дом №6", "floor": "2nd Floor", "m2": 54 },
-        { "id": "Паркинг №2", "floor": "Basement", "m2": 11.36 },
-        { "id": "Паркинг №3", "floor": "Basement", "m2": 11.27 },
-        { "id": "Паркинг №4", "floor": "Basement", "m2": 11.29 },
-        { "id": "Паркинг №9", "floor": "Basement", "m2": 17 }
+        {
+          "id": "Дом №1",
+          "floor": "Ground Floor",
+          "m2": 50
+        },
+        {
+          "id": "Дом №2",
+          "floor": "Ground Floor",
+          "m2": 49
+        },
+        {
+          "id": "Дом №3",
+          "floor": "1st Floor",
+          "m2": 54
+        },
+        {
+          "id": "Дом №4",
+          "floor": "1st Floor",
+          "m2": 54.49
+        },
+        {
+          "id": "Дом №5",
+          "floor": "2nd Floor",
+          "m2": 54
+        },
+        {
+          "id": "Дом №6",
+          "floor": "2nd Floor",
+          "m2": 54
+        },
+        {
+          "id": "Паркинг №2",
+          "floor": "Basement",
+          "m2": 11.36
+        },
+        {
+          "id": "Паркинг №3",
+          "floor": "Basement",
+          "m2": 11.27
+        },
+        {
+          "id": "Паркинг №4",
+          "floor": "Basement",
+          "m2": 11.29
+        },
+        {
+          "id": "Паркинг №9",
+          "floor": "Basement",
+          "m2": 17
+        }
       ],
       "location_context": {
         "playa_punta_larga_km": 1.3,
@@ -490,9 +681,21 @@
         "living_area_m2": 2516.11,
         "units_mix_summary": "28 квартир: 6 с 1 спальней, 14 с 2, 8 с 3",
         "units_mix_detail": [
-          { "bedrooms": 1, "count": 6, "from_m2": 60 },
-          { "bedrooms": 2, "count": 14, "from_m2": 80 },
-          { "bedrooms": 3, "count": 8, "from_m2": 100 }
+          {
+            "bedrooms": 1,
+            "count": 6,
+            "from_m2": 60
+          },
+          {
+            "bedrooms": 2,
+            "count": 14,
+            "from_m2": 80
+          },
+          {
+            "bedrooms": 3,
+            "count": 8,
+            "from_m2": 100
+          }
         ],
         "parking_storages": "28 подземных машино-мест + 28 кладовых"
       },
@@ -608,7 +811,11 @@
       "villas_count": 17,
       "each_living_area_m2": 300,
       "each_plot_m2_approx": 500,
-      "features": ["Бассейн", "4 спальни", "Современная кухня"],
+      "features": [
+        "Бассейн",
+        "4 спальни",
+        "Современная кухня"
+      ],
       "financials_forecast": {
         "note": "Из девелоперской презентации; IGIC 7% на лицензию и строительство; не гарантия",
         "land_eur": 9000000,
@@ -713,7 +920,13 @@
       "plot_m2": 1900,
       "inventory": {
         "furnished_apartments": 27,
-        "sizes_m2": [52, 53, 58, 67, 70],
+        "sizes_m2": [
+          52,
+          53,
+          58,
+          67,
+          70
+        ],
         "note": "Кухни оснащены, душевые; указан отдельный доступ к лодке для гостей (как в исходнике)"
       },
       "amenities": [
@@ -756,7 +969,11 @@
       "location": "Сан-Эухенио (престижный район)",
       "plot_m2": 620,
       "living_area_m2": 350,
-      "features": ["Приватный бассейн", "3 террасы (включая крышную)", "Роскошная отделка"],
+      "features": [
+        "Приватный бассейн",
+        "3 террасы (включая крышную)",
+        "Роскошная отделка"
+      ],
       "financials": {
         "note": "Косметический ремонт в файле не детализирован по сумме",
         "purchase_eur": 1439000,
@@ -785,7 +1002,10 @@
       "id": "san_isidro_14_plots_6_apartments_complex",
       "listing_category": "land_and_residential_portfolio",
       "title": "14 Land Plots + 6 Apartments — San Isidro / Granadilla de Abona",
-      "addresses": ["Calle De la Tabaiba, 8", "Calle El Cardón, 42"],
+      "addresses": [
+        "Calle De la Tabaiba, 8",
+        "Calle El Cardón, 42"
+      ],
       "complex_year": 2008,
       "location": "Сан-Исидро, Гранадилья-де-Абона",
       "mix": {
@@ -794,16 +1014,43 @@
         "parking_count": 6,
         "parking_m2_range": "11.4–14",
         "storages_count": 2,
-        "storage_m2": [6, 7],
+        "storage_m2": [
+          6,
+          7
+        ],
         "land_plots_count": 14
       },
       "apartments_detail": [
-        { "unit": 1, "floor": "First floor", "m2": 64 },
-        { "unit": 2, "floor": "First floor", "m2": 95 },
-        { "unit": 3, "floor": "Floor 01", "m2": 95 },
-        { "unit": 4, "floor": "Floor 01", "m2": 95 },
-        { "unit": 5, "floor": "Floor 02", "m2": 95 },
-        { "unit": 6, "floor": "Floor 02", "m2": 95 }
+        {
+          "unit": 1,
+          "floor": "First floor",
+          "m2": 64
+        },
+        {
+          "unit": 2,
+          "floor": "First floor",
+          "m2": 95
+        },
+        {
+          "unit": 3,
+          "floor": "Floor 01",
+          "m2": 95
+        },
+        {
+          "unit": 4,
+          "floor": "Floor 01",
+          "m2": 95
+        },
+        {
+          "unit": 5,
+          "floor": "Floor 02",
+          "m2": 95
+        },
+        {
+          "unit": 6,
+          "floor": "Floor 02",
+          "m2": 95
+        }
       ],
       "financials_forecast": {
         "note": "Прогноз flip портфеля; не гарантия",
@@ -831,5 +1078,16 @@
         "foreign_share_percent": 30.71
       }
     }
-  ]
+  ],
+  "custom_articles": [
+    {
+      "id": "article-1779026325779",
+      "title": "Тестовая проверка",
+      "category": "При просьбе пользователя рассказать про тест",
+      "content": "тестовая статься - это тест от нашего разработчика влада"
+    }
+  ],
+  "_admin_meta": {
+    "updatedAt": "2026-05-17T13:59:33.286Z"
+  }
 }

@@ -1,21 +1,13 @@
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
 const { searchForContext } = require('./property-catalog');
 const { webSearchSnippets, shouldAugmentWithWeb } = require('./web-search');
+const { getBotConfig, formatDialogPathForPrompt } = require('./bot-config');
+const { getKnowledgeBaseForPrompt } = require('./knowledge-base');
 
 const AI_API_URL =
   process.env.AI_API_URL || 'https://api.intelligence.io.solutions/api/v1/chat/completions';
 const AI_MODEL = process.env.AI_MODEL || 'deepseek-ai/DeepSeek-V3.2';
 const AI_API_KEY = process.env.AI_API_KEY;
-
-let consultantKnowledge = {};
-try {
-  const p = path.join(__dirname, 'consultant-knowledge.json');
-  consultantKnowledge = JSON.parse(fs.readFileSync(p, 'utf8'));
-} catch (e) {
-  console.warn('⚠️ consultant-knowledge.json:', e.message);
-}
 
 /**
  * @param {Array<{sender:string,text:string}>} conversationHistory
@@ -47,22 +39,27 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
     }
   }
 
+  const consultantKnowledge = getKnowledgeBaseForPrompt();
   const ck = JSON.stringify(consultantKnowledge, null, 2);
+  const botConfig = getBotConfig();
+  const dialogPathBlock = formatDialogPathForPrompt(botConfig.dialogPath);
+  const siteUrl = consultantKnowledge.brand?.site_ru || 'https://housetenerife.eu/ru/';
 
-  const systemPrompt = `Ты — senior real estate concierge агентства *House Tenerife*: недвижимость на Тенерифе и в Испании (Канары).
+  const systemPrompt = `${botConfig.mainPrompt}
 
-*Сайт каталога:* ${consultantKnowledge.brand?.site_ru || 'https://housetenerife.eu/ru/'}
+*Сайт каталога:* ${siteUrl}
 
-**Главная цель (порядок):** (1) понять запрос -> (2) показать релевантные объекты с сайта -> (3) уточнить предпочтения -> (4) набрать доверие -> (5) только потом мягко предложить менеджера или специалиста. Не дави на звонок в начале диалога.
-
-**Стиль:** коротко (примерно 1-3 строки, если клиент не просит развернуто); один главный вопрос за сообщение; по-человечески; умеренные эмодзи допустимы как в playbook. Когда уместно - дай 2-5 вариантов со ссылками, затем уточняй по отклику. Ответ на языке пользователя: ${userLanguage}.
-
-Данные ниже содержат concierge_playbook (старт, инвестор, частная, бизнес, коммерция, отели): сначала ценность - объекты, затем уточнение и точнее подборка, в конце мягкий переход к менеджеру.
+${botConfig.additionalConditions}
+${dialogPathBlock}
+Ответ на языке пользователя: ${userLanguage}.
 
 **ДИСКЛЕЙМЕР (соблюдай):**
 ${consultantKnowledge.disclaimer || 'Не заменяй юриста и налогового консультанта.'}
 
-**База знаний (плюсы/минусы, визы, Канары, playbook — не выдумывай ставки налогов без оговорки):**
+**БАЗА ЗНАНИЙ (ОБЯЗАТЕЛЬНО ИСПОЛЬЗОВАТЬ — единственный источник фактов о компании, услугах, налогах, визах, контактах, playbook, featured_properties и custom_articles):**
+- Перед ответом найди в JSON ниже релевантные разделы и опирайся на них
+- Не придумывай данные, которых нет в базе
+- custom_articles — дополнительные статьи; учитывай при подходящих вопросах
 ${ck}
 
 **КАТАЛОГ ОБЪЕКТОВ:**

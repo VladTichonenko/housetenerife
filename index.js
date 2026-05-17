@@ -9,6 +9,7 @@ const path = require('path');
 const { getLanguageFromPhone, getTranslation, getCountryFromPhone } = require('./phone-utils');
 const { askAI } = require('./ai-service');
 const { detectLanguageFromText, getLanguageName } = require('./language-detector');
+const { registerAdminRoutes } = require('./admin-api');
 
 // Создаем Express сервер для API
 const app = express();
@@ -20,6 +21,8 @@ app.use(express.json());
 
 // Флаг готовности бота
 let botReady = false;
+let currentQr = null;
+let accountInfo = null;
 
 function isMarkedUnreadError(error) {
   const errorStr = error.message || error.toString() || '';
@@ -340,8 +343,14 @@ function getTimeZoneByCountry(countryCode) {
 
 // Обработка QR-кода для авторизации
 client.on('qr', (qr) => {
-  console.log('📱 Отсканируйте QR-код ниже для авторизации:');
+  currentQr = qr;
+  accountInfo = null;
+  console.log('📱 Отсканируйте QR-код ниже для авторизации (или в веб-панели /admin):');
   qrcode.generate(qr, { small: true });
+});
+
+client.on('authenticated', () => {
+  currentQr = null;
 });
 
 // Обработка готовности клиента
@@ -383,7 +392,13 @@ client.on('ready', async () => {
     // Тестовая проверка - получаем информацию о себе
     try {
       const info = await client.info;
-      console.log(`👤 Информация о клиенте: ${info.wid?.user || 'неизвестно'}`);
+      accountInfo = {
+        phone: info.wid?.user || null,
+        name: info.pushname || null,
+        platform: info.platform || null
+      };
+      currentQr = null;
+      console.log(`👤 Информация о клиенте: ${accountInfo.phone || 'неизвестно'} (${accountInfo.name || '—'})`);
     } catch (infoError) {
       console.warn('⚠️ Не удалось получить информацию о клиенте:', infoError.message);
     }
@@ -1254,6 +1269,34 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+registerAdminRoutes(app, {
+  get botReady() {
+    return botReady;
+  },
+  get currentQr() {
+    return currentQr;
+  },
+  get accountInfo() {
+    return accountInfo;
+  },
+  client
+});
+
+// Веб-панель администратора (React build) — после API, чтобы /api не перехватывался
+const adminDist = path.join(__dirname, 'web', 'dist');
+if (fs.existsSync(adminDist)) {
+  app.use('/admin', express.static(adminDist));
+  app.get(['/admin', '/admin/'], (req, res) => {
+    res.sendFile(path.join(adminDist, 'index.html'));
+  });
+  app.get('/admin/*', (req, res, next) => {
+    if (/\.[a-z0-9]+$/i.test(req.path)) return next();
+    res.sendFile(path.join(adminDist, 'index.html'));
+  });
+} else {
+  console.warn('⚠️ React-панель не собрана. Выполните: npm run build:web');
+}
+
 // Keep-alive механизм для предотвращения idle timeout на Railway
 // Railway может перезапускать контейнеры, если нет активности
 let keepAliveInterval = null;
@@ -1289,7 +1332,7 @@ function startKeepAlive() {
 // Запускаем HTTP сервер СНАЧАЛА (чтобы Railway не убил процесс)
 const server = app.listen(BOT_PORT, '0.0.0.0', () => {
   console.log(`🌐 API сервер бота запущен на порту ${BOT_PORT}`);
-  console.log(`📡 Endpoints: GET /, GET /health, GET /api/status`);
+  console.log(`📡 Endpoints: GET /, GET /health, GET /api/status, GET /admin`);
   console.log(`✅ HTTP сервер готов, Railway может проверить healthcheck`);
   
   // Запускаем keep-alive механизм

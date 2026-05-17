@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+web/node_modules/
+web/dist/
 
 # Secrets and local env
 .env
