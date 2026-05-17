@@ -14,16 +14,31 @@ const { setupAdminPanel, getAdminPanelStatus } = require('./admin-panel');
 
 // Создаем Express сервер для API
 const app = express();
-// Railway автоматически задаёт PORT — не переопределяйте PORT в Variables (иначе 502)
-const BOT_PORT = Number(process.env.PORT) || Number(process.env.BOT_PORT) || 3001;
-if (process.env.RAILWAY_ENVIRONMENT && process.env.PORT && process.env.BOT_PORT) {
-  console.warn(
-    '⚠️ Railway: удалите BOT_PORT из Variables, используйте только автоматический PORT от Railway.'
-  );
+// Как в bot_rassylka: на Railway только process.env.PORT (иначе прокси → 502)
+const onRailway = Boolean(
+  process.env.RAILWAY_ENVIRONMENT ||
+    process.env.RAILWAY_PROJECT_ID ||
+    process.env.RAILWAY_PUBLIC_DOMAIN
+);
+const BOT_PORT = parseInt(
+  onRailway ? process.env.PORT || '8080' : process.env.BOT_PORT || process.env.PORT || '3001',
+  10
+);
+if (onRailway && process.env.BOT_PORT) {
+  console.warn('⚠️ Railway: удалите BOT_PORT из Variables — прокси ходит только на PORT.');
 }
 
 app.use(cors());
 app.use(express.json());
+
+app.use((req, res, next) => {
+  if (onRailway && req.path !== '/health') {
+    res.on('finish', () => {
+      console.log(`[HTTP] ${req.method} ${req.url} → ${res.statusCode}`);
+    });
+  }
+  next();
+});
 
 // Флаг готовности бота
 let botReady = false;
@@ -351,7 +366,7 @@ function getTimeZoneByCountry(countryCode) {
 client.on('qr', (qr) => {
   currentQr = qr;
   accountInfo = null;
-  console.log('📱 Отсканируйте QR-код ниже для авторизации (или в веб-панели /admin):');
+  console.log('📱 Отсканируйте QR-код ниже для авторизации (или в веб-панели на сайте):');
   qrcode.generate(qr, { small: true });
 });
 
@@ -429,11 +444,20 @@ client.on('ready', async () => {
     console.log('   npm install whatsapp-web.js@latest');
     console.log('   или откатитесь на стабильную версию:');
     console.log('   npm install whatsapp-web.js@1.23.0');
-    console.log('🔄 Включен polling как основной способ получения сообщений (каждые 3 секунды)...');
-    
+    if (global.pollingInterval) {
+      console.log('⚠️ [POLLING] Уже запущен — повторный ready игнорируем (иначе HTTP 502 на Railway)');
+      return;
+    }
+
+    const pollMs = parseInt(
+      process.env.POLLING_INTERVAL_MS || (onRailway ? '5000' : '3000'),
+      10
+    );
+    console.log(`🔄 Включен polling (каждые ${pollMs} мс)...`);
+
     // Хранилище для последних проверенных сообщений по чатам
     const lastCheckedMessages = new Map();
-    
+
     // Основной polling цикл
     let pollingCounter = 0;
     let lastPollingError = null;
@@ -596,16 +620,11 @@ client.on('ready', async () => {
       if (pollingCounter % 100 === 0) {
         cleanupProcessedIds();
       }
-    }, 3000); // Проверяем каждые 3 секунды для более быстрой реакции
-    
-    // При включённой отладке — логируем каждый цикл (POLLING_DEBUG=1)
+    }, pollMs);
+
     const logEveryCycle = process.env.POLLING_DEBUG === '1' || process.env.POLLING_DEBUG === 'true';
-    
-    // Сохраняем interval ID для возможной очистки
-    if (typeof global.pollingInterval === 'undefined') {
-      global.pollingInterval = pollingInterval;
-    }
-    // Также добавляем в tracked intervals
+
+    global.pollingInterval = pollingInterval;
     activeIntervals.add(pollingInterval);
     
     // Дополнительная проверка через 5 секунд - возможно, нужно время на синхронизацию
@@ -1206,60 +1225,20 @@ debugEvents.forEach(eventName => {
 // ========== API ENDPOINTS ==========
 
 /**
- * GET / - Healthcheck endpoint для Railway
- * Важно: этот endpoint должен отвечать мгновенно, чтобы Railway не убил процесс
- * Также используется для keep-alive, чтобы предотвратить idle timeout
+ * GET /health — healthcheck Railway (синхронный, без Puppeteer)
  */
-app.get('/', (req, res) => {
-  // Браузер → панель; Railway/curl (?format=json) → JSON healthcheck
-  if (req.accepts('html') && req.query.format !== 'json') {
-    return res.redirect(302, '/admin/');
-  }
-
-  res.status(200).json({
-    success: true,
-    service: 'House Tenerife WhatsApp',
-    adminPanel: '/admin/',
-    ready: botReady,
-    status: botReady ? 'ready' : 'initializing',
-    uptime: Math.floor(process.uptime()),
-    timestamp: new Date().toISOString(),
-    message: botReady
-      ? 'Бот готов к работе'
-      : 'Бот инициализируется. HTTP сервер работает.'
-  });
-});
-
-/**
- * GET /health - Дополнительный healthcheck endpoint
- * Используется для более детальной проверки состояния
- */
-app.get('/health', async (req, res) => {
+app.get('/health', (req, res) => {
   const memoryUsage = process.memoryUsage();
   const panel = getAdminPanelStatus();
 
-  // Быстрый healthcheck для Railway — без блокировки на Puppeteer
-  let clientState = 'initializing';
-  if (botReady && client) {
-    try {
-      clientState = await Promise.race([
-        client.getState(),
-        new Promise((resolve) => setTimeout(() => resolve('busy'), 1500))
-      ]);
-    } catch (error) {
-      clientState = 'error: ' + error.message;
-    }
-  }
-
   res.status(200).json({
     success: true,
     service: 'House Tenerife WhatsApp',
-    adminPanel: panel.adminUi ? '/admin/' : false,
     adminUi: panel.adminUi,
     adminAssets: panel.adminAssets,
     ready: botReady,
     status: botReady ? 'ready' : 'initializing',
-    clientState: clientState,
+    port: BOT_PORT,
     uptime: Math.floor(process.uptime()),
     memory: {
       rss: Math.round(memoryUsage.rss / 1024 / 1024) + ' MB',
@@ -1350,7 +1329,7 @@ const server = app.listen(BOT_PORT, '0.0.0.0', () => {
     console.log('🚂 Railway: не задавайте PORT в Variables — только ADMIN_CODE и AI_API_KEY');
   }
   console.log(
-    `📡 Endpoints: GET /health, GET /admin/ ${panel.adminUi ? '(панель OK)' : '(панель НЕ собрана)'}`
+    `📡 Панель: GET / ${panel.adminUi ? '(OK)' : '(не собрана)'} | API /api/admin/* | health /health`
   );
   console.log(`✅ HTTP сервер готов, Railway может проверить healthcheck`);
   

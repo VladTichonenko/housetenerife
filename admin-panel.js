@@ -3,7 +3,7 @@ const path = require('path');
 const express = require('express');
 
 /**
- * Статика React-панели на /admin (собирается в Docker: web/dist).
+ * React-панель на корне сайта (как в bot_rassylka): /, /assets/*
  * @returns {{ ok: boolean, distPath: string, indexHtml: string }}
  */
 function setupAdminPanel(app) {
@@ -14,56 +14,61 @@ function setupAdminPanel(app) {
 
   if (!ok) {
     console.warn(
-      '⚠️ Панель /admin недоступна: нет web/dist/index.html или web/dist/assets. Пересоберите Docker-образ.'
+      '⚠️ Веб-панель не собрана (web/dist). Docker: пересоберите образ. Локально: npm run build:web'
     );
-    app.get(['/admin', '/admin/', /^\/admin\/.+/], (req, res) => {
+    app.get('/', (req, res) => {
       res.status(503).json({
         success: false,
-        message: 'Веб-панель не собрана. Проверьте логи сборки Docker (stage web-build).'
+        message: 'Панель не собрана. Откройте /health для статуса бота.'
       });
     });
     return { ok: false, distPath, indexHtml };
   }
 
   const assetFiles = fs.readdirSync(assetsDir);
-  console.log(`✅ Панель /admin: ${distPath} (${assetFiles.length} файлов в assets/)`);
+  console.log(`✅ Веб-панель: ${distPath} (${assetFiles.length} assets)`);
 
-  const cacheAge = process.env.NODE_ENV === 'production' ? '1d' : 0;
+  // Старые ссылки /admin → корень
+  app.get(['/admin', '/admin/'], (req, res) => {
+    const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    res.redirect(301, '/' + q);
+  });
+  app.get(/^\/admin\/.+/, (req, res) => {
+    const sub = req.path.replace(/^\/admin/, '') || '/';
+    const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    res.redirect(301, sub + q);
+  });
 
-  // Только файлы из dist/assets — без redirect loop на /admin/
   app.use(
-    '/admin/assets',
-    express.static(assetsDir, { maxAge: cacheAge, fallthrough: false })
+    express.static(distPath, {
+      index: 'index.html',
+      maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0,
+      fallthrough: true
+    })
   );
 
-  const sendIndex = (req, res) => {
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return next();
+    }
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    if (/\.[a-z0-9]+$/i.test(req.path)) {
+      return res.status(404).type('text/plain').send('Not found');
+    }
     res.sendFile(indexHtml, (err) => {
       if (err) {
-        console.error('[admin] sendFile:', err.message);
+        console.error('[web] sendFile:', err.message);
         if (!res.headersSent) {
           res.status(500).json({ success: false, message: 'Ошибка загрузки панели' });
         }
       }
     });
-  };
-
-  app.get(['/admin', '/admin/'], sendIndex);
-
-  // Клиентские маршруты React (без расширения файла)
-  app.get(/^\/admin\/.+/, (req, res) => {
-    if (/\.[a-z0-9]+$/i.test(req.path)) {
-      return res.status(404).type('text/plain').send('Not found');
-    }
-    sendIndex(req, res);
   });
 
-  app.get('/admin/health', (req, res) => {
-    res.status(200).json({
-      success: true,
-      adminUi: true,
-      assets: assetFiles.length,
-      distPath
-    });
+  app.get('/panel-health', (req, res) => {
+    res.json({ success: true, adminUi: true, assets: assetFiles.length });
   });
 
   return { ok: true, distPath, indexHtml };

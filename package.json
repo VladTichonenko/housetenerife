@@ -7,7 +7,8 @@
     "start": "node index.js",
     "dev": "node --watch index.js",
     "dev:web": "npm run dev --prefix web",
-    "build:web": "npm ci --prefix web --include=dev && npm run build --prefix web",
+    "build": "npm ci --prefix web --include=dev && npm run build --prefix web",
+    "build:web": "npm run build",
     "sync-db": "node scripts/sync-properties.js"
   },
   "license": "ISC",
