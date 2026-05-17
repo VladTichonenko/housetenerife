@@ -11,6 +11,13 @@ const { askAI } = require('./ai-service');
 const { detectLanguageFromText, getLanguageName } = require('./language-detector');
 const { registerAdminRoutes } = require('./admin-api');
 const { setupAdminPanel, getAdminPanelStatus } = require('./admin-panel');
+const {
+  resolveMessageText,
+  isPermanentNonText,
+  trackEmptyBodyRetry,
+  clearEmptyBodyRetry,
+  exceededEmptyBodyRetries,
+} = require('./message-body');
 
 // Создаем Express сервер для API
 const app = express();
@@ -214,6 +221,12 @@ function cleanupProcessedIds() {
   }
 }
 
+function getMessageId(msg) {
+  return msg.id._serialized || msg.id.id || JSON.stringify(msg.id);
+}
+
+const ciphertextScheduled = new Set();
+
 // Хранилище для всех активных интервалов и таймеров (для graceful shutdown)
 const activeIntervals = new Set();
 const activeTimeouts = new Set();
@@ -251,6 +264,29 @@ function trackedSetTimeout(callback, delay) {
   }, delay);
   activeTimeouts.add(id);
   return id;
+}
+
+function scheduleCiphertextHandle(msg) {
+  const msgId = getMessageId(msg);
+  if (processedMessageIds.has(msgId) || ciphertextScheduled.has(msgId)) return;
+  ciphertextScheduled.add(msgId);
+  console.log('🔐 [CIPHERTEXT] Ожидание расшифровки, повтор через 2 с...');
+  trackedSetTimeout(() => {
+    ciphertextScheduled.delete(msgId);
+    processIncomingMessage(msg).catch((err) => {
+      console.error('❌ Ошибка обработки после ciphertext:', err);
+    });
+  }, 2000);
+}
+
+/** @returns {Promise<'processed'|'retry'|'skip'>} */
+async function processIncomingMessage(msg) {
+  const msgId = getMessageId(msg);
+  const status = await handleIncomingMessage(msg);
+  if (status !== 'retry') {
+    processedMessageIds.set(msgId, Date.now());
+  }
+  return status;
 }
 
 // Максимальное количество сообщений в истории (чтобы не перегружать контекст)
@@ -534,15 +570,15 @@ client.on('ready', async () => {
                   
                   // Обрабатываем только сообщения не старше 10 минут (увеличено с 5)
                   if (age < 600000) { // 10 минут = 600000 мс
-                    processedMessageIds.set(msgId, now); // Сохраняем с timestamp
                     messagesProcessed++;
                     console.log('📨 [POLLING] Найдено новое сообщение через polling:', {
                       from: msg.from,
                       body: msg.body ? (msg.body.length > 50 ? msg.body.substring(0, 50) + '...' : msg.body) : '(нет текста)',
+                      type: msg.type,
                       age: Math.round(age / 1000) + ' сек назад',
                       id: msgId.substring(0, 20) + '...'
                     });
-                    handleIncomingMessage(msg).catch(error => {
+                    processIncomingMessage(msg).catch(error => {
                       console.error('❌ Ошибка обработки сообщения:', error);
                     });
                   } else {
@@ -1043,8 +1079,8 @@ async function handleIncomingMessage(msg) {
           console.log('✅ Бот готов к работе! (определено при получении сообщения)');
           botReady = true;
         } else {
-          console.warn(`⚠️ Бот не готов к работе (состояние: ${state}), пропускаем сообщение`);
-          return;
+          console.warn(`⚠️ Бот не готов к работе (состояние: ${state}), отложим сообщение`);
+          return 'retry';
         }
       } catch (stateError) {
         console.warn('⚠️ Не удалось проверить состояние клиента:', stateError.message);
@@ -1055,13 +1091,13 @@ async function handleIncomingMessage(msg) {
     // Пропускаем сообщения от самого бота
     if (msg.fromMe) {
       console.log('⏭️ [DEBUG] Пропущено сообщение от самого бота');
-      return;
+      return 'skip';
     }
 
     // Пропускаем статусы и broadcast сообщения
     if (msg.from === 'status@broadcast' || msg.from.includes('@broadcast')) {
       console.log('⏭️ [DEBUG] Пропущено broadcast сообщение');
-      return;
+      return 'skip';
     }
 
     // Получаем информацию о чате для проверки типа
@@ -1080,7 +1116,7 @@ async function handleIncomingMessage(msg) {
         message: chatError.message,
         stack: chatError.stack
       });
-      return;
+      return 'retry';
     }
 
     // Пропускаем сообщения из групп
@@ -1091,33 +1127,45 @@ async function handleIncomingMessage(msg) {
         const hint = lang === 'ru' ? 'Напишите мне в *личные сообщения* (ЛС), не в группе — там я отвечаю.' : 'Please message me in *private* (DM), not in a group — I only reply there.';
         await sendMessageSafely(msg, hint, client);
       } catch (e) { /* ignore */ }
-      return;
+      return 'processed';
     }
 
     // Пропускаем сообщения из каналов
     if (chat.isChannel) {
       console.log(`⚠️ Пропущено сообщение из канала: ${chat.name || chat.id.user}`);
-      return;
+      return 'skip';
     }
 
-    // Пропускаем сообщения без текста или с пустым телом
-    if (!msg.body || !msg.body.trim()) {
-      // Зашифрованные/одноразовые (ciphertext) или иные сообщения без текста — отвечаем подсказкой
-      try {
-        const lang = getLanguageFromPhone(msg.from) || 'ru';
-        const replyText = getTranslation(lang, 'ciphertext_reply');
-        await sendMessageSafely(msg, replyText, client);
-        console.log('📩 [DEBUG] Отправлена подсказка: сообщение без текста (ciphertext/одноразовое или другой тип)');
-      } catch (replyErr) {
-        console.warn('⚠️ Не удалось отправить подсказку:', replyErr.message);
+    const msgId = getMessageId(msg);
+    const resolved = await resolveMessageText(msg);
+    msg = resolved.msg;
+    const messageText = resolved.text;
+
+    if (!messageText) {
+      if (isPermanentNonText(msg)) {
+        clearEmptyBodyRetry(msgId);
+        try {
+          const lang = getLanguageFromPhone(msg.from) || 'ru';
+          const replyText = getTranslation(lang, 'ciphertext_reply');
+          await sendMessageSafely(msg, replyText, client);
+          console.log(`📩 [DEBUG] Сообщение без текста (медиа/одноразовое), type=${msg.type}`);
+        } catch (replyErr) {
+          console.warn('⚠️ Не удалось отправить подсказку:', replyErr.message);
+        }
+        return 'processed';
       }
-      console.log('⏭️ [DEBUG] Пропущено сообщение без текста');
-      return;
+      const attempts = trackEmptyBodyRetry(msgId);
+      if (exceededEmptyBodyRetries(msgId)) {
+        clearEmptyBodyRetry(msgId);
+        console.warn(`⚠️ [DEBUG] Не удалось прочитать текст после ${attempts} попыток (type=${msg.type})`);
+        return 'skip';
+      }
+      console.log(`⏳ [DEBUG] Текст пока недоступен (type=${msg.type}), попытка ${attempts}/${6}`);
+      return 'retry';
     }
+    clearEmptyBodyRetry(msgId);
     
     console.log('✅ [DEBUG] Сообщение прошло все проверки, начинаем обработку...');
-
-    const messageText = msg.body.trim();
     const chatId = msg.from;
     
     // Проверяем, это первое сообщение от пользователя?
@@ -1149,6 +1197,7 @@ async function handleIncomingMessage(msg) {
       console.log(`⚡ Выполнение команды: ${trimmedMessage} (язык: ${userLanguage})`);
       await commandHandlers[trimmedMessage](msg, userLanguage, client);
       console.log(`✅ Команда ${trimmedMessage} выполнена успешно`);
+      return 'processed';
     } else {
       // Добавляем сообщение пользователя в историю
       addToHistory(chatId, 'user', messageText);
@@ -1173,12 +1222,14 @@ async function handleIncomingMessage(msg) {
         await sendMessageSafely(msg, errorText, client);
       }
     }
+    return 'processed';
   } catch (error) {
     console.error('❌ Ошибка обработки сообщения:', error);
     console.error('Детали ошибки:', error.message);
     console.error('Стек ошибки:', error.stack);
     
     // Не пытаемся отправлять ответ об ошибке, чтобы избежать зацикливания
+    return 'retry';
   }
 }
 
@@ -1186,24 +1237,27 @@ async function handleIncomingMessage(msg) {
 // НО: основная обработка идет через polling, так как события не работают в версии 1.34.4
 console.log('📝 Регистрация обработчиков сообщений (на случай, если события заработают)...');
 client.on('message', (msg) => {
-  console.log('🔔 [EVENT] Событие "message" получено! (это редкость в версии 1.34.4)');
-  const msgId = msg.id._serialized || msg.id.id || JSON.stringify(msg.id);
+  console.log('🔔 [EVENT] Событие "message" получено!');
+  const msgId = getMessageId(msg);
   if (!processedMessageIds.has(msgId)) {
-    processedMessageIds.set(msgId, Date.now());
-    handleIncomingMessage(msg).catch(error => {
+    processIncomingMessage(msg).catch(error => {
       console.error('❌ Ошибка обработки сообщения из события:', error);
     });
   }
 });
 client.on('message_create', (msg) => {
-  console.log('🔔 [EVENT] Событие "message_create" получено! (это редкость в версии 1.34.4)');
-  const msgId = msg.id._serialized || msg.id.id || JSON.stringify(msg.id);
-  if (!processedMessageIds.has(msgId)) {
-    processedMessageIds.set(msgId, Date.now());
-    handleIncomingMessage(msg).catch(error => {
+  console.log('🔔 [EVENT] Событие "message_create" получено!');
+  const msgId = getMessageId(msg);
+  if (!processedMessageIds.has(msgId) && !msg.fromMe) {
+    processIncomingMessage(msg).catch(error => {
       console.error('❌ Ошибка обработки сообщения из события:', error);
     });
   }
+});
+client.on('message_ciphertext', (msg) => {
+  if (msg.fromMe) return;
+  console.log('🔐 [EVENT] message_ciphertext — ожидаем расшифровку');
+  scheduleCiphertextHandle(msg);
 });
 console.log('✅ Обработчики сообщений зарегистрированы (но основная работа через polling)');
 

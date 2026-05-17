@@ -36,7 +36,15 @@ function tokenize(s) {
     .filter((t) => t.length > 1);
 }
 
-function scoreItem(item, tokens) {
+function parseItemPriceEur(item) {
+  const raw = String(item.price || item.overview || '').replace(/\s/g, '');
+  const m = raw.match(/(\d{2,3})[.,]?(\d{3})|(\d{5,7})/);
+  if (!m) return null;
+  if (m[3]) return parseInt(m[3], 10);
+  return parseInt(m[1] + m[2], 10);
+}
+
+function scoreItem(item, tokens, options = {}) {
   const blob = [item.title, item.description, item.overview, item.price, item.url].join(' ');
   const hay = tokenize(blob);
   let sc = 0;
@@ -47,6 +55,24 @@ function scoreItem(item, tokens) {
       else if (h.includes(t) || t.includes(h)) sc += 1;
     }
   }
+
+  const price = parseItemPriceEur(item);
+  const { minPrice, maxPrice } = options;
+  if (price != null && (minPrice != null || maxPrice != null)) {
+    if (minPrice != null && maxPrice != null) {
+      if (price >= minPrice && price <= maxPrice) sc += 12;
+      else if (price >= minPrice * 0.85 && price <= maxPrice * 1.15) sc += 5;
+      else sc -= 4;
+    } else if (maxPrice != null) {
+      if (price <= maxPrice) sc += 10;
+      else if (price <= maxPrice * 1.2) sc += 3;
+      else sc -= 3;
+    } else if (minPrice != null) {
+      if (price >= minPrice) sc += 8;
+      else if (price >= minPrice * 0.8) sc += 2;
+    }
+  }
+
   return sc;
 }
 
@@ -55,7 +81,7 @@ function scoreItem(item, tokens) {
  * @param {string} query
  * @param {number} limit
  */
-function searchForContext(query, limit = 8) {
+function searchForContext(query, limit = 8, options = {}) {
   const data = load();
   if (!data.items.length) {
     return {
@@ -65,19 +91,31 @@ function searchForContext(query, limit = 8) {
     };
   }
   const tokens = tokenize(query);
-  if (!tokens.length) {
-    return { found: false, text: '' };
+  const scoreOpts = {
+    minPrice: options.minPrice ?? null,
+    maxPrice: options.maxPrice ?? null
+  };
+
+  let ranked = data.items.map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }));
+
+  if (!tokens.length && (scoreOpts.minPrice || scoreOpts.maxPrice)) {
+    ranked = ranked.filter((x) => x.s > 0);
+  } else if (tokens.length) {
+    ranked = ranked.filter((x) => x.s > 0);
+  } else {
+    ranked = data.items
+      .map((item) => ({ item, s: parseItemPriceEur(item) || 0 }))
+      .sort((a, b) => a.s - b.s)
+      .slice(0, limit * 3);
   }
-  const ranked = data.items
-    .map((item) => ({ item, s: scoreItem(item, tokens) }))
-    .filter((x) => x.s > 0)
-    .sort((a, b) => b.s - a.s)
-    .slice(0, limit);
+
+  ranked = ranked.sort((a, b) => b.s - a.s).slice(0, limit);
+
   if (!ranked.length) {
     return {
       found: false,
       text:
-        'По этому запросу в синхронизированном каталоге совпадений нет. Предложи уточнить бюджет, район (Лас Америкас, Лос Кристианос и т.д.) или тип жилья; дай ссылку на поиск: https://housetenerife.eu/ru/'
+        'По этому запросу в синхронизированном каталоге совпадений нет. Уточни у клиента бюджет и район (Лас Америкас, Costa Adeje, Los Cristianos и т.д.); дай ссылку: https://housetenerife.eu/ru/'
     };
   }
   const lines = ranked.map((r, i) => {
