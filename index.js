@@ -190,6 +190,8 @@ const firstMessageUsers = new Set();
 // Хранилище для отслеживания обработанных сообщений (для polling)
 // Формат: Map<msgId, timestamp> - для возможности очистки старых записей
 const processedMessageIds = new Map();
+const processingMessageIds = new Set(); // уже в обработке (защита от дублей)
+const deferredRetryIds = new Set(); // отложенный retry после пустого body
 const MAX_PROCESSED_IDS = 10000; // Максимум ID в памяти
 const PROCESSED_ID_TTL = 3600000; // 1 час - время хранения ID
 
@@ -225,7 +227,9 @@ function getMessageId(msg) {
   return msg.id._serialized || msg.id.id || JSON.stringify(msg.id);
 }
 
-const ciphertextScheduled = new Set();
+function isMessageAlreadyHandled(msgId) {
+  return processedMessageIds.has(msgId) || processingMessageIds.has(msgId) || deferredRetryIds.has(msgId);
+}
 
 // Хранилище для всех активных интервалов и таймеров (для graceful shutdown)
 const activeIntervals = new Set();
@@ -266,27 +270,46 @@ function trackedSetTimeout(callback, delay) {
   return id;
 }
 
-function scheduleCiphertextHandle(msg) {
+function scheduleMessageRetry(msg, delayMs = 2000) {
   const msgId = getMessageId(msg);
-  if (processedMessageIds.has(msgId) || ciphertextScheduled.has(msgId)) return;
-  ciphertextScheduled.add(msgId);
-  console.log('🔐 [CIPHERTEXT] Ожидание расшифровки, повтор через 2 с...');
+  if (processedMessageIds.has(msgId) || deferredRetryIds.has(msgId)) return;
+  deferredRetryIds.add(msgId);
+  console.log(`⏳ [RETRY] Повторная обработка через ${delayMs} мс: ${msgId.substring(0, 24)}...`);
   trackedSetTimeout(() => {
-    ciphertextScheduled.delete(msgId);
-    processIncomingMessage(msg).catch((err) => {
-      console.error('❌ Ошибка обработки после ciphertext:', err);
+    deferredRetryIds.delete(msgId);
+    processIncomingMessage(msg, 'retry').catch((err) => {
+      console.error('❌ Ошибка повторной обработки:', err);
     });
-  }, 2000);
+  }, delayMs);
 }
 
-/** @returns {Promise<'processed'|'retry'|'skip'>} */
-async function processIncomingMessage(msg) {
+/** @returns {Promise<'processed'|'retry'|'skip'|null>} */
+async function processIncomingMessage(msg, source = 'unknown') {
   const msgId = getMessageId(msg);
-  const status = await handleIncomingMessage(msg);
-  if (status !== 'retry') {
-    processedMessageIds.set(msgId, Date.now());
+  if (processedMessageIds.has(msgId)) return null;
+  if (processingMessageIds.has(msgId)) {
+    console.log(`⏭️ [DEDUP] Сообщение уже обрабатывается (${source}): ${msgId.substring(0, 24)}...`);
+    return null;
   }
-  return status;
+  if (deferredRetryIds.has(msgId) && source !== 'retry') {
+    console.log(`⏭️ [DEDUP] Ожидается отложенный retry (${source})`);
+    return null;
+  }
+
+  processingMessageIds.add(msgId);
+  try {
+    const status = await handleIncomingMessage(msg);
+    if (status === 'retry') {
+      scheduleMessageRetry(msg);
+      return status;
+    }
+    if (status) {
+      processedMessageIds.set(msgId, Date.now());
+    }
+    return status;
+  } finally {
+    processingMessageIds.delete(msgId);
+  }
 }
 
 // Максимальное количество сообщений в истории (чтобы не перегружать контекст)
@@ -438,12 +461,12 @@ client.on('ready', async () => {
     const totalListeners = messageListeners + messageCreateListeners;
     console.log(`📝 Зарегистрировано обработчиков: message=${messageListeners}, message_create=${messageCreateListeners}, всего=${totalListeners}`);
     
-    if (totalListeners === 0) {
-      console.warn('⚠️ ВНИМАНИЕ: Обработчики сообщений не зарегистрированы!');
-      // Регистрируем обработчики заново
-      client.on('message', handleIncomingMessage);
-      client.on('message_create', handleIncomingMessage);
-      console.log('✅ Обработчики сообщений зарегистрированы заново');
+    if (messageListeners === 0) {
+      console.warn('⚠️ ВНИМАНИЕ: Обработчик message не зарегистрирован!');
+      client.on('message', (m) => {
+        if (!m.fromMe) processIncomingMessage(m, 'message').catch(() => {});
+      });
+      console.log('✅ Обработчик message зарегистрирован заново');
     }
     
     // Тестовая проверка - получаем информацию о себе
@@ -557,7 +580,7 @@ client.on('ready', async () => {
                 const msgId = msg.id._serialized || msg.id.id || JSON.stringify(msg.id);
                 
                 // Проверяем, не обработали ли мы уже это сообщение
-                if (!processedMessageIds.has(msgId)) {
+                if (!isMessageAlreadyHandled(msgId)) {
                   // Проверяем, не слишком ли старое сообщение (больше 10 минут)
                   // timestamp может быть в секундах или миллисекундах
                   let msgTime = msg.timestamp;
@@ -578,7 +601,7 @@ client.on('ready', async () => {
                       age: Math.round(age / 1000) + ' сек назад',
                       id: msgId.substring(0, 20) + '...'
                     });
-                    processIncomingMessage(msg).catch(error => {
+                    processIncomingMessage(msg, 'polling').catch(error => {
                       console.error('❌ Ошибка обработки сообщения:', error);
                     });
                   } else {
@@ -1233,33 +1256,15 @@ async function handleIncomingMessage(msg) {
   }
 }
 
-// Обработка входящих сообщений - регистрируем на случай, если события заработают
-// НО: основная обработка идет через polling, так как события не работают в версии 1.34.4
-console.log('📝 Регистрация обработчиков сообщений (на случай, если события заработают)...');
+// Событие message — основной канал; polling — резерв. message_create не используем (дублирует message).
+console.log('📝 Регистрация обработчика message...');
 client.on('message', (msg) => {
-  console.log('🔔 [EVENT] Событие "message" получено!');
-  const msgId = getMessageId(msg);
-  if (!processedMessageIds.has(msgId)) {
-    processIncomingMessage(msg).catch(error => {
-      console.error('❌ Ошибка обработки сообщения из события:', error);
-    });
-  }
-});
-client.on('message_create', (msg) => {
-  console.log('🔔 [EVENT] Событие "message_create" получено!');
-  const msgId = getMessageId(msg);
-  if (!processedMessageIds.has(msgId) && !msg.fromMe) {
-    processIncomingMessage(msg).catch(error => {
-      console.error('❌ Ошибка обработки сообщения из события:', error);
-    });
-  }
-});
-client.on('message_ciphertext', (msg) => {
   if (msg.fromMe) return;
-  console.log('🔐 [EVENT] message_ciphertext — ожидаем расшифровку');
-  scheduleCiphertextHandle(msg);
+  processIncomingMessage(msg, 'message').catch((error) => {
+    console.error('❌ Ошибка обработки сообщения из события:', error);
+  });
 });
-console.log('✅ Обработчики сообщений зарегистрированы (но основная работа через polling)');
+console.log('✅ Обработчик message зарегистрирован (polling — резервный канал)');
 
 // Обработка ошибок
 client.on('error', (error) => {
