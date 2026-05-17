@@ -41,7 +41,10 @@ COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
 COPY web/package.json web/package-lock.json* ./web/
-RUN npm ci --prefix web && npm run build --prefix web
+# Vite в devDependencies — без --include=dev сборка падает с «vite: not found»
+RUN npm ci --prefix web --include=dev \
+  && npm run build --prefix web \
+  && rm -rf web/node_modules
 
 COPY . .
 
