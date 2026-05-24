@@ -1,22 +1,4 @@
 {
-  "items": [
-    {
-      "id": "08e79544-84cc-4ce7-b6a5-cabecd1b7700",
-      "chatId": "79991234567@c.us",
-      "phone": "79991234567",
-      "phoneDisplay": "+79991234567",
-      "waLink": "https://wa.me/79991234567",
-      "language": "ru",
-      "languageLabel": "Русский",
-      "clientName": "Test",
-      "reasonKey": "handoff",
-      "reasonLabel": "запрос связи с менеджером",
-      "preview": "test",
-      "summary": "Имя клиента: Test.\nПричина передачи менеджеру: запрос связи с менеджером.\nТриггер: «test».\nДиалог короткий — мало критериев, уточните у клиента при звонке.",
-      "summaryStatus": "ready",
-      "createdAt": "2026-05-24T18:14:51.467Z",
-      "summaryReadyAt": "2026-05-24T18:14:51.482Z"
-    }
-  ],
-  "updatedAt": "2026-05-24T18:14:51.482Z"
+  "items": [],
+  "updatedAt": null
 }

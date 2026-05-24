@@ -6,5 +6,6 @@ npm-debug.log
 .gitignore
 .env
 .env.*
+data/handoff-leads.json
 .dockerignore
 Dockerfile

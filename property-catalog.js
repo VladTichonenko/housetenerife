@@ -1,7 +1,13 @@
 const fs = require('fs');
 const path = require('path');
+const { LOCATION_KEYWORDS } = require('./dialog-context');
 
-const DATA = path.join(__dirname, 'data', 'properties.json');
+function resolveCatalogPath() {
+  if (process.env.PROPERTIES_PATH) return process.env.PROPERTIES_PATH;
+  return path.join(__dirname, 'data', 'properties.json');
+}
+
+const DATA = resolveCatalogPath();
 const SUPPORTED_LANGS = ['ru', 'en', 'es'];
 
 let cache = null;
@@ -121,11 +127,24 @@ function parseItemPriceEur(item) {
   return parseInt(m[1] + m[2], 10);
 }
 
+function scoreLocation(item, contextText) {
+  const blob = itemSearchBlob(item).toLowerCase();
+  const lower = String(contextText || '').toLowerCase();
+  let sc = 0;
+  for (const k of LOCATION_KEYWORDS) {
+    const key = k.toLowerCase();
+    if (lower.includes(key) && blob.includes(key)) sc += 18;
+  }
+  return sc;
+}
+
 function scoreItem(item, tokens, options = {}) {
   const blob = itemSearchBlob(item);
   const hay = tokenize(blob);
-  let sc = 0;
+  let sc = scoreLocation(item, options.contextText);
+
   for (const t of tokens) {
+    if (t.length < 2) continue;
     if (blob.toLowerCase().includes(t)) sc += 3;
     for (const h of hay) {
       if (h === t) sc += 2;
@@ -178,15 +197,23 @@ const PRICE_FALLBACK = {
  * @param {{ minPrice?: number, maxPrice?: number, lang?: string }} options
  */
 function searchForContext(query, limit = 8, options = {}) {
+  if (typeof limit === 'object' && limit !== null) {
+    options = limit;
+    limit = options.limit ?? 8;
+  }
+  limit = Math.min(20, Math.max(1, parseInt(limit, 10) || 8));
+
   const lang = normalizeLang(options.lang);
   const data = load();
-  if (!data.items.length) {
-    return { found: false, text: EMPTY_CATALOG_MSG[lang] || EMPTY_CATALOG_MSG.ru };
+  const totalInDb = data.items.length;
+  if (!totalInDb) {
+    return { found: false, text: EMPTY_CATALOG_MSG[lang] || EMPTY_CATALOG_MSG.ru, totalInDb: 0 };
   }
   const tokens = tokenize(query);
   const scoreOpts = {
     minPrice: options.minPrice ?? null,
-    maxPrice: options.maxPrice ?? null
+    maxPrice: options.maxPrice ?? null,
+    contextText: options.contextText || query || ''
   };
 
   let ranked = data.items.map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }));
@@ -194,33 +221,65 @@ function searchForContext(query, limit = 8, options = {}) {
   if (!tokens.length && (scoreOpts.minPrice || scoreOpts.maxPrice)) {
     ranked = ranked.filter((x) => x.s > 0);
   } else if (tokens.length) {
-    ranked = ranked.filter((x) => x.s > 0);
+    const withScore = ranked.filter((x) => x.s > 0);
+    if (withScore.length) ranked = withScore;
+    else if (scoreOpts.minPrice || scoreOpts.maxPrice) {
+      ranked = ranked.filter((x) => {
+        const p = parseItemPriceEur(x.item);
+        if (p == null) return false;
+        const { minPrice, maxPrice } = scoreOpts;
+        if (minPrice != null && maxPrice != null) return p >= minPrice * 0.8 && p <= maxPrice * 1.2;
+        if (maxPrice != null) return p <= maxPrice * 1.25;
+        if (minPrice != null) return p >= minPrice * 0.75;
+        return true;
+      });
+    }
   } else {
     ranked = data.items
       .map((item) => ({ item, s: parseItemPriceEur(item) || 0 }))
       .sort((a, b) => a.s - b.s)
-      .slice(0, limit * 3);
+      .slice(0, limit * 4);
   }
 
   ranked = ranked.sort((a, b) => b.s - a.s).slice(0, limit);
 
   if (!ranked.length) {
-    return { found: false, text: NO_MATCH_MSG[lang] || NO_MATCH_MSG.ru };
+    ranked = data.items
+      .slice(0, Math.max(limit, 1) * 2)
+      .map((item) => ({ item, s: 1 }))
+      .slice(0, Math.max(limit, 1));
   }
+
+  if (!ranked.length) {
+    return { found: false, text: NO_MATCH_MSG[lang] || NO_MATCH_MSG.ru, totalInDb };
+  }
+  let lines;
   const { getShareUrl } = require('./property-share');
-  const lines = ranked.map((r, i) => {
-    const loc = getLocalizedItem(r.item, lang);
-    const desc = (loc.description || '').replace(/\s+/g, ' ').trim();
-    const short = desc.length > 240 ? `${desc.slice(0, 240)}…` : desc;
-    const priceLabel = loc.price || PRICE_FALLBACK[lang] || PRICE_FALLBACK.ru;
-    const shareUrl = getShareUrl(r.item, lang);
-    return `${i + 1}. ${loc.title} — ${priceLabel}\n   ${shareUrl}\n   ${short}`;
-  });
+  try {
+    lines = ranked.map((r, i) => {
+      const loc = getLocalizedItem(r.item, lang);
+      const desc = (loc.description || '').replace(/\s+/g, ' ').trim();
+      const short = desc.length > 240 ? `${desc.slice(0, 240)}…` : desc;
+      const priceLabel = loc.price || PRICE_FALLBACK[lang] || PRICE_FALLBACK.ru;
+      const shareUrl = getShareUrl(r.item, lang);
+      return `${i + 1}. ${loc.title} — ${priceLabel}\n   ${shareUrl}\n   ${short}`;
+    });
+  } catch (e) {
+    console.warn('⚠️ searchForContext format:', e.message);
+    return { found: false, text: NO_MATCH_MSG[lang] || NO_MATCH_MSG.ru, totalInDb };
+  }
+  const header =
+    lang === 'en'
+      ? `[Catalog: ${totalInDb} listings on site; below are the ${lines.length} best matches for the query — do not invent other URLs.]`
+      : lang === 'es'
+        ? `[Catálogo: ${totalInDb} anuncios; abajo ${lines.length} mejores coincidencias — no inventes otros enlaces.]`
+        : `[Каталог: на сайте ${totalInDb} объектов; ниже ${lines.length} лучших по запросу — другие ссылки не выдумывай.]`;
+
   return {
     found: true,
-    text: lines.join('\n\n'),
+    text: `${header}\n\n${lines.join('\n\n')}`,
     syncedAt: data.syncedAt || null,
-    totalInDb: data.items.length
+    totalInDb
   };
 }
 

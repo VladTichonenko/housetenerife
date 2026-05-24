@@ -57,11 +57,52 @@ function isImageWithDescription(msg, messageText) {
 
 function containsLink(text) {
   if (!text || typeof text !== 'string') return false;
+  if (isCatalogSiteText(text)) return false;
   if (URL_RE.test(text)) return true;
   const match = text.match(DOMAIN_RE);
   if (!match || match.index == null) return false;
   if (match.index > 0 && text[match.index - 1] === '@') return false;
   return true;
+}
+
+/** Ссылки на наш каталог — не считаем «передачей менеджеру» */
+function isCatalogSiteText(text) {
+  return /housetenerife\.eu/i.test(String(text || ''));
+}
+
+/**
+ * Запрос связи с живым менеджером (не только одно слово «менеджер»).
+ */
+function wantsManagerHandoff(text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  const lower = t.toLowerCase().replace(/\s+/g, ' ');
+
+  if (/^(менеджер|manager|mánager|менеджера|hablar con (el )?manager|contact manager)$/i.test(lower)) {
+    return true;
+  }
+
+  const managerWord = /(?:менеджер|manager|mánager|максим|maxim|kulikov|куликов)/i;
+  const intent =
+    /(?:хочу|хотел|нужен|нужна|можно|связ|соедин|подключ|переда|передай|позов|напиш|напишите|поговор|говор|позвон|звон|живой|человек|человека|свяжите|свяжитесь|call|speak|talk|contact|connect|human|agent|realtor|asesor|gestor)/i;
+
+  if (managerWord.test(lower) && intent.test(lower)) return true;
+
+  if (
+    /(?:связь|contacto|contact)\s+(?:с\s+)?(?:менеджер|manager|максим|maxim)/i.test(lower)
+  ) {
+    return true;
+  }
+
+  if (/(?:передай|передайте|forward).{0,40}(?:менеджер|manager|максим)/i.test(lower)) {
+    return true;
+  }
+
+  if (/(?:want|need|get).{0,25}(?:manager|human|agent)/i.test(lower)) {
+    return true;
+  }
+
+  return false;
 }
 
 function formatCustomerPhone(chatId) {
@@ -189,6 +230,8 @@ module.exports = {
   isImageMessage,
   isImageWithDescription,
   containsLink,
+  isCatalogSiteText,
+  wantsManagerHandoff,
   buildVoiceReply,
   buildHandoffAskName,
   buildHandoffNameInvalid,

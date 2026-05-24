@@ -23,6 +23,7 @@ const {
   isVoiceMessage,
   isImageWithDescription,
   containsLink,
+  wantsManagerHandoff,
   buildVoiceReply,
   buildHandoffAskName,
   buildHandoffNameInvalid,
@@ -43,7 +44,6 @@ const propertyPreviewRouter = require('./property-preview');
 setRecordHandoff(recordHandoff);
 console.log(`📋 Лиды handoff (панель «Связь с менеджером»): ${HANDOFF_PATH}`);
 
-const MANAGER_REQUEST_RE = /^(менеджер|manager|mánager|менеджера|si|yes|да)$/i;
 
 // Создаем Express сервер для API
 const app = express();
@@ -1125,25 +1125,25 @@ async function handleIncomingMessage(msg) {
       return 'processed';
     }
 
-    if (containsLink(messageText) && !commandHandlers[trimmedMessage]) {
-      console.log(`🔗 Ссылка в сообщении от ${chatId} — запрос имени перед менеджером`);
-      addToHistory(chatId, 'user', messageText);
-      await beginManagerHandoff(msg, client, dialogLanguage, sendMessageSafely, {
-        reasonKey: 'link',
-        preview: messageText,
-        translationKey: 'manager_handoff_link',
-      });
-      addToHistory(chatId, 'assistant', buildHandoffAskName(dialogLanguage));
-      return 'processed';
-    }
-
-    if (MANAGER_REQUEST_RE.test(trimmedMessage)) {
+    if (wantsManagerHandoff(messageText)) {
       console.log(`👤 Запрос менеджера от ${chatId} — запрос имени`);
       addToHistory(chatId, 'user', messageText);
       await beginManagerHandoff(msg, client, dialogLanguage, sendMessageSafely, {
         reasonKey: 'handoff',
         preview: messageText,
         translationKey: 'manager_handoff',
+      });
+      addToHistory(chatId, 'assistant', buildHandoffAskName(dialogLanguage));
+      return 'processed';
+    }
+
+    if (containsLink(messageText) && !commandHandlers[trimmedMessage]) {
+      console.log(`🔗 Внешняя ссылка от ${chatId} — запрос имени перед менеджером`);
+      addToHistory(chatId, 'user', messageText);
+      await beginManagerHandoff(msg, client, dialogLanguage, sendMessageSafely, {
+        reasonKey: 'link',
+        preview: messageText,
+        translationKey: 'manager_handoff_link',
       });
       addToHistory(chatId, 'assistant', buildHandoffAskName(dialogLanguage));
       return 'processed';
