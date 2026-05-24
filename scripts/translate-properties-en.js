@@ -1,9 +1,10 @@
 /**
- * Заполняет titles.en / descriptions.en / overviews.en в data/properties.json.
- * На сайте нет /en/ — перевод через AI API (из ES, иначе из RU).
+ * ОПЦИОНАЛЬНЫЙ офлайн-скрипт (не нужен для работы WhatsApp-бота).
+ * Заполняет titles.en / descriptions.en в data/properties.json через отдельный ключ API.
+ * На сайте нет /en/ — для англоязычных клиентов бот и так берёт ES/RU из каталога.
  *
- *   npm run translate-en
- *   TRANSLATE_BATCH=3 TRANSLATE_DELAY_MS=12000 npm run translate-en
+ *   TRANSLATE_AI_API_KEY=... node scripts/translate-properties-en.js
+ * Не использует AI_API_KEY бота.
  */
 require('dotenv').config();
 const dns = require('dns');
@@ -21,7 +22,7 @@ const DATA = path.join(__dirname, '..', 'data', 'properties.json');
 const AI_API_URL =
   process.env.AI_API_URL || 'https://api.intelligence.io.solutions/api/v1/chat/completions';
 const AI_MODEL = process.env.AI_MODEL || 'deepseek-ai/DeepSeek-V3.2';
-const AI_API_KEY = process.env.AI_API_KEY;
+const AI_API_KEY = process.env.TRANSLATE_AI_API_KEY;
 const BATCH = parseInt(process.env.TRANSLATE_BATCH, 10) || 3;
 const DELAY_MS = parseInt(process.env.TRANSLATE_DELAY_MS, 10) || 12000;
 const RETRIES = parseInt(process.env.TRANSLATE_RETRIES, 10) || 8;
@@ -76,7 +77,7 @@ async function checkApiHost() {
     console.error(`   URL из .env: ${AI_API_URL}`);
     console.error('\n   Это сетевая проблема (роутер, VPN, провайдер), не ключ API.');
     console.error('   Попробуйте: другой Wi‑Fi, отключить VPN, перезагрузить роутер,');
-    console.error('   сменить DNS на 8.8.8.8 / 1.1.1.1, затем снова npm run translate-en\n');
+    console.error('   сменить DNS на 8.8.8.8 / 1.1.1.1, затем снова запустить скрипт\n');
     return false;
   }
 }
@@ -172,7 +173,10 @@ function applyTranslations(data, translated) {
 
 async function main() {
   if (!AI_API_KEY?.trim()) {
-    console.error('Задайте AI_API_KEY в .env');
+    console.error(
+      'Задайте TRANSLATE_AI_API_KEY (отдельный ключ, не AI_API_KEY бота).\n' +
+        'Скрипт не обязателен: бот для EN использует тексты ES/RU из каталога.'
+    );
     process.exit(1);
   }
 
@@ -220,7 +224,7 @@ async function main() {
           `\nОстановка: ${STOP_AFTER_FAILS} пакетов подряд без успеха.`
         );
         if (status === 429) {
-          console.error('Лимит запросов API (429). Запустите позже: TRANSLATE_BATCH=2 TRANSLATE_DELAY_MS=20000 npm run translate-en');
+          console.error('Лимит API (429). Запустите позже с TRANSLATE_BATCH=2 TRANSLATE_DELAY_MS=20000');
         }
         console.error('Уже переведено пакетов:', okBatches, '— повторный запуск продолжит с оставшихся.');
         process.exit(1);

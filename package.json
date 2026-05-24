@@ -10,7 +10,6 @@
     "build": "npm ci --prefix web --include=dev && npm run build --prefix web",
     "build:web": "npm run build",
     "sync-db": "node scripts/sync-properties.js",
-    "translate-en": "node scripts/translate-properties-en.js",
     "enrich-i18n": "node scripts/enrich-properties-i18n.js"
   },
   "license": "ISC",

@@ -1,13 +1,8 @@
 'use strict';
 
-const axios = require('axios');
 const { analyzeConversation, extractBudgetRange } = require('./dialog-context');
 const { REASON_LABELS } = require('./manager-handoff');
-
-const AI_API_URL =
-  process.env.AI_API_URL || 'https://api.intelligence.io.solutions/api/v1/chat/completions';
-const AI_MODEL = process.env.AI_MODEL || 'deepseek-ai/DeepSeek-V3.2';
-const AI_API_KEY = process.env.AI_API_KEY;
+const { chatCompletions, AI_MODEL, AI_API_KEY } = require('./ai-client');
 
 function buildFallbackSummary(conversationHistory, reasonKey, preview, clientName) {
   const dialog = analyzeConversation(conversationHistory || []);
@@ -87,8 +82,7 @@ ${clientName ? `Имя клиента (уже известно): ${clientName}.`
     : `Переписки почти нет. Триггер передачи: ${preview || REASON_LABELS[reasonKey] || reasonKey}.`;
 
   try {
-    const response = await axios.post(
-      AI_API_URL,
+    const response = await chatCompletions(
       {
         model: AI_MODEL,
         messages: [
@@ -98,13 +92,7 @@ ${clientName ? `Имя клиента (уже известно): ${clientName}.`
         temperature: 0.35,
         max_tokens: 600,
       },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${AI_API_KEY}`,
-        },
-        timeout: 60000,
-      }
+      { label: 'handoff-summary', maxAttempts: 6, timeout: 60000 }
     );
 
     let text = response.data?.choices?.[0]?.message?.content || '';

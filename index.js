@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { getLanguageFromPhone, getTranslation, getCountryFromPhone } = require('./phone-utils');
 const { askAI } = require('./ai-service');
+const { enqueueForChat } = require('./chat-queue');
 const { detectLanguageFromText, getLanguageName } = require('./language-detector');
 const { registerAdminRoutes } = require('./admin-api');
 const { setupAdminPanel, getAdminPanelStatus } = require('./admin-panel');
@@ -212,7 +213,7 @@ const conversationHistory = new Map();
 // Хранилище для отслеживания первого сообщения от каждого пользователя
 const firstMessageUsers = new Set();
 
-// Хранилище для отслеживания обработанных сообщений (для polling)
+// Дедупликация входящих сообщений (события message / message_create)
 // Формат: Map<msgId, timestamp> - для возможности очистки старых записей
 const processedMessageIds = new Map();
 const processingMessageIds = new Set(); // уже в обработке (защита от дублей)
@@ -300,12 +301,52 @@ function scheduleMessageRetry(msg, delayMs = 2000) {
   if (processedMessageIds.has(msgId) || deferredRetryIds.has(msgId)) return;
   deferredRetryIds.add(msgId);
   console.log(`⏳ [RETRY] Повторная обработка через ${delayMs} мс: ${msgId.substring(0, 24)}...`);
+  const chatId = msg.from || msg.id?.remote || '?';
   trackedSetTimeout(() => {
     deferredRetryIds.delete(msgId);
-    processIncomingMessage(msg, 'retry').catch((err) => {
+    enqueueForChat(chatId, () => processIncomingMessage(msg, 'retry')).catch((err) => {
       console.error('❌ Ошибка повторной обработки:', err);
     });
   }, delayMs);
+}
+
+function startMessageMaintenance() {
+  if (global.messageMaintenanceInterval) return;
+  global.messageMaintenanceInterval = trackedSetInterval(() => {
+    cleanupProcessedIds();
+  }, 300000);
+  console.log('🧹 Очистка кэша ID сообщений — каждые 5 мин');
+}
+
+async function withChatTyping(msg, work) {
+  let chat;
+  try {
+    chat = await msg.getChat();
+    if (typeof chat.sendStateTyping === 'function') {
+      await chat.sendStateTyping();
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    return await work();
+  } finally {
+    try {
+      if (chat && typeof chat.clearState === 'function') {
+        await chat.clearState();
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function dispatchIncomingMessage(msg, source) {
+  if (msg.fromMe) return;
+  const chatId = msg.from || msg.id?.remote || '?';
+  enqueueForChat(chatId, () => processIncomingMessage(msg, source)).catch((error) => {
+    console.error(`❌ Ошибка обработки сообщения (${source}):`, error.message);
+  });
 }
 
 /** @returns {Promise<'processed'|'retry'|'skip'|null>} */
@@ -501,9 +542,7 @@ client.on('ready', async () => {
     
     if (messageListeners === 0) {
       console.warn('⚠️ ВНИМАНИЕ: Обработчик message не зарегистрирован!');
-      client.on('message', (m) => {
-        if (!m.fromMe) processIncomingMessage(m, 'message').catch(() => {});
-      });
+      client.on('message', (m) => dispatchIncomingMessage(m, 'message'));
       console.log('✅ Обработчик message зарегистрирован заново');
     }
     
@@ -534,228 +573,8 @@ client.on('ready', async () => {
     
     console.log('🔍 Диагностика завершена. Бот готов получать сообщения.');
     
-    // ВАЖНО: В версии 1.34.4 whatsapp-web.js события message не срабатывают!
-    // Используем polling как ОСНОВНОЙ способ получения сообщений
-    console.log('⚠️ ВНИМАНИЕ: События message не работают в версии 1.34.4 whatsapp-web.js!');
-    console.log('💡 Рекомендация: обновите библиотеку до последней версии:');
-    console.log('   npm install whatsapp-web.js@latest');
-    console.log('   или откатитесь на стабильную версию:');
-    console.log('   npm install whatsapp-web.js@1.23.0');
-    if (global.pollingInterval) {
-      console.log('⚠️ [POLLING] Уже запущен — повторный ready игнорируем (иначе HTTP 502 на Railway)');
-      return;
-    }
-
-    const pollMs = parseInt(
-      process.env.POLLING_INTERVAL_MS || (onRailway ? '5000' : '3000'),
-      10
-    );
-    console.log(`🔄 Включен polling (каждые ${pollMs} мс)...`);
-
-    // Хранилище для последних проверенных сообщений по чатам
-    const lastCheckedMessages = new Map();
-
-    // Основной polling цикл
-    let pollingCounter = 0;
-    let lastPollingError = null;
-    let lastPollingSuccess = Date.now();
-    let consecutivePollingErrors = 0;
-    const POLLING_RECONNECT_THRESHOLD = 3; // после N подряд таймаутов — переподключение
-    const pollingInterval = trackedSetInterval(async () => {
-      if (!botReady) {
-        if (pollingCounter % 20 === 0) {
-          console.warn('⚠️ [POLLING] Бот не готов, пропускаем цикл');
-        }
-        return;
-      }
-      
-      pollingCounter++;
-      const cycleStartTime = Date.now();
-      
-      // Логируем каждые 20 циклов (примерно раз в минуту), что polling работает
-      if (pollingCounter % 20 === 0) {
-        console.log(`🔄 [POLLING] Проверка сообщений (цикл ${pollingCounter})...`);
-        console.log(`📊 [POLLING] Обработано ID сообщений: ${processedMessageIds.size}`);
-        if (lastPollingError) {
-          console.warn(`⚠️ [POLLING] Последняя ошибка: ${lastPollingError.message} (${Math.round((Date.now() - lastPollingError.time) / 1000)} сек назад)`);
-        }
-      }
-      
-      try {
-        const chats = await client.getChats();
-        const personalChats = chats.filter(c => !c.isGroup && !c.isChannel);
-        
-        // Логируем каждые 20 циклов количество чатов
-        if (pollingCounter % 20 === 0 || logEveryCycle) {
-          console.log(`📊 [POLLING] Проверяем ${personalChats.length} личных чатов...`);
-        }
-        if (personalChats.length === 0 && (pollingCounter % 10 === 0)) {
-          console.warn('⚠️ [POLLING] Личных чатов нет. Напишите боту в ЛС с этого номера — чат появится после первого сообщения.');
-        }
-        
-        let messagesFound = 0;
-        let messagesProcessed = 0;
-        
-        // Проверяем ВСЕ личные чаты, а не только первые 5
-        for (const chat of personalChats) {
-          try {
-            // Получаем последние 15 сообщений (больше лимит — надёжнее при нестабильном порядке в fetchMessages)
-            const messages = await chat.fetchMessages({ limit: 15 });
-            
-            if (messages.length > 0) {
-              messagesFound += messages.length;
-              // Сортируем по времени (новые первые) — в whatsapp-web.js порядок может быть некорректным
-              const sortedMessages = [...messages].sort((a, b) => {
-                let tA = a.timestamp && a.timestamp < 1000000000000 ? a.timestamp * 1000 : (a.timestamp || 0);
-                let tB = b.timestamp && b.timestamp < 1000000000000 ? b.timestamp * 1000 : (b.timestamp || 0);
-                return tB - tA;
-              });
-              for (const msg of sortedMessages) {
-                // Пропускаем сообщения от бота
-                if (msg.fromMe) continue;
-                
-                // Получаем ID сообщения
-                const msgId = msg.id._serialized || msg.id.id || JSON.stringify(msg.id);
-                
-                // Проверяем, не обработали ли мы уже это сообщение
-                if (!isMessageAlreadyHandled(msgId)) {
-                  // Проверяем, не слишком ли старое сообщение (больше 10 минут)
-                  // timestamp может быть в секундах или миллисекундах
-                  let msgTime = msg.timestamp;
-                  if (msgTime < 1000000000000) {
-                    // Если timestamp меньше этого числа, значит это секунды, конвертируем в миллисекунды
-                    msgTime = msgTime * 1000;
-                  }
-                  const now = Date.now();
-                  const age = now - msgTime;
-                  
-                  // Обрабатываем только сообщения не старше 10 минут (увеличено с 5)
-                  if (age < 600000) { // 10 минут = 600000 мс
-                    messagesProcessed++;
-                    console.log('📨 [POLLING] Найдено новое сообщение через polling:', {
-                      from: msg.from,
-                      body: msg.body ? (msg.body.length > 50 ? msg.body.substring(0, 50) + '...' : msg.body) : '(нет текста)',
-                      type: msg.type,
-                      age: Math.round(age / 1000) + ' сек назад',
-                      id: msgId.substring(0, 20) + '...'
-                    });
-                    processIncomingMessage(msg, 'polling').catch(error => {
-                      console.error('❌ Ошибка обработки сообщения:', error);
-                    });
-                  } else {
-                    // Помечаем как обработанное, чтобы не проверять снова
-                    processedMessageIds.set(msgId, now);
-                  }
-                }
-              }
-            }
-          } catch (msgError) {
-            // Логируем ошибки получения сообщений из отдельных чатов (только иногда)
-            if (Math.random() < 0.01) { // Логируем 1% ошибок
-              console.warn(`⚠️ [POLLING] Ошибка получения сообщений из чата ${chat.id?.user || chat.id}:`, msgError.message);
-            }
-          }
-        }
-        
-        // Успешное выполнение polling
-        lastPollingSuccess = Date.now();
-        lastPollingError = null;
-        consecutivePollingErrors = 0;
-        const cycleDuration = Date.now() - cycleStartTime;
-        
-        // Логируем статистику каждые 20 циклов
-        if (pollingCounter % 20 === 0) {
-          if (messagesFound > 0 || messagesProcessed > 0) {
-            console.log(`📊 [POLLING] Найдено сообщений: ${messagesFound}, обработано новых: ${messagesProcessed}, время цикла: ${cycleDuration}мс`);
-          }
-        }
-      } catch (pollError) {
-        lastPollingError = { message: pollError.message, time: Date.now() };
-        const msgStr = String(pollError.message || '');
-        const isTimeoutError = msgStr.includes('timed out') ||
-          msgStr.includes('ProtocolError') ||
-          (pollError.name === 'ProtocolError');
-        // Внутренняя страница/клиент библиотеки в мёртвом состоянии — getState() тоже упадёт, не вызываем его
-        const isClientBrokenError = msgStr.includes('getChats') && (msgStr.includes('undefined') || msgStr.includes('null'));
-        const skipGetState = isTimeoutError || isClientBrokenError;
-        if (isTimeoutError) {
-          consecutivePollingErrors++;
-          console.error('❌ [POLLING] Критическая ошибка polling (таймаут CDP):', pollError.message);
-        } else if (isClientBrokenError) {
-          consecutivePollingErrors++;
-          console.error('❌ [POLLING] Критическая ошибка polling (клиент в нерабочем состоянии):', pollError.message);
-        } else {
-          consecutivePollingErrors++;
-          console.error('❌ [POLLING] Критическая ошибка polling:', pollError.message);
-        }
-        console.error('❌ [POLLING] Стек ошибки:', pollError.stack);
-        
-        // При таймауте или "undefined getChats" не вызываем getState() — он зависнет или упадёт так же
-        if (!skipGetState) {
-          try {
-            const state = await client.getState();
-            console.log(`📊 [POLLING] Состояние клиента при ошибке: ${state}`);
-            if (state !== 'CONNECTED') {
-              console.warn('⚠️ [POLLING] Клиент не подключен, возможно требуется переподключение');
-              botReady = false;
-            }
-          } catch (stateError) {
-            console.error('❌ [POLLING] Не удалось проверить состояние клиента:', stateError.message);
-          }
-        }
-        
-        // После нескольких подряд ошибок — переподключаем клиент (оживляем браузер/сессию)
-        if (consecutivePollingErrors >= POLLING_RECONNECT_THRESHOLD) {
-          console.warn(`⚠️ [POLLING] Подряд ошибок: ${consecutivePollingErrors}. Запуск переподключения...`);
-          consecutivePollingErrors = 0;
-          botReady = false;
-          reconnectClient().catch(err => console.error('❌ Ошибка переподключения после polling:', err));
-        }
-      }
-      
-      // Периодическая очистка старых ID (каждые 100 циклов = ~5 минут)
-      if (pollingCounter % 100 === 0) {
-        cleanupProcessedIds();
-      }
-    }, pollMs);
-
-    const logEveryCycle = process.env.POLLING_DEBUG === '1' || process.env.POLLING_DEBUG === 'true';
-
-    global.pollingInterval = pollingInterval;
-    activeIntervals.add(pollingInterval);
-    
-    // Дополнительная проверка через 5 секунд - возможно, нужно время на синхронизацию
-    setTimeout(async () => {
-      try {
-        console.log('🔍 Повторная проверка через 5 секунд...');
-        const state = await client.getState();
-        console.log(`📊 Состояние клиента: ${state}`);
-        
-        // Пробуем получить последние сообщения
-        try {
-          const chats = await client.getChats();
-          console.log(`💬 Всего чатов: ${chats.length}`);
-          
-          // Пробуем получить последние сообщения из первого личного чата
-          const personalChats = chats.filter(c => !c.isGroup && !c.isChannel);
-          if (personalChats.length > 0) {
-            const testChat = personalChats[0];
-            try {
-              const messages = await testChat.fetchMessages({ limit: 1 });
-              console.log(`📨 Тест: последнее сообщение в чате "${testChat.name || testChat.id.user}" получено успешно`);
-            } catch (msgError) {
-              console.warn(`⚠️ Не удалось получить сообщения из тестового чата:`, msgError.message);
-            }
-          }
-        } catch (chatsError) {
-          console.warn('⚠️ Ошибка при повторной проверке чатов:', chatsError.message);
-        }
-        
-        console.log('✅ Повторная проверка завершена');
-      } catch (checkError) {
-        console.warn('⚠️ Ошибка при повторной проверке:', checkError.message);
-      }
-    }, 5000);
+    console.log('📡 Входящие: события message + message_create, очередь по чату, без polling');
+    startMessageMaintenance();
   } catch (error) {
     console.warn('⚠️ Не удалось подтвердить состояние клиента:', error.message);
   }
@@ -1344,11 +1163,11 @@ async function handleIncomingMessage(msg) {
       addToHistory(chatId, 'user', messageText);
       
       // Получаем ответ от AI
-      console.log(`🤖 Запрос к AI помощнику для ${chatId} (язык: ${userLanguage})`);
+      console.log(`🤖 Запрос к AI для ${chatId} (язык диалога: ${dialogLanguage})`);
       try {
         const history = getHistory(chatId);
-        const aiResponse = await askAI(history, userLanguage);
-        const outgoing = localizeUrlsInText(aiResponse, userLanguage);
+        const aiResponse = await withChatTyping(msg, () => askAI(history, dialogLanguage));
+        const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
 
         // Добавляем ответ AI в историю
         addToHistory(chatId, 'assistant', outgoing);
@@ -1375,15 +1194,10 @@ async function handleIncomingMessage(msg) {
   }
 }
 
-// Событие message — основной канал; polling — резерв. message_create не используем (дублирует message).
-console.log('📝 Регистрация обработчика message...');
-client.on('message', (msg) => {
-  if (msg.fromMe) return;
-  processIncomingMessage(msg, 'message').catch((error) => {
-    console.error('❌ Ошибка обработки сообщения из события:', error);
-  });
-});
-console.log('✅ Обработчик message зарегистрирован (polling — резервный канал)');
+console.log('📝 Регистрация обработчиков входящих сообщений...');
+client.on('message', (msg) => dispatchIncomingMessage(msg, 'message'));
+client.on('message_create', (msg) => dispatchIncomingMessage(msg, 'message_create'));
+console.log('✅ События message + message_create (дедуп по ID, очередь по чату)');
 
 // Обработка ошибок
 client.on('error', (error) => {
@@ -1423,9 +1237,9 @@ app.get('/health', (req, res) => {
       heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024) + ' MB',
       heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024) + ' MB'
     },
-    polling: {
-      processedMessages: processedMessageIds.size,
-      pollingActive: typeof global.pollingInterval !== 'undefined' && global.pollingInterval !== null
+    messages: {
+      processedIds: processedMessageIds.size,
+      mode: 'events'
     },
     timestamp: new Date().toISOString()
   });
@@ -1572,11 +1386,9 @@ async function gracefulShutdown(signal) {
     });
     activeTimeouts.clear();
     
-    // Очищаем глобальный polling interval
-    if (global.pollingInterval) {
-      clearInterval(global.pollingInterval);
-      global.pollingInterval = null;
-      console.log('✅ Polling interval остановлен');
+    if (global.messageMaintenanceInterval) {
+      clearInterval(global.messageMaintenanceInterval);
+      global.messageMaintenanceInterval = null;
     }
     
     // Очищаем logout timeout
