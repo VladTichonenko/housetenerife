@@ -10,7 +10,8 @@
     "build": "npm ci --prefix web --include=dev && npm run build --prefix web",
     "build:web": "npm run build",
     "sync-db": "node scripts/sync-properties.js",
-    "enrich-i18n": "node scripts/enrich-properties-i18n.js"
+    "enrich-i18n": "node scripts/enrich-properties-i18n.js",
+    "test-ai-key": "node scripts/test-ai-key.js"
   },
   "license": "ISC",
   "engines": {

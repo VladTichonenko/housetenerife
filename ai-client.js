@@ -4,7 +4,8 @@ const axios = require('axios');
 
 const AI_API_URL =
   process.env.AI_API_URL || 'https://api.intelligence.io.solutions/api/v1/chat/completions';
-const AI_MODEL = process.env.AI_MODEL || 'deepseek-ai/DeepSeek-V3.2';
+const AI_MODEL =
+  process.env.AI_MODEL || 'meta-llama/Llama-3.3-70B-Instruct';
 const AI_API_KEY = process.env.AI_API_KEY;
 
 const MAX_ATTEMPTS = Math.min(15, Math.max(1, parseInt(process.env.AI_MAX_RETRIES, 10) || 8));
@@ -96,12 +97,33 @@ async function waitMinInterval() {
   }
 }
 
+function buildAuthHeaders(apiKey) {
+  const key = String(apiKey || '').trim();
+  const style = (process.env.AI_AUTH_STYLE || '').toLowerCase();
+  const useXApiKey =
+    style === 'x-api-key' || (style !== 'bearer' && key.startsWith('io-v2-'));
+  if (useXApiKey) {
+    return { 'Content-Type': 'application/json', 'x-api-key': key };
+  }
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` };
+}
+
+function apiErrorDetail(err) {
+  const data = err.response?.data;
+  if (!data) return '';
+  if (typeof data === 'string') return data.slice(0, 300);
+  const msg = data.error?.message || data.message || data.detail;
+  if (msg) return String(msg).slice(0, 300);
+  try {
+    return JSON.stringify(data).slice(0, 300);
+  } catch {
+    return '';
+  }
+}
+
 async function postOnce(payload, provider, timeout) {
   return axios.post(provider.url, payload, {
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${provider.key}`
-    },
+    headers: buildAuthHeaders(provider.key),
     timeout
   });
 }
@@ -140,14 +162,27 @@ async function postWithRetries(payload, opts) {
       lastError = err;
       lastRequestAt = Date.now();
       if (isRateLimited(err) && !allow429Retry) {
+        const detail = apiErrorDetail(err);
+        console.error(
+          `ai-client [${label}/${provider.name}]: 429`,
+          detail || '(нет текста ошибки в ответе)'
+        );
         const limitErr = new Error('AI API rate limit (429)');
         limitErr.code = 'AI_RATE_LIMIT';
         limitErr.response = err.response;
+        limitErr.apiDetail = detail;
         throw limitErr;
       }
     }
 
     if (attempt >= maxAttempts || !isRetryable(lastError, allow429Retry)) {
+      const detail = apiErrorDetail(lastError);
+      if (detail) {
+        console.error(
+          `ai-client [${label}/${provider.name}]: HTTP ${lastError.response?.status || '?'}`,
+          detail
+        );
+      }
       throw lastError;
     }
 

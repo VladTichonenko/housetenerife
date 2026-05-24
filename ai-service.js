@@ -74,7 +74,7 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
         )
       : tier === 'compact'
         ? truncateKnowledge(consultantKnowledge, 8000)
-        : JSON.stringify(consultantKnowledge, null, 2);
+        : truncateKnowledge(consultantKnowledge, 12000);
 
   const botConfig = getBotConfig();
   const dialogPathBlock =
@@ -136,6 +136,12 @@ ${webBlock}
   ];
 
   return { messages };
+}
+
+function apiErrorDetailFromResponse(error) {
+  const data = error.response?.data;
+  if (!data) return '';
+  return data.error?.message || data.message || data.detail || '';
 }
 
 function formatModelReply(data) {
