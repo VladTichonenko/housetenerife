@@ -281,6 +281,12 @@ textarea {
   animation: modalIn 0.25s ease;
 }
 
+.modal__dialog--wide {
+  max-width: 560px;
+  max-height: min(90vh, 720px);
+  overflow-y: auto;
+}
+
 @keyframes modalIn {
   from {
     opacity: 0;
@@ -706,6 +712,154 @@ textarea {
   text-decoration: underline;
 }
 
+/* Manager handoffs */
+.handoffs-intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.handoff-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.handoff-grid--loading {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.handoff-card {
+  text-align: left;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+}
+
+.handoff-card:hover {
+  border-color: rgba(13, 110, 110, 0.35);
+  box-shadow: var(--shadow-md);
+}
+
+.handoff-card__badge {
+  align-self: flex-start;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 100px;
+  background: rgba(13, 110, 110, 0.12);
+  color: var(--color-primary);
+}
+
+.handoff-card__phone {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.handoff-card__date {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.handoff-card__lang {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.handoff-modal__meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.handoff-card__summary {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.handoff-card__summary--pending {
+  font-style: italic;
+  color: var(--color-primary);
+}
+
+.handoff-modal__block {
+  margin-bottom: 20px;
+}
+
+.handoff-modal__label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+
+.handoff-modal__phone {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.handoff-modal__wa {
+  margin-bottom: 8px;
+}
+
+.handoff-modal__meta {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  word-break: break-all;
+}
+
+.handoff-modal__preview {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  padding: 12px;
+  background: var(--color-bg);
+  border-radius: var(--radius);
+}
+
+.handoff-modal__summary {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  padding: 14px;
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  border-left: 3px solid var(--color-primary);
+}
+
+.handoff-modal__pending {
+  font-size: 0.9375rem;
+  color: var(--color-primary);
+  font-style: italic;
+}
+
+.handoff-modal__loading {
+  padding: 24px 0;
+  color: var(--color-text-muted);
+}
+
 .catalog-pagination {
   display: flex;
   align-items: center;
@@ -756,6 +910,30 @@ textarea {
   font-weight: 600;
   background: #fef3c7;
   color: #b45309;
+}
+
+.status-pill--btn {
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.status-pill--btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.status-pill--btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.status-pill--btn:disabled {
+  cursor: wait;
+  opacity: 0.85;
+}
+
+.status-pill--loading .status-pill__dot {
+  animation: pulse 0.8s ease infinite;
 }
 
 .status-pill--ok {

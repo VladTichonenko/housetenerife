@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { searchForContext } = require('./property-catalog');
+const { searchForContext, getCatalogSiteUrl } = require('./property-catalog');
 const { webSearchSnippets, shouldAugmentWithWeb } = require('./web-search');
 const { getBotConfig, formatDialogPathForPrompt } = require('./bot-config');
 const { getKnowledgeBaseForPrompt } = require('./knowledge-base');
@@ -34,7 +34,8 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
   const catalogLimit = dialog.stage === 'SHOW_LISTINGS' || dialog.stage === 'REFINE' ? 10 : 6;
   const catalog = searchForContext(catalogQuery, catalogLimit, {
     minPrice: budget.minPrice,
-    maxPrice: budget.maxPrice
+    maxPrice: budget.maxPrice,
+    lang: userLanguage
   });
 
   let catalogBlock = '';
@@ -61,7 +62,7 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
   const ck = JSON.stringify(consultantKnowledge, null, 2);
   const botConfig = getBotConfig();
   const dialogPathBlock = formatDialogPathForPrompt(botConfig.dialogPath);
-  const siteUrl = consultantKnowledge.brand?.site_ru || 'https://housetenerife.eu/ru/';
+  const siteUrl = getCatalogSiteUrl(userLanguage);
 
   const systemPrompt = `${botConfig.mainPrompt}
 
@@ -87,7 +88,9 @@ ${dialog.stageInstruction}
 - 2–4 короткие строки + при необходимости список объектов.
 - Если клиент в первом же сообщении дал бюджет и район — можно сразу показать 2–3 объекта.
 
-Ответ на языке пользователя: ${userLanguage}.
+Ответ на языке пользователя: ${userLanguage}. В блоке «ОБЪЕКТЫ ИЗ КАТАЛОГА» уже на этом языке — не переводи и не подменяй русским.
+
+**ЯЗЫК КАТАЛОГА:** Показывай клиенту только названия, описания и ссылки на языке ${userLanguage}. Русский текст в ответе не используй, если клиент пишет на en/es.
 
 **ДИСКЛЕЙМЕР (соблюдай):**
 ${consultantKnowledge.disclaimer || 'Не заменяй юриста и налогового консультанта.'}
@@ -98,6 +101,7 @@ ${ck}
 **КАТАЛОГ ОБЪЕКТОВ:**
 На этапах SHOW_LISTINGS / REFINE — покажи 2–3 лучших из блока ниже (название, цена, ссылка, почему подходит).
 На этапах FIRST_CONTACT / NEED_* — объекты не вываливай, задай следующий вопрос.
+Ссылки в блоке уже под язык клиента — вставляй их как есть (превью WhatsApp под ссылкой возьмёт текст с этой страницы).
 ${catalogBlock}
 ${webBlock}
 

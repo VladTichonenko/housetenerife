@@ -2,25 +2,28 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api/client';
 import Logo from './Logo';
-import { IconBot, IconBook, IconCatalog, IconClose, IconGuide, IconMenu, IconPhone } from './Icons';
+import { IconBot, IconBook, IconCatalog, IconClose, IconGuide, IconMenu, IconPhone, IconUsers } from './Icons';
 import SessionSection from './SessionSection';
 import AssistantSection from './AssistantSection';
 import KnowledgeSection from './KnowledgeSection';
 import CatalogSection from './CatalogSection';
 import GuideSection from './GuideSection';
+import ManagerHandoffsSection from './ManagerHandoffsSection';
 
 const SECTIONS = {
   guide: { title: 'Инструкция', id: 'guide' },
   session: { title: 'Сессия WhatsApp', id: 'session' },
   assistant: { title: 'Умный помощник', id: 'assistant' },
   knowledge: { title: 'База знаний', id: 'knowledge' },
-  catalog: { title: 'Каталог объектов', id: 'catalog' }
+  catalog: { title: 'Каталог объектов', id: 'catalog' },
+  handoffs: { title: 'Связь с менеджером', id: 'handoffs' }
 };
 
 const NAV_ITEMS = [
   { id: 'guide', label: 'Инструкция', Icon: IconGuide },
   { id: 'session', label: 'Сессия WhatsApp', Icon: IconPhone },
   { id: 'assistant', label: 'Умный помощник', Icon: IconBot },
+  { id: 'handoffs', label: 'Связь с менеджером', Icon: IconUsers },
   { id: 'knowledge', label: 'База знаний', Icon: IconBook },
   { id: 'catalog', label: 'Каталог', Icon: IconCatalog }
 ];
@@ -28,23 +31,41 @@ const NAV_ITEMS = [
 export default function Dashboard({ showToast }) {
   const { logout } = useAuth();
   const [section, setSection] = useState('guide');
-  const [globalReady, setGlobalReady] = useState(false);
+  const [session, setSession] = useState(null);
+  const [sessionQr, setSessionQr] = useState(null);
+  const [sessionLoading, setSessionLoading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const pollStatus = useCallback(async () => {
+  const refreshSession = useCallback(async () => {
+    setSessionLoading(true);
     try {
       const data = await api.session();
-      setGlobalReady(data.ready);
+      setSession(data);
+      if (!data.ready && data.hasQr) {
+        const qrData = await api.qr();
+        setSessionQr(qrData.qr);
+      } else {
+        setSessionQr(null);
+      }
     } catch {
-      setGlobalReady(false);
+      setSession(null);
+      setSessionQr(null);
+    } finally {
+      setSessionLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    pollStatus();
-    const id = setInterval(pollStatus, 8000);
-    return () => clearInterval(id);
-  }, [pollStatus]);
+    refreshSession();
+  }, [refreshSession]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshSession();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [refreshSession]);
 
   useEffect(() => {
     document.body.classList.toggle('nav-open', menuOpen);
@@ -57,19 +78,31 @@ export default function Dashboard({ showToast }) {
     setSection(id);
     setMenuOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (id === 'session') refreshSession();
   };
 
   const selectSection = (id) => {
     setSection(id);
     setMenuOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (id === 'session') refreshSession();
   };
 
+  const globalReady = Boolean(session?.ready);
+
   const statusPill = (
-    <span className={`status-pill${globalReady ? ' status-pill--ok' : ''}`}>
+    <button
+      type="button"
+      className={`status-pill status-pill--btn${globalReady ? ' status-pill--ok' : ''}${sessionLoading ? ' status-pill--loading' : ''}`}
+      onClick={refreshSession}
+      disabled={sessionLoading}
+      title="Обновить статус бота"
+    >
       <span className="status-pill__dot" />
-      <span className="status-pill__text">{globalReady ? 'Бот онлайн' : 'Ожидание'}</span>
-    </span>
+      <span className="status-pill__text">
+        {sessionLoading ? 'Проверка…' : globalReady ? 'Бот онлайн' : 'Ожидание'}
+      </span>
+    </button>
   );
 
   return (
@@ -133,10 +166,18 @@ export default function Dashboard({ showToast }) {
 
         <div className="section">
           {section === 'guide' && <GuideSection onNavigate={navigateTo} />}
-          {section === 'session' && <SessionSection />}
+          {section === 'session' && (
+            <SessionSection
+              session={session}
+              qr={sessionQr}
+              loading={sessionLoading}
+              onRefresh={refreshSession}
+            />
+          )}
           {section === 'assistant' && <AssistantSection showToast={showToast} />}
           {section === 'knowledge' && <KnowledgeSection showToast={showToast} />}
           {section === 'catalog' && <CatalogSection />}
+          {section === 'handoffs' && <ManagerHandoffsSection />}
         </div>
       </div>
     </div>

@@ -59,5 +59,13 @@ export const api = {
     });
     if (q) params.set('q', q);
     return request(`/api/admin/properties?${params}`);
-  }
+  },
+  getHandoffs: ({ page = 1, limit = 24 } = {}) => {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit)
+    });
+    return request(`/api/admin/handoffs?${params}`);
+  },
+  getHandoff: (id) => request(`/api/admin/handoffs/${encodeURIComponent(id)}`)
 };

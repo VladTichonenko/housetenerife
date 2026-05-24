@@ -1,6 +1,6 @@
 /**
- * Обход страниц каталога housetenerife.eu/ru/ и сохранение объявлений в data/properties.json
- * Уважает robots Crawl-delay — пауза между запросами (по умолчанию 2 с).
+ * Обход каталога housetenerife.eu/ru/ и сохранение объявлений в data/properties.json
+ * Доп. языки (es по умолчанию): SYNC_EXTRA_LANGS=es или SYNC_EXTRA_LANGS=es,de
  */
 const axios = require('axios');
 const cheerio = require('cheerio');
@@ -12,6 +12,10 @@ const USER_AGENT = 'HouseTenerifeBot/1.0 (property catalog sync; contact agency)
 const DELAY_MS = parseInt(process.env.SYNC_DELAY_MS, 10) || 2000;
 const MAX_INDEX_PAGES = parseInt(process.env.SYNC_MAX_INDEX_PAGES, 10) || 600;
 const MAX_PROPERTIES = parseInt(process.env.SYNC_MAX_PROPERTIES, 10) || 2200;
+const EXTRA_LANGS = (process.env.SYNC_EXTRA_LANGS || 'es')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter((s) => s && s !== 'ru');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -47,10 +51,6 @@ function isListingIndexUrl(full) {
   return false;
 }
 
-function isPropertyUrl(full) {
-  return /^\/ru\/property\/[^/]+$/.test(pathOnly(full));
-}
-
 function normalizePropertyUrl(full) {
   const p = pathOnly(full);
   if (!/^\/ru\/property\/[^/]+$/.test(p)) return null;
@@ -78,6 +78,24 @@ function extractUrls(html) {
   return urls;
 }
 
+function extractPropertyIdFromHtml(html) {
+  const m = String(html).match(/\bHZ\d+\b/i);
+  return m ? m[0].toUpperCase() : null;
+}
+
+/** WPML / переключатель языков на странице объекта */
+function extractAlternatePropertyUrls(html) {
+  const out = {};
+  const re = /housetenerife\.eu\/([a-z]{2})\/property\/[^"'#\s]+/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const lang = m[1].toLowerCase();
+    const url = normalizeUrl(m[0].replace(/^https?:\/\//, 'https://'));
+    if (url) out[lang] = url.endsWith('/') ? url : `${url}/`;
+  }
+  return out;
+}
+
 function parseProperty(html, url) {
   const $ = cheerio.load(html);
   const title = $('h1').first().text().trim();
@@ -101,6 +119,55 @@ function parseProperty(html, url) {
     overview: overview || '',
     description: description || ''
   };
+}
+
+function buildMultilingualItem(ruParsed, ruHtml, extraByLang) {
+  const id = extractPropertyIdFromHtml(ruHtml) || extractPropertyIdFromHtml(ruParsed.description);
+  const urls = { ru: ruParsed.url };
+  const titles = { ru: ruParsed.title };
+  const descriptions = { ru: ruParsed.description };
+  const overviews = { ru: ruParsed.overview };
+
+  for (const [lang, data] of Object.entries(extraByLang)) {
+    if (data.url) urls[lang] = data.url;
+    if (data.title) titles[lang] = data.title;
+    if (data.description) descriptions[lang] = data.description;
+    if (data.overview) overviews[lang] = data.overview;
+  }
+
+  return {
+    id,
+    url: ruParsed.url,
+    title: ruParsed.title,
+    price: ruParsed.price,
+    overview: ruParsed.overview,
+    description: ruParsed.description,
+    urls,
+    titles,
+    descriptions,
+    overviews
+  };
+}
+
+async function fetchExtraLanguages(ruHtml, ruUrl, langs) {
+  const alternates = extractAlternatePropertyUrls(ruHtml);
+  const extra = {};
+  for (const lang of langs) {
+    const altUrl = alternates[lang];
+    if (!altUrl) {
+      console.warn(`\n  Нет ${lang} URL для ${ruUrl}`);
+      continue;
+    }
+    try {
+      const html = await fetchHtml(altUrl);
+      const parsed = parseProperty(html, altUrl);
+      extra[lang] = parsed;
+    } catch (e) {
+      console.warn(`\n  Ошибка ${lang}`, altUrl, e.message);
+    }
+    await sleep(DELAY_MS);
+  }
+  return extra;
 }
 
 async function main() {
@@ -135,6 +202,9 @@ async function main() {
   }
 
   console.log(`\nНайдено уникальных объявлений: ${propertyUrls.size}`);
+  if (EXTRA_LANGS.length) {
+    console.log(`Доп. языки: ${EXTRA_LANGS.join(', ')}`);
+  }
 
   const items = [];
   const list = [...propertyUrls].slice(0, MAX_PROPERTIES);
@@ -144,7 +214,12 @@ async function main() {
     process.stdout.write(`\rОбъект ${i}/${list.length}…`);
     try {
       const html = await fetchHtml(pu);
-      items.push(parseProperty(html, pu));
+      const ruParsed = parseProperty(html, pu);
+      let extraByLang = {};
+      if (EXTRA_LANGS.length) {
+        extraByLang = await fetchExtraLanguages(html, pu, EXTRA_LANGS);
+      }
+      items.push(buildMultilingualItem(ruParsed, html, extraByLang));
     } catch (e) {
       console.warn('\nОшибка', pu, e.message);
     }
@@ -158,6 +233,7 @@ async function main() {
     syncedAt: new Date().toISOString(),
     source: BASE,
     count: items.length,
+    langs: ['ru', ...EXTRA_LANGS],
     items
   };
   fs.writeFileSync(outPath, JSON.stringify(out, null, 2), 'utf8');

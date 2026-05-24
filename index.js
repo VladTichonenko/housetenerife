@@ -18,6 +18,30 @@ const {
   clearEmptyBodyRetry,
   exceededEmptyBodyRetries,
 } = require('./message-body');
+const {
+  isVoiceMessage,
+  isImageWithDescription,
+  containsLink,
+  buildVoiceReply,
+  buildHandoffAskName,
+  buildHandoffNameInvalid,
+  buildHandoffReply,
+  beginManagerHandoff,
+  connectWithManager,
+  setRecordHandoff,
+} = require('./manager-handoff');
+const {
+  getPendingHandoff,
+  clearPendingHandoff,
+  extractClientName,
+} = require('./handoff-pending');
+const { recordHandoff } = require('./handoff-leads');
+const { localizeUrlsInText } = require('./property-share');
+const propertyPreviewRouter = require('./property-preview');
+
+setRecordHandoff(recordHandoff);
+
+const MANAGER_REQUEST_RE = /^(менеджер|manager|mánager|менеджера|si|yes|да)$/i;
 
 // Создаем Express сервер для API
 const app = express();
@@ -37,6 +61,7 @@ if (onRailway && process.env.BOT_PORT) {
 
 app.use(cors());
 app.use(express.json());
+app.use(propertyPreviewRouter);
 
 app.use((req, res, next) => {
   if (onRailway && req.path !== '/health') {
@@ -337,6 +362,19 @@ function addToHistory(chatId, sender, text) {
 // Функция для получения истории разговора
 function getHistory(chatId) {
   return conversationHistory.get(chatId) || [];
+}
+
+/** Язык переписки по сообщениям клиента; иначе fallback (номер / первое сообщение). */
+function resolveDialogLanguage(chatId, fallback) {
+  const userTexts = getHistory(chatId)
+    .filter((m) => m.sender === 'user')
+    .map((m) => m.text)
+    .join('\n')
+    .trim();
+  if (userTexts.length >= 8) {
+    return detectLanguageFromText(userTexts);
+  }
+  return fallback;
 }
 
 // Хранилище для обработки команд (теперь с поддержкой языков)
@@ -1164,6 +1202,15 @@ async function handleIncomingMessage(msg) {
     msg = resolved.msg;
     const messageText = resolved.text;
 
+    const earlyLang = getLanguageFromPhone(msg.from) || 'ru';
+
+    if (isVoiceMessage(msg)) {
+      const voiceReply = buildVoiceReply(earlyLang);
+      await sendMessageSafely(msg, voiceReply, client);
+      console.log('🎤 Голосовое сообщение — отправлена подсказка текст/менеджер');
+      return 'processed';
+    }
+
     if (!messageText) {
       if (isPermanentNonText(msg)) {
         clearEmptyBodyRetry(msgId);
@@ -1209,11 +1256,82 @@ async function handleIncomingMessage(msg) {
     
     const userCountry = getCountryFromPhone(chatId);
     
-    const languageName = getLanguageName(userLanguage);
-    console.log(`📨 Получено сообщение от ${chatId} (${userCountry || 'неизвестно'}, язык: ${languageName} [${userLanguage}]): ${messageText}`);
+    const dialogLanguage = resolveDialogLanguage(chatId, userLanguage);
+    const languageName = getLanguageName(dialogLanguage);
+    console.log(`📨 Получено сообщение от ${chatId} (${userCountry || 'неизвестно'}, язык: ${languageName} [${dialogLanguage}]): ${messageText}`);
 
     // Проверяем, является ли сообщение командой
     const trimmedMessage = messageText.toLowerCase();
+
+    const pendingHandoff = getPendingHandoff(chatId);
+    if (pendingHandoff) {
+      if (commandHandlers[trimmedMessage]) {
+        clearPendingHandoff(chatId);
+      } else {
+        const clientName = extractClientName(messageText);
+        if (!clientName) {
+          await sendMessageSafely(
+            msg,
+            buildHandoffNameInvalid(pendingHandoff.language || dialogLanguage),
+            client
+          );
+          return 'processed';
+        }
+        const handoffLang = pendingHandoff.language || dialogLanguage;
+        addToHistory(chatId, 'user', messageText);
+        clearPendingHandoff(chatId);
+        console.log(`👤 Имя получено (${clientName}), передача менеджеру: ${chatId}`);
+        await connectWithManager(msg, client, handoffLang, sendMessageSafely, {
+          reasonKey: pendingHandoff.reasonKey,
+          preview: pendingHandoff.preview,
+          translationKey: pendingHandoff.translationKey,
+          conversationHistory: getHistory(chatId),
+          clientName,
+        });
+        addToHistory(
+          chatId,
+          'assistant',
+          buildHandoffReply(handoffLang, pendingHandoff.translationKey)
+        );
+        return 'processed';
+      }
+    }
+
+    if (isImageWithDescription(msg, messageText)) {
+      console.log(`📷 Фото с описанием от ${chatId} — запрос имени перед менеджером`);
+      addToHistory(chatId, 'user', `[фото] ${messageText}`);
+      await beginManagerHandoff(msg, client, dialogLanguage, sendMessageSafely, {
+        reasonKey: 'image',
+        preview: messageText,
+        translationKey: 'manager_handoff_image',
+      });
+      addToHistory(chatId, 'assistant', buildHandoffAskName(dialogLanguage));
+      return 'processed';
+    }
+
+    if (containsLink(messageText) && !commandHandlers[trimmedMessage]) {
+      console.log(`🔗 Ссылка в сообщении от ${chatId} — запрос имени перед менеджером`);
+      addToHistory(chatId, 'user', messageText);
+      await beginManagerHandoff(msg, client, dialogLanguage, sendMessageSafely, {
+        reasonKey: 'link',
+        preview: messageText,
+        translationKey: 'manager_handoff_link',
+      });
+      addToHistory(chatId, 'assistant', buildHandoffAskName(dialogLanguage));
+      return 'processed';
+    }
+
+    if (MANAGER_REQUEST_RE.test(trimmedMessage)) {
+      console.log(`👤 Запрос менеджера от ${chatId} — запрос имени`);
+      addToHistory(chatId, 'user', messageText);
+      await beginManagerHandoff(msg, client, dialogLanguage, sendMessageSafely, {
+        reasonKey: 'handoff',
+        preview: messageText,
+        translationKey: 'manager_handoff',
+      });
+      addToHistory(chatId, 'assistant', buildHandoffAskName(dialogLanguage));
+      return 'processed';
+    }
     
     if (commandHandlers[trimmedMessage]) {
       // Выполняем команду с учетом языка пользователя
@@ -1230,13 +1348,14 @@ async function handleIncomingMessage(msg) {
       try {
         const history = getHistory(chatId);
         const aiResponse = await askAI(history, userLanguage);
-        
+        const outgoing = localizeUrlsInText(aiResponse, userLanguage);
+
         // Добавляем ответ AI в историю
-        addToHistory(chatId, 'assistant', aiResponse);
-        
+        addToHistory(chatId, 'assistant', outgoing);
+
         // Отправляем ответ пользователю
         console.log(`📤 Отправка ответа от AI на ${chatId}`);
-        await sendMessageSafely(msg, aiResponse, client);
+        await sendMessageSafely(msg, outgoing, client);
         console.log(`✅ Ответ от AI отправлен успешно`);
       } catch (aiError) {
         console.error('❌ Ошибка при запросе к AI:', aiError);

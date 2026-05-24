@@ -54,7 +54,19 @@ const translations = {
     echo: 'Вы написали:',
     useHelp: 'Используйте /help для списка команд.',
     error: '❌ Произошла ошибка при обработке сообщения. Попробуйте еще раз.',
-    ciphertext_reply: '📩 Сообщение получено, но это зашифрованное или одноразовое сообщение — я не вижу текст. Напишите, пожалуйста, обычным текстом.'
+    ciphertext_reply: '📩 Сообщение получено, но это зашифрованное или одноразовое сообщение — я не вижу текст. Напишите, пожалуйста, обычным текстом.',
+    voice_reply:
+      '🎤 Я не могу прослушивать голосовые сообщения.\n\nНапишите, пожалуйста, *текстом* — или ответьте *«менеджер»*, если хотите связаться с {manager_name} ({manager_phone}).',
+    manager_handoff:
+      '✅ Передал ваш запрос менеджеру.\n\n*{manager_name}* — WhatsApp: {manager_phone}\n\nМожете написать ему напрямую: укажите, что обращались через бот House Tenerife.',
+    manager_handoff_image:
+      '📷 Вы прислали фото с описанием — передам менеджеру.\n\n*{manager_name}* — WhatsApp: {manager_phone}\n\nНапишите ему, что отправляли фото боту House Tenerife.',
+    manager_handoff_link:
+      '🔗 Вы прислали ссылку — передам менеджеру.\n\n*{manager_name}* — WhatsApp: {manager_phone}\n\nНапишите ему, что обращались через бот House Tenerife.',
+    handoff_ask_name:
+      'Перед тем как связать вас с менеджером — *подскажите, как к вам обращаться?*',
+    handoff_name_invalid:
+      'Пожалуйста, напишите, как к вам обращаться (имя или как вас называть).'
   },
   es: {
     start: '👋 ¡Hola! Soy tu bot de WhatsApp. Escribe /help para ver la lista de comandos.',
@@ -72,7 +84,19 @@ const translations = {
     site: '🌐 Catálogo House Tenerife (Tenerife, España):',
     echo: 'Escribiste:',
     useHelp: 'Usa /help para ver la lista de comandos.',
-    error: '❌ Ocurrió un error al procesar el mensaje. Inténtalo de nuevo.'
+    error: '❌ Ocurrió un error al procesar el mensaje. Inténtalo de nuevo.',
+    voice_reply:
+      '🎤 No puedo escuchar mensajes de voz.\n\nEscríbeme por *texto* — o responde *«manager»* si quieres hablar con {manager_name} ({manager_phone}).',
+    manager_handoff:
+      '✅ He pasado tu consulta al manager.\n\n*{manager_name}* — WhatsApp: {manager_phone}\n\nPuedes escribirle directamente (menciona el bot House Tenerife).',
+    manager_handoff_image:
+      '📷 Has enviado una foto con descripción — se la paso al manager.\n\n*{manager_name}* — WhatsApp: {manager_phone}',
+    manager_handoff_link:
+      '🔗 Has enviado un enlace — se lo paso al manager.\n\n*{manager_name}* — WhatsApp: {manager_phone}',
+    handoff_ask_name:
+      'Antes de pasarte con el manager — *¿cómo debemos llamarte?*',
+    handoff_name_invalid:
+      'Por favor, escribe cómo debemos llamarte (tu nombre).'
   },
   en: {
     start: '👋 Hello! I am your WhatsApp bot. Type /help for a list of commands.',
@@ -91,7 +115,19 @@ Just write me any message and I will reply!`,
     echo: 'You wrote:',
     useHelp: 'Use /help for a list of commands.',
     error: '❌ An error occurred while processing the message. Please try again.',
-    ciphertext_reply: '📩 I received your message but it\'s encrypted or view-once — I can\'t read the text. Please send a regular text message.'
+    ciphertext_reply: '📩 I received your message but it\'s encrypted or view-once — I can\'t read the text. Please send a regular text message.',
+    voice_reply:
+      '🎤 I can\'t listen to voice messages.\n\nPlease send *text* — or reply *"manager"* to reach {manager_name} ({manager_phone}).',
+    manager_handoff:
+      '✅ I\'ve passed your request to our manager.\n\n*{manager_name}* — WhatsApp: {manager_phone}\n\nYou can message them directly (mention House Tenerife bot).',
+    manager_handoff_image:
+      '📷 Photo with description — forwarding to the manager.\n\n*{manager_name}* — WhatsApp: {manager_phone}',
+    manager_handoff_link:
+      '🔗 You sent a link — forwarding to the manager.\n\n*{manager_name}* — WhatsApp: {manager_phone}',
+    handoff_ask_name:
+      'Before I connect you with our manager — *how should we address you?*',
+    handoff_name_invalid:
+      'Please tell us how to address you (your name).'
   },
   de: {
     start: '👋 Hallo! Ich bin dein WhatsApp-Bot. Tippe /help für eine Liste der Befehle.',

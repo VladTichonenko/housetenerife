@@ -1,36 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
-import { api } from '../api/client';
 import { IconCheck } from './Icons';
 
-export default function SessionSection() {
-  const [loading, setLoading] = useState(true);
-  const [session, setSession] = useState(null);
-  const [qr, setQr] = useState(null);
-
-  const load = useCallback(async () => {
-    try {
-      const data = await api.session();
-      setSession(data);
-      if (!data.ready && data.hasQr) {
-        const qrData = await api.qr();
-        setQr(qrData.qr);
-      } else {
-        setQr(null);
-      }
-    } catch {
-      setSession(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-    const id = setInterval(load, 5000);
-    return () => clearInterval(id);
-  }, [load]);
-
-  if (loading) {
+export default function SessionSection({ session, qr, loading, onRefresh }) {
+  if (loading && !session) {
     return <div className="session-status__loader">Загрузка статуса…</div>;
   }
 
@@ -40,6 +11,19 @@ export default function SessionSection() {
   return (
     <>
       <div className="card card--session">
+        <div className="card__header card__header--row">
+          <p className="card__desc" style={{ margin: 0 }}>
+            Статус WhatsApp-сессии. Обновляйте вручную или при возврате на вкладку браузера.
+          </p>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={onRefresh}
+            disabled={loading}
+          >
+            {loading ? 'Обновление…' : 'Обновить статус'}
+          </button>
+        </div>
         <div className="session-status">
           {ready ? (
             <div className="session-connected">
@@ -60,14 +44,22 @@ export default function SessionSection() {
             <div className="session-qr">
               <h3 className="session-qr__title">Подключите WhatsApp</h3>
               <p className="session-qr__text">
-                Откройте WhatsApp на телефоне → Связанные устройства → Привязать устройство
+                Откройте WhatsApp на телефоне → Связанные устройства → Привязать устройство.
+                Если QR не появился — нажмите «Обновить статус».
               </p>
               {qr ? (
                 <img src={qr} alt="QR-код для входа в WhatsApp" className="session-qr__image" />
               ) : (
                 <div className="session-qr__waiting">
-                  <div className="app-loading__spinner" />
-                  <p>Ожидание QR-кода…</p>
+                  {!loading && (
+                    <p>QR-код не загружен. Нажмите «Обновить статус».</p>
+                  )}
+                  {loading && (
+                    <>
+                      <div className="app-loading__spinner" />
+                      <p>Загрузка…</p>
+                    </>
+                  )}
                 </div>
               )}
             </div>
