@@ -31,9 +31,14 @@ function getManagerContact() {
   return { name, phone };
 }
 
-function applyManagerPlaceholders(text) {
+function applyManagerPlaceholders(text, clientName = '') {
   const { name, phone } = getManagerContact();
-  return text.replace(/\{manager_name\}/g, name).replace(/\{manager_phone\}/g, phone);
+  const namePart = clientName ? `, ${clientName}` : '';
+  return text
+    .replace(/\{client_name\}/g, clientName || '')
+    .replace(/\{client_name_part\}/g, namePart)
+    .replace(/\{manager_name\}/g, name)
+    .replace(/\{manager_phone\}/g, phone);
 }
 
 function isVoiceMessage(msg) {
@@ -64,9 +69,14 @@ function formatCustomerPhone(chatId) {
   return String(chatId).replace(/@c\.us$/, '').replace(/@lid$/, '');
 }
 
-function buildHandoffReply(userLanguage, translationKey) {
-  const text = getTranslation(userLanguage, translationKey);
-  return applyManagerPlaceholders(text);
+function buildHandoffReply(userLanguage, translationKey = 'manager_handoff', clientName = '') {
+  const key =
+    translationKey === 'manager_handoff_image' ||
+    translationKey === 'manager_handoff_link'
+      ? 'manager_handoff'
+      : translationKey;
+  const text = getTranslation(userLanguage, key);
+  return applyManagerPlaceholders(text, clientName);
 }
 
 function buildVoiceReply(userLanguage) {
@@ -147,7 +157,7 @@ async function connectWithManager(
     clientName = '',
   } = {}
 ) {
-  const replyText = buildHandoffReply(userLanguage, translationKey);
+  const replyText = buildHandoffReply(userLanguage, 'manager_handoff', clientName);
   await sendMessageSafely(msg, replyText, client);
   await notifyManager(client, msg.from, reasonKey, preview, {
     clientName,
@@ -155,15 +165,19 @@ async function connectWithManager(
   });
 
   if (recordHandoffFn) {
-    recordHandoffFn({
-      chatId: msg.from,
-      language: userLanguage,
-      languageLabel: getLanguageName(userLanguage),
-      clientName: clientName || '',
-      reasonKey,
-      preview,
-      conversationHistory: conversationHistory || [],
-    }).catch((e) => console.warn('⚠️ recordHandoff:', e.message));
+    try {
+      await recordHandoffFn({
+        chatId: msg.from,
+        language: userLanguage,
+        languageLabel: getLanguageName(userLanguage),
+        clientName: clientName || '',
+        reasonKey,
+        preview,
+        conversationHistory: conversationHistory || [],
+      });
+    } catch (e) {
+      console.error('⚠️ recordHandoff:', e.message);
+    }
   }
 }
 

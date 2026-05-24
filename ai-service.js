@@ -197,11 +197,14 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
     if (status === 401) {
       return 'Ошибка авторизации ИИ: проверьте AI_API_KEY в Railway Variables.';
     }
-    if (status === 429 || error.code === 'AI_RATE_LIMIT') {
+    if (status === 402) {
       return (
-        'Сейчас сервис ИИ перегружен (лимит запросов по ключу). ' +
-        'Напишите через 1–2 минуты или проверьте квоту API intelligence.io.'
+        'На счёте DeepSeek нет средств (402). Для бесплатного ИИ зарегистрируйтесь на openrouter.ai, ' +
+        'создайте ключ и в Railway укажите AI_API_URL=https://openrouter.ai/api/v1/chat/completions и AI_MODEL=openrouter/free.'
       );
+    }
+    if (status === 429 || error.code === 'AI_RATE_LIMIT') {
+      return 'Лимит запросов к ИИ (429). Подождите минуту или смените провайдера (OpenRouter free).';
     }
 
     // Только при таймауте/сети — один компактный повтор

@@ -97,15 +97,23 @@ async function waitMinInterval() {
   }
 }
 
-function buildAuthHeaders(apiKey) {
+function buildAuthHeaders(apiKey, apiUrl = '') {
   const key = String(apiKey || '').trim();
   const style = (process.env.AI_AUTH_STYLE || '').toLowerCase();
   const useXApiKey =
     style === 'x-api-key' || (style !== 'bearer' && key.startsWith('io-v2-'));
+  const headers = { 'Content-Type': 'application/json' };
   if (useXApiKey) {
-    return { 'Content-Type': 'application/json', 'x-api-key': key };
+    headers['x-api-key'] = key;
+  } else {
+    headers.Authorization = `Bearer ${key}`;
   }
-  return { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` };
+  if (String(apiUrl).includes('openrouter.ai')) {
+    headers['HTTP-Referer'] =
+      process.env.OPENROUTER_REFERER || process.env.PUBLIC_BASE_URL || 'https://housetenerife.eu';
+    headers['X-Title'] = process.env.OPENROUTER_APP_NAME || 'House Tenerife WhatsApp Bot';
+  }
+  return headers;
 }
 
 function apiErrorDetail(err) {
@@ -123,7 +131,7 @@ function apiErrorDetail(err) {
 
 async function postOnce(payload, provider, timeout) {
   return axios.post(provider.url, payload, {
-    headers: buildAuthHeaders(provider.key),
+    headers: buildAuthHeaders(provider.key, provider.url),
     timeout
   });
 }

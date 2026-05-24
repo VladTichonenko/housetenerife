@@ -7,8 +7,18 @@ const { formatCustomerPhone, REASON_LABELS } = require('./manager-handoff');
 const { generateHandoffSummary } = require('./handoff-summary');
 const { getLanguageName } = require('./language-detector');
 
-const HANDOFF_PATH =
-  process.env.HANDOFF_LEADS_PATH || path.join(__dirname, 'data', 'handoff-leads.json');
+function resolveHandoffPath() {
+  if (process.env.HANDOFF_LEADS_PATH) {
+    return process.env.HANDOFF_LEADS_PATH;
+  }
+  const sessionPath = process.env.SESSION_PATH;
+  if (sessionPath && path.isAbsolute(sessionPath)) {
+    return path.join(path.dirname(sessionPath), 'handoff-leads.json');
+  }
+  return path.join(__dirname, 'data', 'handoff-leads.json');
+}
+
+const HANDOFF_PATH = resolveHandoffPath();
 const MAX_LEADS = 500;
 
 function ensureDataDir() {
@@ -97,7 +107,7 @@ async function recordHandoff(payload) {
     store.items = store.items.slice(0, MAX_LEADS);
   }
   saveStore(store);
-  console.log(`📋 Лид handoff сохранён: ${phone} (${reasonKey})`);
+  console.log(`📋 Лид handoff сохранён: ${phone} (${reasonKey}) → ${HANDOFF_PATH}`);
 
   setImmediate(() => {
     finishHandoffSummary(id, conversationHistory, {
@@ -181,4 +191,5 @@ module.exports = {
   listHandoffs,
   getHandoff,
   HANDOFF_PATH,
+  resolveHandoffPath,
 };

@@ -58,13 +58,13 @@ const translations = {
     voice_reply:
       '🎤 Я не могу прослушивать голосовые сообщения.\n\nНапишите, пожалуйста, *текстом* — или ответьте *«менеджер»*, если хотите связаться с {manager_name} ({manager_phone}).',
     manager_handoff:
-      '✅ Передал ваш запрос менеджеру.\n\n*{manager_name}* — WhatsApp: {manager_phone}\n\nМожете написать ему напрямую: укажите, что обращались через бот House Tenerife.',
+      'Спасибо{client_name_part}! Запрос передан менеджеру.\n\nНаш менеджер *{manager_name}* скоро свяжется с вами. Или можете написать ему первыми в WhatsApp: {manager_phone}\n\n(Вы обращались через бот House Tenerife.)',
     manager_handoff_image:
-      '📷 Вы прислали фото с описанием — передам менеджеру.\n\n*{manager_name}* — WhatsApp: {manager_phone}\n\nНапишите ему, что отправляли фото боту House Tenerife.',
+      'Спасибо{client_name_part}! Запрос передан менеджеру.\n\nНаш менеджер *{manager_name}* скоро свяжется с вами. Или можете написать ему первыми в WhatsApp: {manager_phone}\n\n(Вы обращались через бот House Tenerife.)',
     manager_handoff_link:
-      '🔗 Вы прислали ссылку — передам менеджеру.\n\n*{manager_name}* — WhatsApp: {manager_phone}\n\nНапишите ему, что обращались через бот House Tenerife.',
+      'Спасибо{client_name_part}! Запрос передан менеджеру.\n\nНаш менеджер *{manager_name}* скоро свяжется с вами. Или можете написать ему первыми в WhatsApp: {manager_phone}\n\n(Вы обращались через бот House Tenerife.)',
     handoff_ask_name:
-      'Перед тем как связать вас с менеджером — *подскажите, как к вам обращаться?*',
+      'Чтобы передать вас менеджеру, *как к вам обращаться?* (имя)',
     handoff_name_invalid:
       'Пожалуйста, напишите, как к вам обращаться (имя или как вас называть).'
   },
@@ -88,13 +88,13 @@ const translations = {
     voice_reply:
       '🎤 No puedo escuchar mensajes de voz.\n\nEscríbeme por *texto* — o responde *«manager»* si quieres hablar con {manager_name} ({manager_phone}).',
     manager_handoff:
-      '✅ He pasado tu consulta al manager.\n\n*{manager_name}* — WhatsApp: {manager_phone}\n\nPuedes escribirle directamente (menciona el bot House Tenerife).',
+      'Gracias{client_name_part}! Hemos pasado tu consulta al manager.\n\n*{manager_name}* se pondrá en contacto contigo pronto. O puedes escribirle primero por WhatsApp: {manager_phone}\n\n(Contactaste a través del bot House Tenerife.)',
     manager_handoff_image:
-      '📷 Has enviado una foto con descripción — se la paso al manager.\n\n*{manager_name}* — WhatsApp: {manager_phone}',
+      'Gracias{client_name_part}! Hemos pasado tu consulta al manager.\n\n*{manager_name}* se pondrá en contacto contigo pronto. O puedes escribirle primero por WhatsApp: {manager_phone}\n\n(Contactaste a través del bot House Tenerife.)',
     manager_handoff_link:
-      '🔗 Has enviado un enlace — se lo paso al manager.\n\n*{manager_name}* — WhatsApp: {manager_phone}',
+      'Gracias{client_name_part}! Hemos pasado tu consulta al manager.\n\n*{manager_name}* se pondrá en contacto contigo pronto. O puedes escribirle primero por WhatsApp: {manager_phone}\n\n(Contactaste a través del bot House Tenerife.)',
     handoff_ask_name:
-      'Antes de pasarte con el manager — *¿cómo debemos llamarte?*',
+      'Para pasarte con el manager, *¿cómo debemos llamarte?* (nombre)',
     handoff_name_invalid:
       'Por favor, escribe cómo debemos llamarte (tu nombre).'
   },
@@ -119,13 +119,13 @@ Just write me any message and I will reply!`,
     voice_reply:
       '🎤 I can\'t listen to voice messages.\n\nPlease send *text* — or reply *"manager"* to reach {manager_name} ({manager_phone}).',
     manager_handoff:
-      '✅ I\'ve passed your request to our manager.\n\n*{manager_name}* — WhatsApp: {manager_phone}\n\nYou can message them directly (mention House Tenerife bot).',
+      'Thank you{client_name_part}! Your request has been passed to our manager.\n\n*{manager_name}* will contact you soon. Or you can message them first on WhatsApp: {manager_phone}\n\n(You contacted us via the House Tenerife bot.)',
     manager_handoff_image:
-      '📷 Photo with description — forwarding to the manager.\n\n*{manager_name}* — WhatsApp: {manager_phone}',
+      'Thank you{client_name_part}! Your request has been passed to our manager.\n\n*{manager_name}* will contact you soon. Or you can message them first on WhatsApp: {manager_phone}\n\n(You contacted us via the House Tenerife bot.)',
     manager_handoff_link:
-      '🔗 You sent a link — forwarding to the manager.\n\n*{manager_name}* — WhatsApp: {manager_phone}',
+      'Thank you{client_name_part}! Your request has been passed to our manager.\n\n*{manager_name}* will contact you soon. Or you can message them first on WhatsApp: {manager_phone}\n\n(You contacted us via the House Tenerife bot.)',
     handoff_ask_name:
-      'Before I connect you with our manager — *how should we address you?*',
+      'To connect you with our manager, *how should we address you?* (name)',
     handoff_name_invalid:
       'Please tell us how to address you (your name).'
   },

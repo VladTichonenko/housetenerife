@@ -36,11 +36,12 @@ const {
   clearPendingHandoff,
   extractClientName,
 } = require('./handoff-pending');
-const { recordHandoff } = require('./handoff-leads');
+const { recordHandoff, HANDOFF_PATH } = require('./handoff-leads');
 const { localizeUrlsInText } = require('./property-share');
 const propertyPreviewRouter = require('./property-preview');
 
 setRecordHandoff(recordHandoff);
+console.log(`📋 Лиды handoff (панель «Связь с менеджером»): ${HANDOFF_PATH}`);
 
 const MANAGER_REQUEST_RE = /^(менеджер|manager|mánager|менеджера|si|yes|да)$/i;
 
@@ -1107,11 +1108,7 @@ async function handleIncomingMessage(msg) {
           conversationHistory: getHistory(chatId),
           clientName,
         });
-        addToHistory(
-          chatId,
-          'assistant',
-          buildHandoffReply(handoffLang, pendingHandoff.translationKey)
-        );
+        addToHistory(chatId, 'assistant', buildHandoffReply(handoffLang, 'manager_handoff', clientName));
         return 'processed';
       }
     }

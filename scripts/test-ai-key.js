@@ -9,13 +9,18 @@ const axios = require('axios');
 const URL =
   process.env.AI_API_URL || 'https://api.intelligence.io.solutions/api/v1/chat/completions';
 const KEY = process.env.AI_API_KEY;
-const MODEL = process.env.AI_MODEL || 'meta-llama/Llama-3.3-70B-Instruct';
+const MODEL = process.env.AI_MODEL || 'openrouter/free';
 
 function headers(style) {
-  if (style === 'x-api-key') {
-    return { 'Content-Type': 'application/json', 'x-api-key': KEY };
+  const h =
+    style === 'x-api-key'
+      ? { 'Content-Type': 'application/json', 'x-api-key': KEY }
+      : { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` };
+  if (URL.includes('openrouter.ai')) {
+    h['HTTP-Referer'] = process.env.OPENROUTER_REFERER || 'https://housetenerife.eu';
+    h['X-Title'] = 'House Tenerife Bot Test';
   }
-  return { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` };
+  return h;
 }
 
 async function tryCall(style) {
