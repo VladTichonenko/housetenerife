@@ -92,7 +92,7 @@ ${clientName ? `Имя клиента (уже известно): ${clientName}.`
         temperature: 0.35,
         max_tokens: 600,
       },
-      { label: 'handoff-summary', maxAttempts: 6, timeout: 60000 }
+      { purpose: 'background', label: 'handoff-summary', maxAttempts: 4, timeout: 60000 }
     );
 
     let text = response.data?.choices?.[0]?.message?.content || '';
