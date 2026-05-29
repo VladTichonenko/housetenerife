@@ -1,3 +1,13 @@
+const {
+  detectPropertyTypePreference,
+  formatPropertyTypeOptions
+} = require('./property-types');
+const {
+  detectRegionPreference,
+  REGION_OPTIONS_PROMPT,
+  formatRegionLabel
+} = require('./catalog-regions');
+
 const LOCATION_KEYWORDS = [
   'las americas',
   'las américas',
@@ -48,32 +58,50 @@ function analyzeConversation(history) {
     /€|eur|euro|евро|бюджет|budget|до\s*\d|от\s*\d|\d{2,3}[\s.]?\d{3}|\d+\s*(тыс|k|млн|million)/i.test(
       lower
     );
-  const hasLocation = LOCATION_KEYWORDS.some((k) => lower.includes(k));
-  const hasType =
-    /вилл|villa|апартамент|apartment|penthouse|пентхаус|студи|studio|таунхаус|townhouse|дом|house|коммерч|commercial|отел|hotel/i.test(
-      lower
-    );
+  const hasLocation = LOCATION_KEYWORDS.some((k) => lower.includes(k.toLowerCase()));
+  const regionPref = detectRegionPreference(allUserText);
+  const hasRegion = regionPref.hasRegion;
+  const macroRegions = regionPref.regions;
+  const regionLabel = regionPref.label;
+  const typePref = detectPropertyTypePreference(allUserText);
+  const hasType = typePref.hasType;
+  const propertyTypes = typePref.types;
+  const propertyTypeLabel = typePref.label;
   const wantsListings =
     /покаж|подбер|вариант|объект|каталог|ссылк|show me|options|listings|properties/i.test(lower);
   const userTurns = userMsgs.length;
 
   let stage = 'FIRST_CONTACT';
 
-  if ((hasBudget && hasLocation) || wantsListings || (hasBudget && hasType && userTurns >= 1)) {
+  const wantsTenerifeArea =
+    macroRegions.includes('tenerife') || (!hasRegion && !macroRegions.length);
+  const needsTenerifeMicro = wantsTenerifeArea && !hasLocation;
+
+  const readyForListings =
+    hasType &&
+    hasBudget &&
+    (hasRegion || hasLocation) &&
+    (!needsTenerifeMicro || hasLocation || !macroRegions.includes('tenerife'));
+
+  if (readyForListings || (wantsListings && hasType && hasBudget && (hasRegion || hasLocation))) {
     stage = 'SHOW_LISTINGS';
-  } else if (userTurns <= 1 && !hasPurpose && !hasBudget && !hasLocation) {
+  } else if (userTurns <= 1 && !hasPurpose && !hasBudget && !hasLocation && !hasType && !hasRegion) {
     stage = 'FIRST_CONTACT';
+  } else if (!hasType) {
+    stage = 'NEED_PROPERTY_TYPE';
+  } else if (!hasRegion && !hasLocation) {
+    stage = 'NEED_REGION';
   } else if (!hasPurpose) {
     stage = 'NEED_PURPOSE';
   } else if (!hasBudget) {
     stage = 'NEED_BUDGET';
-  } else if (!hasLocation) {
+  } else if (needsTenerifeMicro) {
     stage = 'NEED_LOCATION';
   } else {
     stage = 'REFINE';
   }
 
-  if (userTurns >= 3 && hasBudget) {
+  if (userTurns >= 4 && hasBudget && hasType && (hasRegion || hasLocation)) {
     stage = 'SHOW_LISTINGS';
   }
 
@@ -84,26 +112,49 @@ function analyzeConversation(history) {
     hasPurpose,
     hasBudget,
     hasLocation,
+    hasRegion,
+    macroRegions,
+    regionLabel,
     hasType,
+    propertyTypes,
+    propertyTypeLabel,
     wantsListings,
+    regionOptions: REGION_OPTIONS_PROMPT.ru,
     stage,
-    stageInstruction: stageInstructions[stage] || stageInstructions.REFINE
+    stageInstruction: resolveStageInstruction(stage, {
+      propertyTypeLabel,
+      regionLabel
+    }),
+    propertyTypeOptions: formatPropertyTypeOptions('ru')
   };
 }
 
 const stageInstructions = {
-  FIRST_CONTACT: `Первый контакт. Тёплое живое приветствие (не шаблон «здравствуйте, чем помочь»). Представься: House Tenerife, помогаешь с недвижимостью на Тенерифе. Один вопрос: для жизни или как инвестиция/доход? Если клиент уже написал запрос — отзеркаль его словами и задай следующий логичный вопрос (бюджет). Объекты пока НЕ показывай.`,
+  FIRST_CONTACT: `Первый контакт. Тёплое приветствие. Представься: House Tenerife — агентство на Канарах, в каталоге объекты на Тенерифе, в Дубае, на Ибице, в Марбелье/Costa del Sol (сайт housetenerife.eu). Не говори, что работаем только на Тенерифе. Один вопрос: какой тип объекта интересует или в каком регионе ищете? Объекты НЕ показывай.`,
 
-  NEED_PURPOSE: `Уточни цель одним вопросом: дом для себя и семьи или инвестиция/аренда/бизнес? Коротко объясни, зачем спрашиваешь («чтобы подобрать район и тип»). Без списка объектов.`,
+  NEED_PROPERTY_TYPE: `Тип объекта не ясен — уточни до подборки: апартаменты, вилла, дом, земля, коммерция, бизнес, инвест-проект. Не предполагай виллу. Без ссылок.`,
 
-  NEED_BUDGET: `Спроси бюджет одним вопросом. Дай ориентиры: до €300k / €300–600k / от €600k / «пока смотрю». Если клиент назвал виллу или апартаменты — упомяни это. Объекты пока не показывай, если бюджет ещё не ясен.`,
+  NEED_REGION: `Регион не выбран — один вопрос: где ищете — Тенерифе, Дубай, Ибица, Марбелья/Costa del Sol? Можно кратко перечислить. Не предполагай Тенерифе по умолчанию. Без подборки.`,
 
-  NEED_LOCATION: `Спроси район или предпочтения по локации на Тенерифе (юг у океана, Costa Adeje, Los Cristianos, Las Américas, тихий запад и т.д.). Один вопрос. Можно предложить 2–3 района на выбор.`,
+  NEED_PURPOSE: `Уточни цель: для себя/семьи или инвестиция/доход? Коротко зачем спрашиваешь. Без объектов.`,
 
-  SHOW_LISTINGS: `Достаточно данных — покажи 2–3 объекта ИЗ КАТАЛОГА ниже (название, цена, ссылка). К каждому — одна фраза «почему вам подходит». В конце один вопрос: какой ближе / что поменять (дешевле, другой район, больше спален).`,
+  NEED_BUDGET: `Спроси бюджет в € (ориентиры: до 300k / 300–600k / от 600k). Тип: ${'{propertyTypeLabel}'}, регион: ${'{regionLabel}'}. Без подборки.`,
 
-  REFINE: `Клиент уже в диалоге. Ответь на его последнюю реплику по сути. Если критерии яснее — обнови подборку (2–3 объекта из каталога). Если критериев мало — один уточняющий вопрос (бюджет, район или must-have). Не повторяй уже заданные вопросы.`
+  NEED_LOCATION: `Уточни район на Тенерифе (Costa Adeje, Los Cristianos, Las Américas, юг/запад и т.д.) — только если клиент выбрал Тенерифе. Один вопрос.`,
+
+  SHOW_LISTINGS: `Покажи 3–5 объектов из каталога: тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}. Не подмешивай другие регионы и типы. Название, цена, ссылка, почему подходит. Не дешевле бюджета без запроса.`,
+
+  REFINE: `Ответь по сути. Подборка: тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, 3–5 объектов. Если сменили регион или тип — пересобери.`
 };
+
+function resolveStageInstruction(stage, dialog) {
+  let text = stageInstructions[stage] || stageInstructions.REFINE;
+  const typeLabel = dialog.propertyTypeLabel || 'уточняется';
+  const regionLabel = dialog.regionLabel || 'уточняется';
+  return text
+    .replace(/\{propertyTypeLabel\}/g, typeLabel)
+    .replace(/\{regionLabel\}/g, regionLabel);
+}
 
 function buildCatalogSearchQuery(history) {
   const userTexts = (history || [])
@@ -138,11 +189,41 @@ function extractBudgetRange(text) {
   const plain = s.match(/(\d{2,3})[\s.]?(\d{3})\s*(?:€|eur|евро)?/);
   if (plain && !maxPrice && !minPrice) {
     const mid = parseInt(plain[1] + plain[2], 10);
-    minPrice = Math.round(mid * 0.75);
-    maxPrice = Math.round(mid * 1.25);
+    minPrice = Math.round(mid * 0.92);
+    maxPrice = Math.round(mid * 1.15);
   }
 
   return { minPrice, maxPrice };
+}
+
+/**
+ * Целевой коридор цены для подборки: не уводить клиента на сильно дешёвые объекты.
+ * @param {{ minPrice: number|null, maxPrice: number|null }} budget
+ * @returns {{ anchor: number, floor: number, ceiling: number }|null}
+ */
+function derivePriceTarget(budget) {
+  const { minPrice, maxPrice } = budget || {};
+  if (minPrice == null && maxPrice == null) return null;
+
+  let anchor;
+  let floor;
+  let ceiling;
+
+  if (minPrice != null && maxPrice != null) {
+    anchor = Math.round((minPrice + maxPrice) / 2);
+    floor = Math.round(minPrice * 0.95);
+    ceiling = Math.round(maxPrice * 1.1);
+  } else if (maxPrice != null) {
+    anchor = maxPrice;
+    floor = Math.round(maxPrice * 0.9);
+    ceiling = Math.round(maxPrice * 1.12);
+  } else {
+    anchor = minPrice;
+    floor = Math.round(minPrice * 0.95);
+    ceiling = Math.round(minPrice * 1.15);
+  }
+
+  return { anchor, floor, ceiling };
 }
 
 function parseMoneyToken(raw) {
@@ -158,5 +239,8 @@ module.exports = {
   analyzeConversation,
   buildCatalogSearchQuery,
   extractBudgetRange,
-  LOCATION_KEYWORDS
+  derivePriceTarget,
+  LOCATION_KEYWORDS,
+  detectRegionPreference,
+  REGION_OPTIONS_PROMPT
 };

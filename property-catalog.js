@@ -1,6 +1,18 @@
 const fs = require('fs');
 const path = require('path');
-const { LOCATION_KEYWORDS } = require('./dialog-context');
+const { LOCATION_KEYWORDS, derivePriceTarget } = require('./dialog-context');
+const {
+  getItemPropertyCategories,
+  itemMatchesPropertyTypes,
+  scorePropertyTypeFit,
+  formatDetectedTypes
+} = require('./property-types');
+const {
+  getPrimaryMacroRegion,
+  itemMatchesRegions,
+  scoreRegionFit,
+  formatRegionLabel
+} = require('./catalog-regions');
 
 function resolveCatalogPath() {
   if (process.env.PROPERTIES_PATH) return process.env.PROPERTIES_PATH;
@@ -120,11 +132,16 @@ function itemSearchBlob(item) {
 }
 
 function parseItemPriceEur(item) {
-  const raw = String(item.price || item.overview || '').replace(/\s/g, '');
-  const m = raw.match(/(\d{2,3})[.,]?(\d{3})|(\d{5,7})/);
-  if (!m) return null;
-  if (m[3]) return parseInt(m[3], 10);
-  return parseInt(m[1] + m[2], 10);
+  const raw = String(item.price || item.overview || '');
+  const digits = raw.replace(/[^\d]/g, '');
+  if (!digits) return null;
+  let v = parseInt(digits, 10);
+  if (!Number.isFinite(v)) return null;
+  const lower = raw.toLowerCase();
+  if (v < 10000 && /млн|million|millon/i.test(lower)) v *= 1000000;
+  else if (v < 10000 && /тыс|\bk\b/i.test(lower)) v *= 1000;
+  if (v < 50000) return null;
+  return v;
 }
 
 function scoreLocation(item, contextText) {
@@ -136,6 +153,41 @@ function scoreLocation(item, contextText) {
     if (lower.includes(key) && blob.includes(key)) sc += 18;
   }
   return sc;
+}
+
+function scorePriceFit(price, options = {}) {
+  if (price == null) return 0;
+  const { minPrice, maxPrice, priceTarget } = options;
+
+  if (priceTarget) {
+    const { floor, ceiling, anchor } = priceTarget;
+    if (price < floor * 0.98) return -30;
+    if (price > ceiling * 1.2) return -45;
+    if (price > ceiling * 1.12) return -22;
+    if (price >= floor && price <= ceiling) return 18;
+    if (price > ceiling && price <= Math.round(ceiling * 1.12)) return 10;
+    if (price >= Math.round(anchor * 0.92) && price < floor) return -12;
+    return -8;
+  }
+
+  if (minPrice != null && maxPrice != null) {
+    if (price >= minPrice && price <= maxPrice) return 12;
+    if (price >= minPrice * 0.95 && price <= maxPrice * 1.1) return 6;
+    if (price < minPrice * 0.9) return -20;
+    return -4;
+  }
+  if (maxPrice != null) {
+    if (price >= maxPrice * 0.9 && price <= maxPrice * 1.12) return 14;
+    if (price < maxPrice * 0.85) return -22;
+    if (price <= maxPrice * 1.2) return 4;
+    return -3;
+  }
+  if (minPrice != null) {
+    if (price >= minPrice && price <= minPrice * 1.15) return 12;
+    if (price < minPrice * 0.92) return -18;
+    if (price >= minPrice * 0.95) return 4;
+  }
+  return 0;
 }
 
 function scoreItem(item, tokens, options = {}) {
@@ -153,23 +205,85 @@ function scoreItem(item, tokens, options = {}) {
   }
 
   const price = parseItemPriceEur(item);
-  const { minPrice, maxPrice } = options;
-  if (price != null && (minPrice != null || maxPrice != null)) {
-    if (minPrice != null && maxPrice != null) {
-      if (price >= minPrice && price <= maxPrice) sc += 12;
-      else if (price >= minPrice * 0.85 && price <= maxPrice * 1.15) sc += 5;
-      else sc -= 4;
-    } else if (maxPrice != null) {
-      if (price <= maxPrice) sc += 10;
-      else if (price <= maxPrice * 1.2) sc += 3;
-      else sc -= 3;
-    } else if (minPrice != null) {
-      if (price >= minPrice) sc += 8;
-      else if (price >= minPrice * 0.8) sc += 2;
-    }
+  if (price != null) sc += scorePriceFit(price, options);
+
+  if (options.propertyTypes?.length) {
+    sc += scorePropertyTypeFit(item, options.propertyTypes);
+  }
+
+  if (options.macroRegions?.length) {
+    sc += scoreRegionFit(item, options.macroRegions);
   }
 
   return sc;
+}
+
+function filterByMacroRegions(ranked, macroRegions) {
+  if (!macroRegions?.length) return ranked;
+  return ranked.filter((r) => itemMatchesRegions(r.item, macroRegions));
+}
+
+function filterByPropertyTypes(ranked, propertyTypes) {
+  if (!propertyTypes?.length) return ranked;
+  return ranked.filter((r) => itemMatchesPropertyTypes(r.item, propertyTypes));
+}
+
+function locationBucketForItem(item) {
+  const region = getPrimaryMacroRegion(item);
+  const blob = itemSearchBlob(item).toLowerCase();
+  for (const k of LOCATION_KEYWORDS) {
+    const key = k.toLowerCase();
+    if (blob.includes(key)) return `${region}:${key}`;
+  }
+  return region || '';
+}
+
+/** Разнообразие: не отдавать 5 объектов из одного района подряд */
+function pickDiverseListings(ranked, limit) {
+  const poolSize = Math.min(ranked.length, Math.max(limit * 6, 30));
+  const pool = ranked.slice(0, poolSize);
+  const picked = [];
+  const usedBuckets = new Set();
+
+  for (const entry of pool) {
+    if (picked.length >= limit) break;
+    const bucket = locationBucketForItem(entry.item) || entry.item.url || entry.item.id || '';
+    if (bucket && usedBuckets.has(bucket) && picked.length < limit - 1) continue;
+    if (bucket) usedBuckets.add(bucket);
+    picked.push(entry);
+  }
+
+  for (const entry of pool) {
+    if (picked.length >= limit) break;
+    if (!picked.includes(entry)) picked.push(entry);
+  }
+
+  return picked.slice(0, limit);
+}
+
+function itemMatchesPriceTarget(item, priceTarget, relax = 0) {
+  const p = parseItemPriceEur(item);
+  if (p == null) return relax >= 2;
+  const { floor, ceiling, anchor } = priceTarget;
+  const minP = Math.round(anchor * (0.9 - relax * 0.04));
+  const maxP = Math.round(ceiling * (1.12 + relax * 0.06));
+  return p >= Math.min(floor, minP) && p <= maxP;
+}
+
+function filterByPriceTarget(ranked, priceTarget) {
+  if (!priceTarget) return ranked;
+  for (const relax of [0, 1, 2]) {
+    const filtered = ranked.filter((r) => itemMatchesPriceTarget(r.item, priceTarget, relax));
+    if (filtered.length >= 3) return filtered;
+  }
+  const { anchor, ceiling } = priceTarget;
+  const hardMin = Math.round(anchor * 0.88);
+  const hardMax = Math.round(ceiling * 1.18);
+  return ranked.filter((r) => {
+    const p = parseItemPriceEur(r.item);
+    if (p == null) return false;
+    return p >= hardMin && p <= hardMax;
+  });
 }
 
 const EMPTY_CATALOG_MSG = {
@@ -201,7 +315,7 @@ function searchForContext(query, limit = 8, options = {}) {
     options = limit;
     limit = options.limit ?? 8;
   }
-  limit = Math.min(20, Math.max(1, parseInt(limit, 10) || 8));
+  limit = Math.min(25, Math.max(1, parseInt(limit, 10) || 8));
 
   const lang = normalizeLang(options.lang);
   const data = load();
@@ -210,44 +324,66 @@ function searchForContext(query, limit = 8, options = {}) {
     return { found: false, text: EMPTY_CATALOG_MSG[lang] || EMPTY_CATALOG_MSG.ru, totalInDb: 0 };
   }
   const tokens = tokenize(query);
+  const priceTarget =
+    options.priceTarget ??
+    derivePriceTarget({
+      minPrice: options.minPrice ?? null,
+      maxPrice: options.maxPrice ?? null
+    });
+  const propertyTypes = options.propertyTypes ?? [];
+  const macroRegions = options.macroRegions ?? [];
   const scoreOpts = {
     minPrice: options.minPrice ?? null,
     maxPrice: options.maxPrice ?? null,
+    priceTarget,
+    propertyTypes,
+    macroRegions,
     contextText: options.contextText || query || ''
   };
 
   let ranked = data.items.map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }));
 
-  if (!tokens.length && (scoreOpts.minPrice || scoreOpts.maxPrice)) {
+  if (!tokens.length && (scoreOpts.minPrice || scoreOpts.maxPrice || priceTarget)) {
     ranked = ranked.filter((x) => x.s > 0);
   } else if (tokens.length) {
     const withScore = ranked.filter((x) => x.s > 0);
     if (withScore.length) ranked = withScore;
-    else if (scoreOpts.minPrice || scoreOpts.maxPrice) {
-      ranked = ranked.filter((x) => {
-        const p = parseItemPriceEur(x.item);
-        if (p == null) return false;
-        const { minPrice, maxPrice } = scoreOpts;
-        if (minPrice != null && maxPrice != null) return p >= minPrice * 0.8 && p <= maxPrice * 1.2;
-        if (maxPrice != null) return p <= maxPrice * 1.25;
-        if (minPrice != null) return p >= minPrice * 0.75;
-        return true;
-      });
+    else if (priceTarget || scoreOpts.minPrice || scoreOpts.maxPrice) {
+      ranked = filterByPriceTarget(ranked, priceTarget || derivePriceTarget(scoreOpts));
+      if (!ranked.length) {
+        ranked = data.items.map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }));
+      }
     }
   } else {
     ranked = data.items
-      .map((item) => ({ item, s: parseItemPriceEur(item) || 0 }))
-      .sort((a, b) => a.s - b.s)
-      .slice(0, limit * 4);
+      .map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }))
+      .filter((x) => x.s > -15);
   }
 
-  ranked = ranked.sort((a, b) => b.s - a.s).slice(0, limit);
+  ranked = ranked.sort((a, b) => b.s - a.s);
+
+  if (propertyTypes.length) {
+    ranked = filterByPropertyTypes(ranked, propertyTypes);
+  }
+
+  if (macroRegions.length) {
+    ranked = filterByMacroRegions(ranked, macroRegions);
+  }
+
+  if (priceTarget) {
+    const priceFiltered = filterByPriceTarget(ranked, priceTarget);
+    if (priceFiltered.length) ranked = priceFiltered;
+  }
+
+  ranked = pickDiverseListings(ranked, limit);
 
   if (!ranked.length) {
     ranked = data.items
-      .slice(0, Math.max(limit, 1) * 2)
-      .map((item) => ({ item, s: 1 }))
-      .slice(0, Math.max(limit, 1));
+      .map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }))
+      .sort((a, b) => b.s - a.s)
+      .slice(0, Math.max(limit, 1) * 3);
+    if (priceTarget) ranked = filterByPriceTarget(ranked, priceTarget);
+    ranked = ranked.slice(0, Math.max(limit, 1));
   }
 
   if (!ranked.length) {
@@ -262,18 +398,31 @@ function searchForContext(query, limit = 8, options = {}) {
       const short = desc.length > 240 ? `${desc.slice(0, 240)}…` : desc;
       const priceLabel = loc.price || PRICE_FALLBACK[lang] || PRICE_FALLBACK.ru;
       const shareUrl = getShareUrl(r.item, lang);
-      return `${i + 1}. ${loc.title} — ${priceLabel}\n   ${shareUrl}\n   ${short}`;
+      const typeCats = getItemPropertyCategories(r.item);
+      const typeNote = typeCats.length ? ` [${formatDetectedTypes(typeCats, lang)}]` : '';
+      const regionId = getPrimaryMacroRegion(r.item);
+      const regionNote = regionId ? ` · ${formatRegionLabel([regionId], lang)}` : '';
+      return `${i + 1}. ${loc.title} — ${priceLabel}${typeNote}${regionNote}\n   ${shareUrl}\n   ${short}`;
     });
   } catch (e) {
     console.warn('⚠️ searchForContext format:', e.message);
     return { found: false, text: NO_MATCH_MSG[lang] || NO_MATCH_MSG.ru, totalInDb };
   }
+  const priceHint =
+    priceTarget && lang === 'en'
+      ? ` Price band ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (do not suggest much cheaper).`
+      : priceTarget && lang === 'es'
+        ? ` Rango ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (no ofrezcas mucho más barato).`
+        : priceTarget
+          ? ` Коридор цены ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (не предлагай сильно дешевле).`
+          : '';
+
   const header =
     lang === 'en'
-      ? `[Catalog: ${totalInDb} listings on site; below are the ${lines.length} best matches for the query — do not invent other URLs.]`
+      ? `[Full catalog: ${totalInDb} listings; search picked ${lines.length} diverse matches below — use only these URLs.${priceHint}]`
       : lang === 'es'
-        ? `[Catálogo: ${totalInDb} anuncios; abajo ${lines.length} mejores coincidencias — no inventes otros enlaces.]`
-        : `[Каталог: на сайте ${totalInDb} объектов; ниже ${lines.length} лучших по запросу — другие ссылки не выдумывай.]`;
+        ? `[Catálogo completo: ${totalInDb} anuncios; abajo ${lines.length} opciones variadas — solo estos enlaces.${priceHint}]`
+        : `[Полный каталог: ${totalInDb} объектов; ниже ${lines.length} разных вариантов по запросу — другие ссылки не выдумывай.${priceHint}]`;
 
   return {
     found: true,
@@ -292,8 +441,8 @@ function cleanDescription(s) {
 }
 
 function extractPropertyType(overview) {
-  const m = String(overview || '').match(/Property type\s*\|\s*([^|]+)/i);
-  return m ? m[1].trim() : '';
+  const { extractPropertyTypeFromOverview } = require('./property-types');
+  return extractPropertyTypeFromOverview(overview);
 }
 
 /**
@@ -355,7 +504,7 @@ function listProperties({ q = '', page = 1, limit = 24, lang = 'ru' } = {}) {
 function getCatalogSiteUrl(lang) {
   const l = normalizeLang(lang);
   if (l === 'es') return 'https://housetenerife.eu/es/';
-  if (l === 'en') return 'https://housetenerife.eu/es/';
+  if (l === 'en') return 'https://housetenerife.eu/';
   return 'https://housetenerife.eu/ru/';
 }
 
@@ -369,5 +518,6 @@ module.exports = {
   normalizeLang,
   getCatalogSiteUrl,
   cleanDescription,
+  parseItemPriceEur,
   SUPPORTED_LANGS
 };

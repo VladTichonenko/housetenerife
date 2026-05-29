@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 
 const BASE = 'https://housetenerife.eu';
+const { SYNC_SEED_INDEX_URLS } = require('../catalog-regions');
 const USER_AGENT = 'HouseTenerifeBot/1.0 (property catalog sync; contact agency)';
 const DELAY_MS = parseInt(process.env.SYNC_DELAY_MS, 10) || 2000;
 const MAX_INDEX_PAGES = parseInt(process.env.SYNC_MAX_INDEX_PAGES, 10) || 600;
@@ -173,7 +174,7 @@ async function fetchExtraLanguages(ruHtml, ruUrl, langs) {
 async function main() {
   const seenIndex = new Set();
   const queued = new Set();
-  const queue = [`${BASE}/ru/`];
+  const queue = [...new Set([`${BASE}/ru/`, ...SYNC_SEED_INDEX_URLS])];
 
   const propertyUrls = new Set();
 

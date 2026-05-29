@@ -27,8 +27,13 @@ function buildFallbackSummary(conversationHistory, reasonKey, preview, clientNam
   }
 
   if (dialog.hasPurpose) parts.push('Цель: жизнь или инвестиция (упоминалось в диалоге).');
-  if (dialog.hasLocation) parts.push('Локация/район: есть пожелания по району на Тенерифе.');
-  if (dialog.hasType) parts.push('Тип жилья: вилла/апартаменты или другое (упоминалось).');
+  if (dialog.hasRegion) {
+    parts.push(`Регион: ${dialog.regionLabel || dialog.macroRegions?.join(', ')}.`);
+  }
+  if (dialog.hasLocation) parts.push('Район на Тенерифе: есть пожелания.');
+  if (dialog.hasType) {
+    parts.push(`Тип объекта: ${dialog.propertyTypeLabel || 'уточнялся в диалоге'}.`);
+  }
 
   const lastUser = dialog.lastUser?.trim();
   if (lastUser) {
