@@ -34,6 +34,18 @@ function buildFallbackSummary(conversationHistory, reasonKey, preview, clientNam
   if (dialog.hasType) {
     parts.push(`Тип объекта: ${dialog.propertyTypeLabel || 'уточнялся в диалоге'}.`);
   }
+  if (dialog.hasPropertyInterest) {
+    parts.push('Интерес к конкретному объекту из переписки.');
+    if (dialog.hasFundsNow) {
+      parts.push(`Деньги на руках сейчас: ${dialog.fundsNowLabel || 'упоминались'}.`);
+    }
+    if (dialog.hasMortgageAnswered) {
+      parts.push(
+        dialog.needsMortgage ? 'Нужна ипотека/кредит.' : 'Покупка без ипотеки (свои средства).'
+      );
+    }
+    if (dialog.documentsDiscussed) parts.push('Обсуждались документы/справка о доходах.');
+  }
 
   const lastUser = dialog.lastUser?.trim();
   if (lastUser) {

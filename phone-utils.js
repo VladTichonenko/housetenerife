@@ -38,7 +38,8 @@ const countryToLanguage = {
 // Языковые тексты для бота
 const translations = {
   ru: {
-    start: '👋 Привет! Я ваш WhatsApp бот. Введите /help для списка команд.',
+    start:
+      '👋 Привет! Я *Максим*, консультант House Tenerife — помогу с вопросами по недвижимости (Тенерифе, Дубай, Ибица, Марбелья, Малага, Барселона и др., каталог housetenerife.eu).\n\nНапишите, что ищете — или /help для команд.',
     help: `📋 Доступные команды:
 /start - Начать работу с ботом
 /help - Показать справку
@@ -69,7 +70,8 @@ const translations = {
       'Пожалуйста, напишите, как к вам обращаться (имя или как вас называть).'
   },
   es: {
-    start: '👋 ¡Hola! Soy tu bot de WhatsApp. Escribe /help para ver la lista de comandos.',
+    start:
+      '👋 ¡Hola! Soy *Maksim*, de House Tenerife — te ayudo con inmuebles (Tenerife, Dubái, Ibiza, Marbella, Málaga, Barcelona y más, catálogo housetenerife.eu).\n\nCuéntame qué buscas — o escribe /help para comandos.',
     help: `📋 Comandos disponibles:
 /start - Comenzar a trabajar con el bot
 /help - Mostrar ayuda
@@ -99,7 +101,8 @@ const translations = {
       'Por favor, escribe cómo debemos llamarte (tu nombre).'
   },
   en: {
-    start: '👋 Hello! I am your WhatsApp bot. Type /help for a list of commands.',
+    start:
+      '👋 Hi! I\'m *Maxim*, your property advisor at House Tenerife — happy to help with real estate (Tenerife, Dubai, Ibiza, Marbella, Málaga, Barcelona and more, catalog at housetenerife.eu).\n\nTell me what you\'re looking for — or type /help for commands.',
     help: `📋 Available commands:
 /start - Start working with the bot
 /help - Show help

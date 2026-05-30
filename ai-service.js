@@ -1,8 +1,15 @@
 const { chatCompletions, AI_MODEL } = require('./ai-client');
 const { searchForContext, getCatalogSiteUrl } = require('./property-catalog');
 const { webSearchSnippets, shouldAugmentWithWeb } = require('./web-search');
-const { getBotConfig, formatDialogPathForPrompt } = require('./bot-config');
+const { getBotConfig } = require('./bot-config');
 const { getKnowledgeBaseForPrompt } = require('./knowledge-base');
+const {
+  normalizeSalesLang,
+  formatLocalizedDialogPath,
+  buildSystemPromptBlocks,
+  getCatalogHints,
+  pickLocalizedPrompts
+} = require('./sales-localization');
 const {
   analyzeConversation,
   buildCatalogSearchQuery,
@@ -13,16 +20,29 @@ const {
 function truncateKnowledge(knowledge, maxChars) {
   const raw = JSON.stringify(knowledge, null, 2);
   if (raw.length <= maxChars) return raw;
-  return `${raw.slice(0, maxChars)}\n…(сокращено)`;
+  return `${raw.slice(0, maxChars)}\n…(truncated)`;
+}
+
+function localizeKnowledgeBase(kb, salesLang) {
+  if (!kb || salesLang === 'ru') return kb;
+  const next = { ...kb };
+  if (salesLang === 'en' && kb.mortgage_process_en) {
+    next.mortgage_process = kb.mortgage_process_en;
+  }
+  if (salesLang === 'es' && kb.mortgage_process_es) {
+    next.mortgage_process = kb.mortgage_process_es;
+  }
+  return next;
 }
 
 async function buildPromptParts(conversationHistory, userLanguage, tier = 'full') {
+  const salesLang = normalizeSalesLang(userLanguage);
   const limitedHistory =
     tier === 'minimal' ? conversationHistory.slice(-8) : conversationHistory.slice(-16);
   const lastUserMessage = limitedHistory.filter((msg) => msg.sender === 'user').pop();
   const userQuery = lastUserMessage ? lastUserMessage.text : '';
 
-  const dialog = analyzeConversation(limitedHistory);
+  const dialog = analyzeConversation(limitedHistory, salesLang);
   const catalogQuery = buildCatalogSearchQuery(limitedHistory) || userQuery;
   const budget = extractBudgetRange(dialog.allUserText);
   const priceTarget = derivePriceTarget(budget);
@@ -59,17 +79,22 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
     }
   }
 
+  const hints = getCatalogHints(salesLang);
   let catalogBlock = '';
-  if (!dialog.hasType && tier === 'full') {
+  if (!dialog.hasType && tier === 'full' && hints) {
+    catalogBlock = hints.noType;
+  } else if (!dialog.hasRegion && !dialog.hasLocation && tier === 'full' && hints) {
     catalogBlock =
-      '\n\n(Тип объекта ещё не выбран — сначала уточни: апартаменты, вилла, дом, земля, коммерция, бизнес или инвест-проект. Ссылки не показывай.)\n';
-  } else if (!dialog.hasRegion && !dialog.hasLocation && tier === 'full') {
-    catalogBlock = `\n\n(Регион не выбран — уточни: ${dialog.regionOptions || 'Тенерифе, Дубай, Ибица, Марбелья'}. Не предполагай только Тенерифе. Ссылки не показывай.)\n`;
+      typeof hints.noRegion === 'function'
+        ? hints.noRegion(dialog.regionOptions)
+        : hints.noRegion;
   } else if (catalog.text) {
-    catalogBlock = `\n\n**ОБЪЕКТЫ ИЗ КАТАЛОГА (только эти ссылки, тип: ${dialog.propertyTypeLabel || 'по запросу'}):**\n${catalog.text}\n`;
-    if (tier === 'full' && !showingListings) {
-      catalogBlock +=
-        '\n(На этом шаге объекты в ответ клиенту обычно не показывай — дождись этапа подборки.)\n';
+    const header = hints
+      ? hints.listingsHeader(dialog.propertyTypeLabel)
+      : `\n\n**LISTINGS:**\n`;
+    catalogBlock = `${header}${catalog.text}\n`;
+    if (tier === 'full' && !showingListings && hints) {
+      catalogBlock += hints.waitForShortlist;
     }
   }
 
@@ -81,76 +106,136 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
     }
   }
 
-  const consultantKnowledge = getKnowledgeBaseForPrompt();
+  const consultantKnowledgeRaw = getKnowledgeBaseForPrompt();
+  const consultantKnowledge = localizeKnowledgeBase(consultantKnowledgeRaw, salesLang);
+  const mortgageKnowledgeSlice = {
+    disclaimer: consultantKnowledge.disclaimer,
+    mortgage_process: consultantKnowledge.mortgage_process,
+    purchase_documents: consultantKnowledge.purchase_documents
+  };
   const ck =
     tier === 'minimal'
       ? truncateKnowledge(
-          {
-            disclaimer: consultantKnowledge.disclaimer,
-            contacts: consultantKnowledge.contacts,
-            company: consultantKnowledge.company
-          },
-          2500
+          dialog.wantsMortgageSteps
+            ? mortgageKnowledgeSlice
+            : {
+                disclaimer: consultantKnowledge.disclaimer,
+                contacts: consultantKnowledge.contacts,
+                company: consultantKnowledge.company
+              },
+          dialog.wantsMortgageSteps ? 5000 : 2500
         )
       : tier === 'compact'
-        ? truncateKnowledge(consultantKnowledge, 8000)
+        ? truncateKnowledge(
+            dialog.wantsMortgageSteps
+              ? { ...consultantKnowledge, mortgage_process: consultantKnowledge.mortgage_process }
+              : consultantKnowledge,
+            8000
+          )
         : truncateKnowledge(consultantKnowledge, 12000);
 
   const botConfig = getBotConfig();
+  const localized = pickLocalizedPrompts(salesLang, botConfig);
   const dialogPathBlock =
-    tier === 'minimal' ? '' : formatDialogPathForPrompt(botConfig.dialogPath);
+    tier === 'minimal' ? '' : formatLocalizedDialogPath(salesLang, botConfig.dialogPath);
   const siteUrl = getCatalogSiteUrl(userLanguage);
+  const blocks = buildSystemPromptBlocks(salesLang, dialog, budget);
 
   const mainPrompt =
     tier === 'minimal'
-      ? `Ты консультант House Tenerife (housetenerife.eu): Тенерифе, Дубай, Ибица, Марбелья. Отвечай кратко (2–4 строки), на языке ${userLanguage}. WhatsApp: *жирный*, списки • или 1.`
-      : botConfig.mainPrompt;
+      ? localized.minimalPrompt ||
+        `House Tenerife concierge. Reply in ${salesLang}, 2–4 lines. WhatsApp: *bold*, bullets • or 1.`
+      : localized.mainPrompt;
 
-  const extraConditions = tier === 'minimal' ? '' : botConfig.additionalConditions;
+  const extraConditions = tier === 'minimal' ? '' : localized.additionalConditions;
 
-  const systemPrompt = `${mainPrompt}
+  const stageHeader =
+    salesLang === 'ru'
+      ? `**ТЕКУЩИЙ ЭТАП ДИАЛОГА (${dialog.stage}, сообщений клиента: ${dialog.userTurns}):**`
+      : blocks
+        ? blocks.stageHeader(dialog.stage, dialog.userTurns)
+        : `**CURRENT STAGE (${dialog.stage}):**`;
 
-*Сайт каталога:* ${siteUrl}
-
-${extraConditions}
-${dialogPathBlock}
-
-**ТЕКУЩИЙ ЭТАП ДИАЛОГА (${dialog.stage}, сообщений клиента: ${dialog.userTurns}):**
-${dialog.stageInstruction}
-
-**СОБРАННЫЕ КРИТЕРИИ (не спрашивай повторно, если уже есть):**
+  const criteriaBlock =
+    salesLang === 'ru'
+      ? `**СОБРАННЫЕ КРИТЕРИИ (не спрашивай повторно, если уже есть):**
 - Цель (жизнь/инвестиция): ${dialog.hasPurpose ? 'да' : 'ещё нет'}
 - Бюджет в переписке: ${dialog.hasBudget ? 'да' : 'ещё нет'}${budget.maxPrice ? ` (ориентир до ~€${budget.maxPrice.toLocaleString('en-US')})` : ''}${budget.minPrice && !budget.maxPrice ? ` (от ~€${budget.minPrice.toLocaleString('en-US')})` : ''}
-- Регион: ${dialog.hasRegion ? `да (${dialog.regionLabel})` : dialog.hasLocation ? 'Тенерифе (район уточняется)' : 'ещё нет — Тенерифе / Дубай / Ибица / Марбелья'}
+- Регион: ${dialog.hasRegion ? `да (${dialog.regionLabel})` : dialog.hasLocation ? 'Тенерифе (район уточняется)' : `ещё нет — ${dialog.regionOptions}`}
 - Район (для Тенерифе): ${dialog.hasLocation ? 'да' : 'ещё нет'}
-- Тип объекта: ${dialog.hasType ? `да (${dialog.propertyTypeLabel})` : 'ещё нет — обязательно уточни до подборки'}
+- Тип объекта: ${dialog.hasType ? `да (${dialog.propertyTypeLabel})` : 'ещё нет — обязательно уточни до подборки'}`
+      : blocks.criteria;
 
-**ПРАВИЛА РАЗГОВОРА (обязательно):**
+  const conversationRules =
+    salesLang === 'ru'
+      ? `**ПРАВИЛА РАЗГОВОРА (обязательно):**
 - Веди диалог вопрос → ответ: сначала пойми человека, потом подборка.
 - Один понятный вопрос в конце сообщения (не три сразу).
 - Отвечай на последнюю реплику клиента, не игнорируй её.
 - Не используй канцелярит («благодарим за обращение», «наша компания рада»).
-- 2–4 короткие строки + при необходимости список объектов.
+- 2–4 короткие строки + при необходимости список объектов.`
+      : `**CONVERSATION RULES (mandatory):**
+${blocks.conversation}`;
 
-Ответ на языке пользователя: ${userLanguage}.
-
-**ДИСКЛЕЙМЕР:**
-${consultantKnowledge.disclaimer || 'Не заменяй юриста и налогового консультанта.'}
-
-**БАЗА ЗНАНИЙ:**
-${ck}
-
-**КАТАЛОГ ОБЪЕКТОВ:**
+  const catalogRules =
+    salesLang === 'ru'
+      ? `**КАТАЛОГ ОБЪЕКТОВ:**
 Поиск идёт по всей базе (${catalog.totalInDb || 'все'} объектов на сайте); в блоке ниже — лучшие совпадения по критериям переписки. Не утверждай, что «других нет» — предложи уточнить бюджет/район или каталог на сайте.
 На этапах SHOW_LISTINGS / REFINE — покажи 3–5 РАЗНЫХ объектов из блока ниже (название, цена, ссылка, одна фраза почему подходит). Не дублируй один и тот же район без причины.
 **Цена:** не предлагай варианты сильно дешевле бюджета клиента — только около названной суммы или чуть дороже (премиум/больше метраж), если клиент не просил именно дешевле.
-На этапах FIRST_CONTACT / NEED_* — объекты не вываливай. Агентство работает не только на Тенерифе: Дубай, Ибица, Марбелья — тоже в каталоге.
+На этапах FIRST_CONTACT / NEED_* — объекты не вываливай. Регионы каталога: ${dialog.regionOptions} (housetenerife.eu).
 Подборка только когда ясны тип и регион; ссылки только из блока ниже, без подмешивания других регионов.
-Если клиент просит живого менеджера / звонок / запись — НЕ давай телефон вместо заявки: попроси написать слово «менеджер» (бот спросит имя и передаст заявку).
+**Ипотека/кредит:** если спрашивают шаги, процесс, «как получить ипотеку» — ответь по mortgage_process (5–7 нумерованных шагов), без выдуманных ставок и гарантий одобрения.
+**Конкретный объект:** если клиент выбрал вариант — уточни деньги *сейчас на руках*, нужна ли ипотека; при ипотеке — шаги (mortgage_process) + документы и справка о доходах. Потом — менеджер/просмотр.
+Если клиент просит живого менеджера / звонок / запись — НЕ давай телефон вместо заявки: попроси написать слово «менеджер» (бот спросит имя и передаст заявку).`
+      : `**PROPERTY CATALOG (${catalog.totalInDb || 'full'} listings on site; block below = best matches):**
+${blocks.catalog}
+**Pricing:** stay around budget or slightly above — not much cheaper unless they asked.
+${blocks.mortgage}
+${blocks.propertyFinance}
+${blocks.managerHandoff}`;
+
+  const langRule =
+    salesLang === 'ru'
+      ? `Ответ на языке пользователя: ${userLanguage}.`
+      : blocks.replyLanguage;
+
+  const disclaimerLabel = salesLang === 'es' ? '**AVISO LEGAL:**' : salesLang === 'en' ? '**DISCLAIMER:**' : '**ДИСКЛЕЙМЕР:**';
+  const knowledgeLabel =
+    salesLang === 'es' ? '**BASE DE CONOCIMIENTO:**' : salesLang === 'en' ? '**KNOWLEDGE BASE:**' : '**БАЗА ЗНАНИЙ:**';
+  const siteLabel =
+    salesLang === 'es' ? '*Catálogo:*' : salesLang === 'en' ? '*Catalog site:*' : '*Сайт каталога:*';
+
+  const systemPrompt = `${mainPrompt}
+
+${siteLabel} ${siteUrl}
+
+${extraConditions}
+${dialogPathBlock}
+
+${stageHeader}
+${dialog.stageInstruction}
+
+${criteriaBlock}
+
+${dialog.financeSummaryBlock || ''}
+
+${conversationRules}
+
+${langRule}
+
+${disclaimerLabel}
+${consultantKnowledge.disclaimer || 'Not a lawyer or tax adviser.'}
+
+${knowledgeLabel}
+${ck}
+
+${catalogRules}
 ${catalogBlock}
 ${webBlock}
 
-**WHATSAPP:** *жирный*, списки • или 1.`;
+**WHATSAPP:** *bold*, bullets • or 1.`;
+
 
   const messages = [
     { role: 'system', content: systemPrompt },

@@ -7,6 +7,14 @@ const {
   REGION_OPTIONS_PROMPT,
   formatRegionLabel
 } = require('./catalog-regions');
+const {
+  analyzePurchaseFinance,
+  detectMortgageStepsQuestion,
+  getFinanceStageInstruction,
+  getMortgageStepsInstruction,
+  formatFinanceSummaryForPrompt
+} = require('./purchase-finance');
+const { normalizeSalesLang, getStageInstruction } = require('./sales-localization');
 
 const LOCATION_KEYWORDS = [
   'las americas',
@@ -43,15 +51,17 @@ const LOCATION_KEYWORDS = [
 
 /**
  * @param {Array<{sender:string,text:string}>} history
+ * @param {string} [lang]
  */
-function analyzeConversation(history) {
+function analyzeConversation(history, lang = 'ru') {
+  const salesLang = normalizeSalesLang(lang);
   const userMsgs = (history || []).filter((m) => m.sender === 'user');
   const allUserText = userMsgs.map((m) => m.text).join('\n');
   const lower = allUserText.toLowerCase();
   const lastUser = userMsgs[userMsgs.length - 1]?.text || '';
 
   const hasPurpose =
-    /инвест|invest|доход|аренд|rental|бизнес|business|для жизни|для себя|переезд|relocate|live in|residen/i.test(
+    /инвест|invest|inversi[oó]n|доход|аренд|rental|alquiler|бизнес|business|negocio|для жизни|для себя|переезд|relocate|live in|residen|vivir|para vivir|holiday home|segunda residencia|second home/i.test(
       lower
     );
   const hasBudget =
@@ -59,16 +69,18 @@ function analyzeConversation(history) {
       lower
     );
   const hasLocation = LOCATION_KEYWORDS.some((k) => lower.includes(k.toLowerCase()));
-  const regionPref = detectRegionPreference(allUserText);
+  const regionPref = detectRegionPreference(allUserText, salesLang);
   const hasRegion = regionPref.hasRegion;
   const macroRegions = regionPref.regions;
   const regionLabel = regionPref.label;
-  const typePref = detectPropertyTypePreference(allUserText);
+  const typePref = detectPropertyTypePreference(allUserText, salesLang);
   const hasType = typePref.hasType;
   const propertyTypes = typePref.types;
   const propertyTypeLabel = typePref.label;
   const wantsListings =
-    /покаж|подбер|вариант|объект|каталог|ссылк|show me|options|listings|properties/i.test(lower);
+    /покаж|подбер|вариант|объект|каталог|ссылк|show me|send me|options|listings|properties|shortlist|mu[eé]strame|ens[eé]ñame|opciones|fichas|propiedades|selecci[oó]n/i.test(
+      lower
+    );
   const userTurns = userMsgs.length;
 
   let stage = 'FIRST_CONTACT';
@@ -105,6 +117,25 @@ function analyzeConversation(history) {
     stage = 'SHOW_LISTINGS';
   }
 
+  const wantsMortgageSteps = detectMortgageStepsQuestion(lastUser || allUserText);
+
+  const finance = analyzePurchaseFinance(history, allUserText, salesLang);
+  if (finance.financeStage) {
+    stage = finance.financeStage;
+  }
+
+  const dialogCtx = { propertyTypeLabel, regionLabel };
+  let stageInstruction = finance.financeStage
+    ? getFinanceStageInstruction(finance.financeStage, salesLang)
+    : getStageInstruction(salesLang, stage, dialogCtx) ||
+      resolveStageInstruction(stage, dialogCtx);
+
+  if (wantsMortgageSteps) {
+    stageInstruction = `${getMortgageStepsInstruction(salesLang)}\n\n${stageInstruction}`;
+  }
+
+  const financeSummaryBlock = formatFinanceSummaryForPrompt(finance, salesLang);
+
   return {
     userTurns,
     lastUser,
@@ -119,22 +150,23 @@ function analyzeConversation(history) {
     propertyTypes,
     propertyTypeLabel,
     wantsListings,
-    regionOptions: REGION_OPTIONS_PROMPT.ru,
+    regionOptions: REGION_OPTIONS_PROMPT[salesLang] || REGION_OPTIONS_PROMPT.en,
+    salesLang,
     stage,
-    stageInstruction: resolveStageInstruction(stage, {
-      propertyTypeLabel,
-      regionLabel
-    }),
-    propertyTypeOptions: formatPropertyTypeOptions('ru')
+    stageInstruction,
+    wantsMortgageSteps,
+    propertyTypeOptions: formatPropertyTypeOptions(salesLang),
+    ...finance,
+    financeSummaryBlock
   };
 }
 
 const stageInstructions = {
-  FIRST_CONTACT: `Первый контакт. Тёплое приветствие. Представься: House Tenerife — агентство на Канарах, в каталоге объекты на Тенерифе, в Дубае, на Ибице, в Марбелье/Costa del Sol (сайт housetenerife.eu). Не говори, что работаем только на Тенерифе. Один вопрос: какой тип объекта интересует или в каком регионе ищете? Объекты НЕ показывай.`,
+  FIRST_CONTACT: `Первый контакт. Представься от первого лица: «Меня зовут Максим», консультант House Tenerife — готов помочь с недвижимостью (каталог housetenerife.eu: Тенерифе, Дубай, Ибица, Марбелья, Малага, Барселона и др.). Не называй себя «ботом» или «ИИ». Тёпло, по-человечески. Один вопрос: тип объекта или регион поиска. Объекты НЕ показывай.`,
 
   NEED_PROPERTY_TYPE: `Тип объекта не ясен — уточни до подборки: апартаменты, вилла, дом, земля, коммерция, бизнес, инвест-проект. Не предполагай виллу. Без ссылок.`,
 
-  NEED_REGION: `Регион не выбран — один вопрос: где ищете — Тенерифе, Дубай, Ибица, Марбелья/Costa del Sol? Можно кратко перечислить. Не предполагай Тенерифе по умолчанию. Без подборки.`,
+  NEED_REGION: `Регион не выбран — один вопрос: где ищете — Тенерифе, Дубай, Ибица, Марбелья, Малага, Барселона? Можно кратко перечислить. Не предполагай Тенерифе по умолчанию. Без подборки.`,
 
   NEED_PURPOSE: `Уточни цель: для себя/семьи или инвестиция/доход? Коротко зачем спрашиваешь. Без объектов.`,
 
@@ -242,5 +274,6 @@ module.exports = {
   derivePriceTarget,
   LOCATION_KEYWORDS,
   detectRegionPreference,
-  REGION_OPTIONS_PROMPT
+  REGION_OPTIONS_PROMPT,
+  analyzePurchaseFinance
 };

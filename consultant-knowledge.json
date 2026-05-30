@@ -43,6 +43,128 @@
       "url": "https://www.registradores.org"
     }
   ],
+  "purchase_documents": {
+    "when_to_use": "Когда клиент заинтересовался конкретным объектом и обсуждает покупку, ипотеку или оформление.",
+    "funds_question": "Уточни отдельно: сколько € есть сейчас на руках (не только общий бюджет поиска) и нужна ли ипотека.",
+    "cash_purchase_typical": [
+      "Паспорт (действующий)",
+      "NIE (номер иностранца) — оформляется до или в процессе сделки",
+      "Испанский банковский счёт",
+      "Подтверждение происхождения средств (выписки, контракты — по требованию банка/нотариуса)",
+      "Договор резерва / arras, затем escritura у нотариуса",
+      "Due diligence: nota simple, отсутствие обременений, оплаченные IBI/коммунальные"
+    ],
+    "mortgage_purchase_typical": [
+      "Всё из списка для наличной покупки, плюс:",
+      "Справка о доходах (зарплата: 2–3 последних расчётных листа / справка с работы; ИП/бизнес: декларации, выписки — банк уточняет формат)",
+      "Выписка по счёту за 3–6 месяцев",
+      "Одобрение ипотеки (предварительное) — House Tenerife помогает с подбором банка",
+      "Оценка объекта банком (tasación)",
+      "Страхование (часто обязательно при ипотеке)"
+    ],
+    "income_certificate_note": "Справка о доходах — ключевой документ для ипотеки нерезиденту. Спроси, есть ли уже; если нет — объясни, что банк запросит подтверждение стабильного дохода на языке/формате, который примет выбранный банк.",
+    "company_help": "В пакете полного сопровождения (€3 000): помощь с NIE, счётом, ипотекой и документацией. Не обещай одобрение кредита — только сопровождение.",
+    "disclaimer_short": "Точный пакет документов зависит от банка и объекта — финальный список даёт менеджер и abogado."
+  },
+  "mortgage_process": {
+    "when_to_use": "Клиент спрашивает, как получить ипотеку/кредит в Испании на покупку недвижимости, какие этапы, с чего начать.",
+    "answer_format": "WhatsApp: 5–7 нумерованных шагов (1. 2. …), по 1–2 короткие строки на шаг. Без таблиц. В конце — один уточняющий вопрос.",
+    "typical_down_payment_note": "Для нерезидентов банки часто просят первый взнос порядка 30–40% от цены объекта (зависит от банка, дохода, объекта). Не называй точные процентные ставки, LTV и сроки одобрения — они меняются и индивидуальны.",
+    "timeline_hint": "От готового пакета документов до подписания у нотариуса (escritura) часто несколько недель — до 2–3 месяцев, если объект и банк согласованы. Сроки индивидуальны.",
+    "steps": [
+      {
+        "n": 1,
+        "title": "Бюджет и первый взнос",
+        "text": "Понять цену объекта, сколько € есть сейчас на руках, и ориентир по первому взносу (часто 30–40% для нерезидентов) плюс запас на нотариус, налоги (ITP/IVA), оценку, страховки и сопровождение."
+      },
+      {
+        "n": 2,
+        "title": "NIE и счёт в Испании",
+        "text": "Оформить NIE (номер иностранца), если ещё нет. Открыть испанский банковский счёт — без этого большинство банков не выдаст ипотеку нерезиденту."
+      },
+      {
+        "n": 3,
+        "title": "Пакет документов",
+        "text": "Паспорт, справка о доходах (зарплата или бизнес), выписки по счёту 3–6 мес., при необходимости — налоговые декларации. Формат уточняет выбранный банк."
+      },
+      {
+        "n": 4,
+        "title": "Подбор банка и предодобрение",
+        "text": "Подать заявку, получить предварительное одобрение (ориентир по сумме кредита). House Tenerife в пакете сопровождения помогает с подбором банка и документами — без гарантии одобрения."
+      },
+      {
+        "n": 5,
+        "title": "Объект и проверка (due diligence)",
+        "text": "Выбрать объект, проверить nota simple (обременения, долги), согласовать с abogado. Банк финансирует только «чистый» объект, прошедший их проверку."
+      },
+      {
+        "n": 6,
+        "title": "Оценка банком (tasación)",
+        "text": "Банк заказывает оценку недвижимости. Сумма кредита привязана к оценке, а не только к цене продавца."
+      },
+      {
+        "n": 7,
+        "title": "Резерв и ипотечное предложение",
+        "text": "Договор резерва / arras (задаток), подписание ипотечного предложения банка, страхование (часто обязательно). Условия фиксируются до нотариуса."
+      },
+      {
+        "n": 8,
+        "title": "Escritura и регистрация",
+        "text": "Подписание escritura у нотариуса, регистрация права в Registro de la Propiedad. После этого — владелец по испанскому праву."
+      }
+    ],
+    "house_tenerife_help": "В пакете полного сопровождения (€3 000, 6 мес.): NIE, счёт, подбор банка, ипотека, документы, связка с abogado. Не обещай одобрение — только сопровождение.",
+    "follow_up_questions": [
+      "Есть ли уже NIE и счёт в Испании?",
+      "Сколько € готовы внести сейчас как первый взнос?",
+      "Есть ли справка о доходах или нужен чек-лист под ваш случай?"
+    ],
+    "disclaimer": "Это общая схема для Испании/Канар; точные требования — у банка и abogado. Ты не банк и не юрист."
+  },
+  "mortgage_process_en": {
+    "when_to_use": "Client asks how to get a mortgage/loan in Spain for property.",
+    "answer_format": "WhatsApp: 5–7 numbered steps, 1–2 lines each. One follow-up question at the end.",
+    "typical_down_payment_note": "Non-residents often need around 30–40% deposit (bank-dependent). Do not quote exact rates or LTV.",
+    "steps": [
+      { "n": 1, "title": "Budget & deposit", "text": "Clarify property price, cash available now, and typical deposit (often 30–40% for non-residents) plus notary, taxes, valuation, insurance." },
+      { "n": 2, "title": "NIE & Spanish bank account", "text": "Obtain NIE if needed and open a Spanish account — usually required for non-resident mortgages." },
+      { "n": 3, "title": "Document pack", "text": "Passport, proof of income (employment or business), 3–6 months bank statements; bank confirms exact format." },
+      { "n": 4, "title": "Bank selection & pre-approval", "text": "Apply and get preliminary approval for loan amount. House Tenerife helps with bank matching in the support package — no approval guarantee." },
+      { "n": 5, "title": "Property & due diligence", "text": "Choose property, check nota simple (charges/debts), lawyer review. Bank finances only clean assets." },
+      { "n": 6, "title": "Bank valuation (tasación)", "text": "Bank orders appraisal; loan amount is linked to valuation, not only asking price." },
+      { "n": 7, "title": "Reservation & mortgage offer", "text": "Reservation/arras deposit, sign bank mortgage offer, insurance if required." },
+      { "n": 8, "title": "Notary & registration", "text": "Sign escritura at notary, register title in Registro de la Propiedad." }
+    ],
+    "house_tenerife_help": "Full support package (€3,000, 6 months): NIE, account, bank, mortgage paperwork, lawyer coordination. No guaranteed approval.",
+    "follow_up_questions": [
+      "Do you already have NIE and a Spanish bank account?",
+      "How much can you put down in cash now?",
+      "Do you already have proof of income, or need a checklist?"
+    ],
+    "disclaimer": "General outline for Spain/Canaries; bank and abogado set final requirements."
+  },
+  "mortgage_process_es": {
+    "when_to_use": "Cliente pregunta cómo obtener hipoteca/crédito en España.",
+    "answer_format": "WhatsApp: 5–7 pasos numerados, 1–2 líneas cada uno. Una pregunta al final.",
+    "typical_down_payment_note": "No residentes suelen aportar ~30–40 % de entrada (depende del banco). No inventes tipos ni LTV.",
+    "steps": [
+      { "n": 1, "title": "Presupuesto y entrada", "text": "Precio del inmueble, efectivo disponible ahora y entrada habitual (30–40 % no residentes) más notaría, impuestos, tasación, seguros." },
+      { "n": 2, "title": "NIE y cuenta en España", "text": "Tramitar NIE si falta y abrir cuenta bancaria española — habitual para hipotecas de no residentes." },
+      { "n": 3, "title": "Documentación", "text": "Pasaporte, justificante de ingresos (nómina o autónomo/empresa), extractos 3–6 meses; el banco define el formato." },
+      { "n": 4, "title": "Banco y preaprobación", "text": "Solicitud y preaprobación del importe. House Tenerife ayuda con banco y papeles (paquete 3.000 €) — sin garantía de concesión." },
+      { "n": 5, "title": "Inmueble y due diligence", "text": "Elegir inmueble, nota simple (cargas/deudas), revisión del abogado. El banco financia solo activos limpios." },
+      { "n": 6, "title": "Tasación bancaria", "text": "El banco tasa el inmueble; el préstamo se vincula a la tasación, no solo al precio de venta." },
+      { "n": 7, "title": "Reserva y oferta hipotecaria", "text": "Arras/reserva, firma de la oferta hipotecaria, seguros si exige el banco." },
+      { "n": 8, "title": "Notaría y registro", "text": "Firma de escritura ante notario e inscripción en el Registro de la Propiedad." }
+    ],
+    "house_tenerife_help": "Paquete completo (3.000 €, 6 meses): NIE, cuenta, banco, hipoteca, documentación y abogado. Sin garantía de aprobación.",
+    "follow_up_questions": [
+      "¿Ya tienes NIE y cuenta en España?",
+      "¿Cuánto puedes aportar en efectivo ahora?",
+      "¿Tienes justificante de ingresos o necesitas checklist?"
+    ],
+    "disclaimer": "Esquema general para España/Canarias; el banco y el abogado fijan requisitos finales."
+  },
   "topics": {
     "nie": "NIE — идентификационный номер иностранца, нужен для многих сделок и налогов. Порядок получения зависит от консульства/нахождения в Испании; актуальные шаги — только с официальных источников.",
     "golden_visa": "Инвестиционное ВНЖ (часто называют «золотой визой») в Испании подлежало изменениям закона. Не фиксируй суммы и условия как вечные — направляй на extranjeros.inclusion.gob.es и к иммиграционному юристу.",
@@ -67,8 +189,9 @@
     ],
     "routing_question": "Для себя присматриваете или как инвестицию / бизнес? Сегменты: investment / private residential / business / commercial / hotel.",
     "start_messages": [
-      "Привет! Я консультант House Tenerife по недвижимости на Тенерифе. Подскажите — ищете для жизни или как инвестицию?",
-      "Hi! I'm with House Tenerife on Tenerife. Are you looking for a home to live in, or an investment?"
+      "Привет! Меня зовут Максим, консультант House Tenerife — помогу с недвижимостью (Тенерифе, Дубай, Ибица, Марбелья и др., housetenerife.eu). Ищете для жизни или как инвестицию?",
+      "Hi! I'm Maxim from House Tenerife — happy to help with property across Tenerife, Dubai, Ibiza, Marbella and more (housetenerife.eu). Are you looking for a home or an investment?",
+      "¡Hola! Soy Maksim, de House Tenerife — te ayudo con inmuebles en Tenerife, Dubái, Ibiza, Marbella y más (housetenerife.eu). ¿Buscas para vivir o como inversión?"
     ],
     "flows": {
       "investment": {

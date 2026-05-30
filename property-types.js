@@ -77,7 +77,7 @@ function getItemPropertyCategories(item) {
  * @param {string} text — реплики клиента
  * @returns {{ types: string[], hasType: boolean, label: string }}
  */
-function detectPropertyTypePreference(text) {
+function detectPropertyTypePreference(text, lang = 'ru') {
   const lower = String(text || '').toLowerCase();
   const types = new Set();
 
@@ -110,10 +110,8 @@ function detectPropertyTypePreference(text) {
   if (!lifePurposeOnly && /\bдом\b/.test(lower) && !types.has('apartments')) types.add('houses');
 
   const list = [...types];
-  const label =
-    list.length === 0
-      ? ''
-      : list.map((t) => TYPE_LABELS.ru[t] || t).join(', ');
+  const chain = TYPE_LABELS[lang] ? lang : 'ru';
+  const label = list.length === 0 ? '' : formatDetectedTypes(list, chain);
 
   return { types: list, hasType: list.length > 0, label };
 }

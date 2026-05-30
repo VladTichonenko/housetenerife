@@ -102,19 +102,51 @@ const MACRO_REGIONS = {
       'puerto banús',
       'golden mile',
       'costa del sol',
+      'коста дель соль',
       'guadalmina',
       'nueva andalucia',
       'la zagaleta',
       'sotogrande',
-      'estepona'
+      'estepona',
+      'mijas',
+      'el campanario'
+    ]
+  },
+  malaga: {
+    id: 'malaga',
+    labels: { ru: 'Малага', en: 'Málaga / Malaga', es: 'Málaga' },
+    keywords: [
+      'malaga',
+      'málaga',
+      'малаг',
+      'costa del sol',
+      'torremolinos',
+      'fuengirola',
+      'rincón de la victoria',
+      'axarquia'
+    ]
+  },
+  barcelona: {
+    id: 'barcelona',
+    labels: { ru: 'Барселона', en: 'Barcelona', es: 'Barcelona' },
+    keywords: [
+      'barcelona',
+      'барселон',
+      'catalonia',
+      'каталон',
+      'cataluña',
+      'eixample',
+      'sitges',
+      'garraf',
+      'maresme'
     ]
   }
 };
 
 const REGION_OPTIONS_PROMPT = {
-  ru: 'Тенерифе, Дубай, Ибица, Марбелья / Costa del Sol',
-  en: 'Tenerife, Dubai, Ibiza, Marbella / Costa del Sol',
-  es: 'Tenerife, Dubái, Ibiza, Marbella / Costa del Sol'
+  ru: 'Тенерифе, Дубай, Ибица, Марбелья, Малага, Барселона',
+  en: 'Tenerife, Dubai, Ibiza, Marbella, Malaga, Barcelona',
+  es: 'Tenerife, Dubái, Ibiza, Marbella, Málaga, Barcelona'
 };
 
 function itemSearchBlob(item) {
@@ -147,16 +179,15 @@ function getItemMacroRegions(item) {
 
 function getPrimaryMacroRegion(item) {
   const all = getItemMacroRegions(item);
-  if (all.includes('dubai') && !all.includes('tenerife')) return 'dubai';
-  if (all.includes('ibiza') && !all.includes('tenerife')) return 'ibiza';
-  if (all.includes('marbella') && !all.includes('tenerife')) return 'marbella';
+  const nonTenerife = all.filter((id) => id !== 'tenerife');
+  if (nonTenerife.length === 1) return nonTenerife[0];
   if (all.length === 1) return all[0];
-  const overview = itemSearchBlob(item).slice(0, 500).toLowerCase();
-  for (const id of ['dubai', 'ibiza', 'marbella', 'tenerife']) {
+  const overview = itemSearchBlob(item).slice(0, 800).toLowerCase();
+  for (const id of ['dubai', 'ibiza', 'barcelona', 'malaga', 'marbella', 'tenerife']) {
     const def = MACRO_REGIONS[id];
     if (def.keywords.some((k) => overview.includes(k.toLowerCase()))) return id;
   }
-  return all[0];
+  return nonTenerife[0] || all[0];
 }
 
 /**
@@ -169,11 +200,13 @@ function keywordMatchesText(keyword, text) {
   if (k === 'дубай' && /дуба[йею]/.test(text)) return true;
   if (k === 'ibiza' && /ибиц/.test(text)) return true;
   if (k === 'marbella' && /марбел/.test(text)) return true;
+  if (k === 'malaga' && /малаг/.test(text)) return true;
+  if (k === 'barcelona' && /барселон/.test(text)) return true;
   if (k === 'tenerife' && /тенериф/.test(text)) return true;
   return false;
 }
 
-function detectRegionPreference(text) {
+function detectRegionPreference(text, lang = 'ru') {
   const lower = String(text || '').toLowerCase();
   const regions = new Set();
 
@@ -185,10 +218,7 @@ function detectRegionPreference(text) {
   if (/оаэ|эмират|uae/i.test(lower)) regions.add('dubai');
 
   const list = [...regions];
-  const label =
-    list.length === 0
-      ? ''
-      : list.map((id) => MACRO_REGIONS[id]?.labels?.ru || id).join(', ');
+  const label = list.length === 0 ? '' : formatRegionLabel(list, lang);
 
   return { regions: list, hasRegion: list.length > 0, label };
 }
@@ -220,21 +250,33 @@ function formatRegionLabel(regions, lang = 'ru') {
 
 /** Стартовые URL для sync-properties.js — полный обход регионов сайта */
 const SYNC_SEED_INDEX_URLS = [
+  'https://housetenerife.eu/',
   'https://housetenerife.eu/ru/',
-  'https://housetenerife.eu/ru/city/tenerife/',
-  'https://housetenerife.eu/ru/city/adeje/',
+  'https://housetenerife.eu/ru/state/tenerife-ru/',
+  'https://housetenerife.eu/state/tenerife/',
+  'https://housetenerife.eu/ru/state/marbella/',
+  'https://housetenerife.eu/state/marbella/',
+  'https://housetenerife.eu/ru/state/ibiza/',
+  'https://housetenerife.eu/ru/state/ibitsa/',
+  'https://housetenerife.eu/state/ibiza/',
+  'https://housetenerife.eu/ru/state/malaga/',
+  'https://housetenerife.eu/state/malaga/',
+  'https://housetenerife.eu/ru/state/barcelona/',
+  'https://housetenerife.eu/state/barcelona/',
   'https://housetenerife.eu/ru/city/dubai/',
   'https://housetenerife.eu/ru/city/dubaj/',
-  'https://housetenerife.eu/ru/city/ibiza/',
-  'https://housetenerife.eu/ru/city/marbella/',
-  'https://housetenerife.eu/ru/city/benahavis/',
+  'https://housetenerife.eu/ru/city/costa-adeje/',
+  'https://housetenerife.eu/ru/city/los-cristianos/',
+  'https://housetenerife.eu/ru/city/las-amerikas/',
   'https://housetenerife.eu/ru/property-type/apartments/',
   'https://housetenerife.eu/ru/property-type/villas/',
+  'https://housetenerife.eu/ru/property-type/houses/',
   'https://housetenerife.eu/ru/property-type/land/',
   'https://housetenerife.eu/ru/property-type/commercial-properties/',
   'https://housetenerife.eu/ru/property-type/business-for-sale/',
   'https://housetenerife.eu/ru/property-type/investment-and-development/',
   'https://housetenerife.eu/ru/property-type/appartments-in-dubai/',
+  'https://housetenerife.eu/property-type/apartments/',
   'https://housetenerife.eu/ru/label/featured/'
 ];
 
