@@ -1,7 +1,7 @@
 'use strict';
 
 const { getKnowledgeBase } = require('./knowledge-base');
-const { formatPhoneNumber, getTranslation } = require('./phone-utils');
+const { getTranslation } = require('./phone-utils');
 const { setPendingHandoff } = require('./handoff-pending');
 const { getLanguageName } = require('./language-detector');
 
@@ -153,36 +153,8 @@ async function beginManagerHandoff(
   console.log(`👤 Ожидание имени для handoff (${reasonKey}): ${msg.from}`);
 }
 
-async function notifyManager(client, customerChatId, reasonKey, preview, { clientName, language } = {}) {
-  const { phone, name } = getManagerContact();
-  const managerId = formatPhoneNumber(phone.replace(/\s/g, ''));
-  const customer = formatCustomerPhone(customerChatId);
-  const reasonLabel = REASON_LABELS[reasonKey] || reasonKey;
-  const languageLabel = language ? getLanguageName(language) : '';
-  const lines = [
-    '🔔 *Запрос клиента (бот House Tenerife)*',
-    `Менеджер: ${name}`,
-    `Клиент: +${customer}`,
-  ];
-  if (clientName) lines.push(`Имя: ${clientName}`);
-  if (languageLabel) lines.push(`Язык диалога: ${languageLabel}`);
-  lines.push(`Причина: ${reasonLabel}`);
-  if (preview) {
-    const p = preview.length > 400 ? `${preview.slice(0, 400)}…` : preview;
-    lines.push(`Сообщение: ${p}`);
-  }
-  try {
-    await client.sendMessage(managerId, lines.join('\n'), { sendSeen: false });
-    console.log(`📤 Уведомление менеджеру (${reasonLabel})`);
-    return true;
-  } catch (e) {
-    console.warn('⚠️ Не удалось уведомить менеджера:', e.message);
-    return false;
-  }
-}
-
 /**
- * Ответ клиенту + уведомление менеджеру в WhatsApp.
+ * Ответ клиенту + запись лида в панель на сайте (без WhatsApp-уведомления менеджеру).
  * @param {Function} sendMessageSafely - (msg, text, client) => Promise
  */
 async function connectWithManager(
@@ -200,10 +172,6 @@ async function connectWithManager(
 ) {
   const replyText = buildHandoffReply(userLanguage, 'manager_handoff', clientName);
   await sendMessageSafely(msg, replyText, client);
-  await notifyManager(client, msg.from, reasonKey, preview, {
-    clientName,
-    language: userLanguage,
-  });
 
   if (recordHandoffFn) {
     try {
@@ -238,6 +206,5 @@ module.exports = {
   buildHandoffReply,
   beginManagerHandoff,
   connectWithManager,
-  notifyManager,
   setRecordHandoff,
 };

@@ -67,6 +67,8 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
       priceTarget,
       propertyTypes: dialog.propertyTypes,
       macroRegions: dialog.macroRegions,
+      microAreaGroupIds: dialog.microAreaGroupIds || [],
+      microDetection: dialog.microAreas,
       lang: userLanguage,
       contextText: dialog.allUserText
     });
@@ -100,7 +102,13 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
 
   let webBlock = '';
   if (tier === 'full' && shouldAugmentWithWeb(userQuery)) {
-    const extra = await webSearchSnippets(`${userQuery} покупка недвижимости Испания Канары`);
+    const webSuffix =
+      salesLang === 'es'
+        ? 'compra inmueble España Canarias'
+        : salesLang === 'en'
+          ? 'property purchase Spain Canary Islands'
+          : 'покупка недвижимости Испания Канары';
+    const extra = await webSearchSnippets(`${userQuery} ${webSuffix}`);
     if (extra) {
       webBlock = `\n\n**КРАТКАЯ ВЫДЕРЖКА ИЗ ВЕБ-ПОИСКА:**\n${extra}\n`;
     }
@@ -161,8 +169,8 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
       ? `**СОБРАННЫЕ КРИТЕРИИ (не спрашивай повторно, если уже есть):**
 - Цель (жизнь/инвестиция): ${dialog.hasPurpose ? 'да' : 'ещё нет'}
 - Бюджет в переписке: ${dialog.hasBudget ? 'да' : 'ещё нет'}${budget.maxPrice ? ` (ориентир до ~€${budget.maxPrice.toLocaleString('en-US')})` : ''}${budget.minPrice && !budget.maxPrice ? ` (от ~€${budget.minPrice.toLocaleString('en-US')})` : ''}
-- Регион: ${dialog.hasRegion ? `да (${dialog.regionLabel})` : dialog.hasLocation ? 'Тенерифе (район уточняется)' : `ещё нет — ${dialog.regionOptions}`}
-- Район (для Тенерифе): ${dialog.hasLocation ? 'да' : 'ещё нет'}
+- Регион: ${dialog.hasRegion ? `да (${dialog.regionLabel})` : `ещё нет — ${dialog.regionOptions}`}
+- Район / зона: ${dialog.hasLocation ? `да (${dialog.microAreaLabel || 'уточнено'})` : dialog.needsMicroArea ? `ещё нет (примеры: ${dialog.areaOptionsPrompt || 'уточнить у клиента'})` : 'не требуется'}
 - Тип объекта: ${dialog.hasType ? `да (${dialog.propertyTypeLabel})` : 'ещё нет — обязательно уточни до подборки'}`
       : blocks.criteria;
 
@@ -181,10 +189,11 @@ ${blocks.conversation}`;
     salesLang === 'ru'
       ? `**КАТАЛОГ ОБЪЕКТОВ:**
 Поиск идёт по всей базе (${catalog.totalInDb || 'все'} объектов на сайте); в блоке ниже — лучшие совпадения по критериям переписки. Не утверждай, что «других нет» — предложи уточнить бюджет/район или каталог на сайте.
-На этапах SHOW_LISTINGS / REFINE — покажи 3–5 РАЗНЫХ объектов из блока ниже (название, цена, ссылка, одна фраза почему подходит). Не дублируй один и тот же район без причины.
+На этапах SHOW_LISTINGS / REFINE — покажи 3–5 РАЗНЫХ объектов из блока ниже (название, цена, ссылка, одна фраза почему подходит). Только тот регион${dialog.microAreaLabel ? ` и район (${dialog.microAreaLabel})` : ''}, что выбрал клиент — не подмешивай Adeje, если просили Los Cristianos, и наоборот.
 **Цена:** не предлагай варианты сильно дешевле бюджета клиента — только около названной суммы или чуть дороже (премиум/больше метраж), если клиент не просил именно дешевле.
 На этапах FIRST_CONTACT / NEED_* — объекты не вываливай. Регионы каталога: ${dialog.regionOptions} (housetenerife.eu).
-Подборка только когда ясны тип и регион; ссылки только из блока ниже, без подмешивания других регионов.
+Подборка только когда ясны тип, цель, бюджет, регион и конкретная зона/район (для всех регионов каталога); ссылки только из блока ниже.
+После подборки — один вопрос: какой вариант ближе или что скорректировать (бюджет/район).
 **Ипотека/кредит:** если спрашивают шаги, процесс, «как получить ипотеку» — ответь по mortgage_process (5–7 нумерованных шагов), без выдуманных ставок и гарантий одобрения.
 **Конкретный объект:** если клиент выбрал вариант — уточни деньги *сейчас на руках*, нужна ли ипотека; при ипотеке — шаги (mortgage_process) + документы и справка о доходах. Потом — менеджер/просмотр.
 Если клиент просит живого менеджера / звонок / запись — НЕ давай телефон вместо заявки: попроси написать слово «менеджер» (бот спросит имя и передаст заявку).`

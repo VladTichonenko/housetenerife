@@ -167,13 +167,39 @@ function itemSearchBlob(item) {
  * @param {object} item
  * @returns {string[]}
  */
+function inferMacroFromUrls(item) {
+  const urls = [
+    item?.url,
+    item?.urls?.ru,
+    item?.urls?.en,
+    item?.urls?.es
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (!urls) return [];
+  if (/\/(?:city\/)?dubai|dubaj|\/dubai\//i.test(urls)) return ['dubai'];
+  if (/\/ibiza|ibitsa|\/state\/ibiza/i.test(urls)) return ['ibiza'];
+  if (/\/marbella|\/state\/marbella/i.test(urls)) return ['marbella'];
+  if (/\/malaga|málaga|\/state\/malaga/i.test(urls)) return ['malaga'];
+  if (/\/barcelona|\/state\/barcelona/i.test(urls)) return ['barcelona'];
+  if (/\/tenerife|\/state\/tenerife|costa-adeje|los-cristianos|las-amerik/i.test(urls)) {
+    return ['tenerife'];
+  }
+  return [];
+}
+
 function getItemMacroRegions(item) {
   const blob = itemSearchBlob(item).toLowerCase();
   const found = [];
   for (const [id, def] of Object.entries(MACRO_REGIONS)) {
     if (def.keywords.some((k) => blob.includes(k.toLowerCase()))) found.push(id);
   }
-  if (!found.length) return ['tenerife'];
+  if (!found.length) {
+    const fromUrl = inferMacroFromUrls(item);
+    if (fromUrl.length) return fromUrl;
+    return [];
+  }
   return found;
 }
 
@@ -187,7 +213,11 @@ function getPrimaryMacroRegion(item) {
     const def = MACRO_REGIONS[id];
     if (def.keywords.some((k) => overview.includes(k.toLowerCase()))) return id;
   }
-  return nonTenerife[0] || all[0];
+  const fromUrl = inferMacroFromUrls(item);
+  if (fromUrl.length === 1) return fromUrl[0];
+  if (nonTenerife.length) return nonTenerife[0];
+  if (all.length) return all[0];
+  return null;
 }
 
 /**
@@ -226,10 +256,12 @@ function detectRegionPreference(text, lang = 'ru') {
 function itemMatchesRegions(item, wantedRegions) {
   if (!wantedRegions?.length) return true;
   const itemRegions = getItemMacroRegions(item);
+  if (!itemRegions.length) return false;
   if (wantedRegions.length === 1) {
     const want = wantedRegions[0];
     if (!itemRegions.includes(want)) return false;
-    return getPrimaryMacroRegion(item) === want;
+    const primary = getPrimaryMacroRegion(item);
+    return primary === want || (primary == null && itemRegions.includes(want));
   }
   return wantedRegions.some((r) => itemRegions.includes(r));
 }

@@ -8,6 +8,13 @@ const {
   formatRegionLabel
 } = require('./catalog-regions');
 const {
+  detectMicroAreas,
+  LOCATION_KEYWORDS,
+  needsMicroAreaSelection,
+  getAreaOptionsPrompt,
+  filterMicroGroupsForMacro,
+} = require('./location-matching');
+const {
   analyzePurchaseFinance,
   detectMortgageStepsQuestion,
   getFinanceStageInstruction,
@@ -16,38 +23,6 @@ const {
 } = require('./purchase-finance');
 const { normalizeSalesLang, getStageInstruction } = require('./sales-localization');
 
-const LOCATION_KEYWORDS = [
-  'las americas',
-  'las américas',
-  'лас америк',
-  'los cristianos',
-  'лос кристиан',
-  'adeje',
-  'адехе',
-  'playa de las americas',
-  'costa adeje',
-  'puerto de la cruz',
-  'puerto colon',
-  'golf del sur',
-  'el medano',
-  'medano',
-  'santa cruz',
-  'la laguna',
-  'callao salvaje',
-  'playa paraíso',
-  'playa paraiso',
-  'fanabe',
-  'фанабе',
-  'torviscas',
-  'south',
-  'юг',
-  'north',
-  'север',
-  'west',
-  'запад',
-  'tenerife',
-  'тенериф'
-];
 
 /**
  * @param {Array<{sender:string,text:string}>} history
@@ -68,7 +43,8 @@ function analyzeConversation(history, lang = 'ru') {
     /€|eur|euro|евро|бюджет|budget|до\s*\d|от\s*\d|\d{2,3}[\s.]?\d{3}|\d+\s*(тыс|k|млн|million)/i.test(
       lower
     );
-  const hasLocation = LOCATION_KEYWORDS.some((k) => lower.includes(k.toLowerCase()));
+  const microAreas = detectMicroAreas(allUserText, salesLang);
+  const hasLocation = microAreas.hasSpecific || microAreas.broadIds.length > 0;
   const regionPref = detectRegionPreference(allUserText, salesLang);
   const hasRegion = regionPref.hasRegion;
   const macroRegions = regionPref.regions;
@@ -85,17 +61,21 @@ function analyzeConversation(history, lang = 'ru') {
 
   let stage = 'FIRST_CONTACT';
 
-  const wantsTenerifeArea =
-    macroRegions.includes('tenerife') || (!hasRegion && !macroRegions.length);
-  const needsTenerifeMicro = wantsTenerifeArea && !hasLocation;
+  const needsMicroArea = hasRegion && needsMicroAreaSelection(macroRegions, microAreas);
+  const areaOptionsPrompt = getAreaOptionsPrompt(macroRegions, salesLang);
+  const microAreaGroupIds = filterMicroGroupsForMacro(microAreas.groupIds, macroRegions);
 
   const readyForListings =
     hasType &&
     hasBudget &&
-    (hasRegion || hasLocation) &&
-    (!needsTenerifeMicro || hasLocation || !macroRegions.includes('tenerife'));
+    hasPurpose &&
+    hasRegion &&
+    !needsMicroArea;
 
-  if (readyForListings || (wantsListings && hasType && hasBudget && (hasRegion || hasLocation))) {
+  if (
+    readyForListings ||
+    (wantsListings && hasType && hasBudget && hasPurpose && hasRegion && !needsMicroArea)
+  ) {
     stage = 'SHOW_LISTINGS';
   } else if (userTurns <= 1 && !hasPurpose && !hasBudget && !hasLocation && !hasType && !hasRegion) {
     stage = 'FIRST_CONTACT';
@@ -107,13 +87,20 @@ function analyzeConversation(history, lang = 'ru') {
     stage = 'NEED_PURPOSE';
   } else if (!hasBudget) {
     stage = 'NEED_BUDGET';
-  } else if (needsTenerifeMicro) {
+  } else if (needsMicroArea) {
     stage = 'NEED_LOCATION';
   } else {
     stage = 'REFINE';
   }
 
-  if (userTurns >= 4 && hasBudget && hasType && (hasRegion || hasLocation)) {
+  if (
+    userTurns >= 5 &&
+    hasBudget &&
+    hasType &&
+    hasPurpose &&
+    hasRegion &&
+    !needsMicroArea
+  ) {
     stage = 'SHOW_LISTINGS';
   }
 
@@ -124,7 +111,7 @@ function analyzeConversation(history, lang = 'ru') {
     stage = finance.financeStage;
   }
 
-  const dialogCtx = { propertyTypeLabel, regionLabel };
+  const dialogCtx = { propertyTypeLabel, regionLabel, areaOptionsPrompt, microAreaLabel: microAreas.label };
   let stageInstruction = finance.financeStage
     ? getFinanceStageInstruction(finance.financeStage, salesLang)
     : getStageInstruction(salesLang, stage, dialogCtx) ||
@@ -143,6 +130,11 @@ function analyzeConversation(history, lang = 'ru') {
     hasPurpose,
     hasBudget,
     hasLocation,
+    microAreas,
+    microAreaLabel: microAreas.label,
+    microAreaGroupIds,
+    needsMicroArea,
+    areaOptionsPrompt,
     hasRegion,
     macroRegions,
     regionLabel,
@@ -172,20 +164,24 @@ const stageInstructions = {
 
   NEED_BUDGET: `Спроси бюджет в € (ориентиры: до 300k / 300–600k / от 600k). Тип: ${'{propertyTypeLabel}'}, регион: ${'{regionLabel}'}. Без подборки.`,
 
-  NEED_LOCATION: `Уточни район на Тенерифе (Costa Adeje, Los Cristianos, Las Américas, юг/запад и т.д.) — только если клиент выбрал Тенерифе. Один вопрос.`,
+  NEED_LOCATION: `Уточни район/зону в регионе ${'{regionLabel}'} (примеры: ${'{areaOptionsPrompt}'}). Один вопрос. Без подборки.`,
 
-  SHOW_LISTINGS: `Покажи 3–5 объектов из каталога: тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}. Не подмешивай другие регионы и типы. Название, цена, ссылка, почему подходит. Не дешевле бюджета без запроса.`,
+  SHOW_LISTINGS: `Покажи 3–5 объектов из каталога: тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, район ${'{microAreaLabel}'}. Только из блока каталога — тот же регион и район, без подмешивания других зон. Название, цена, ссылка, одна фраза почему подходит. Закрой вопросом: какой вариант ближе?`,
 
-  REFINE: `Ответь по сути. Подборка: тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, 3–5 объектов. Если сменили регион или тип — пересобери.`
+  REFINE: `Ответь по сути. Подборка: тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, район ${'{microAreaLabel}'}, 3–5 объектов из блока. Если сменили регион, район или тип — пересобери.`
 };
 
 function resolveStageInstruction(stage, dialog) {
   let text = stageInstructions[stage] || stageInstructions.REFINE;
   const typeLabel = dialog.propertyTypeLabel || 'уточняется';
   const regionLabel = dialog.regionLabel || 'уточняется';
+  const microAreaLabel = dialog.microAreaLabel || (dialog.hasLocation ? 'уточняется' : '—');
+  const areaOptionsPrompt = dialog.areaOptionsPrompt || 'уточните у клиента';
   return text
     .replace(/\{propertyTypeLabel\}/g, typeLabel)
-    .replace(/\{regionLabel\}/g, regionLabel);
+    .replace(/\{regionLabel\}/g, regionLabel)
+    .replace(/\{microAreaLabel\}/g, microAreaLabel)
+    .replace(/\{areaOptionsPrompt\}/g, areaOptionsPrompt);
 }
 
 function buildCatalogSearchQuery(history) {
@@ -273,6 +269,7 @@ module.exports = {
   extractBudgetRange,
   derivePriceTarget,
   LOCATION_KEYWORDS,
+  detectMicroAreas,
   detectRegionPreference,
   REGION_OPTIONS_PROMPT,
   analyzePurchaseFinance

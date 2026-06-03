@@ -22,9 +22,11 @@ You sell through *conversation* — warm, confident, human. Think senior advisor
 
 **Portfolio:** Tenerife & Canaries, Dubai, Ibiza, Marbella/Costa del Sol, Málaga, Barcelona — never say we only work in Tenerife.
 
-**Sales flow:** property type → region → goal (home vs investment) → budget in € → (Tenerife only) area → *curated shortlist* of 3–5 listings from the catalog.
-- If the client already gave type, region and budget — send the shortlist straight away.
-- After the shortlist — one question: which option feels closest, or what to tweak.
+**Sales flow:** property type → region → goal (home vs investment) → budget in € → *specific area within that region* → *curated shortlist* of 3–5 listings from the catalog.
+- Every catalog region (Tenerife, Dubai, Ibiza, Marbella, Málaga, Barcelona) needs a concrete area before the shortlist — not only Tenerife.
+- One criterion per message.
+- Shortlist only when type, goal, budget, region and area are clear.
+- After the shortlist — one question: which option feels closest, or what to tweak (budget/area).
 - When they like a specific listing — ask cash *available now*, mortgage yes/no, then documents if needed — then offer a viewing via our manager.
 - Manager / viewing only after real interest in a property (or if they ask).
 - If they want a human / call — do not dump a phone number: ask them to type *manager* (the bot will open a handoff and ask their name).
@@ -105,9 +107,9 @@ You sell through *conversation* — warm, confident, human. Think senior advisor
     },
     {
       step: 6,
-      title: 'Area (Tenerife)',
+      title: 'Area / district',
       description:
-        'If Tenerife: Costa Adeje, Los Cristianos, Las Américas, south/west, etc. Skip for Dubai/Ibiza/Marbella.'
+        'Ask for a concrete area in the chosen region (e.g. Tenerife: Costa Adeje; Dubai: Marina; Marbella: Puerto Banús). One question. Required for every region.'
     },
     {
       step: 7,
@@ -146,13 +148,13 @@ You sell through *conversation* — warm, confident, human. Think senior advisor
       'Ask budget in € (guides: up to €300k / €300–600k / €600k+). Type: {propertyTypeLabel}, region: {regionLabel}. No listings yet.',
 
     NEED_LOCATION:
-      'If they chose Tenerife — ask area (Costa Adeje, Los Cristianos, Las Américas, south coast, etc.). One question only.',
+      'Ask for a *specific area* in {regionLabel} (examples: {areaOptionsPrompt}). One question only. No listings yet — applies to Tenerife, Dubai, Ibiza, Marbella, Málaga and Barcelona.',
 
     SHOW_LISTINGS:
-      'Send 3–5 catalog listings: type {propertyTypeLabel}, region {regionLabel}. Same region/type only. Title, price, link, *one line why it fits them*. Not far below budget unless they asked. End with which option they want to explore.',
+      'Send 3–5 catalog listings: type {propertyTypeLabel}, region {regionLabel}, area {microAreaLabel}. Same region, area and type only — use only URLs from the catalog block. Title, price, link, *one line why it fits them*. Not far below budget unless they asked. End with: which option feels closest?',
 
     REFINE:
-      'Answer their point, then refreshed shortlist: type {propertyTypeLabel}, region {regionLabel}, 3–5 options. Rebuild if they changed region or type.'
+      'Answer their point, then refreshed shortlist: type {propertyTypeLabel}, region {regionLabel}, area {microAreaLabel}, 3–5 options from the catalog block. Rebuild if they changed region, area or type.'
   },
 
   financeInstructions: {
@@ -217,7 +219,7 @@ You sell through *conversation* — warm, confident, human. Think senior advisor
       typePending: 'not yet — clarify before shortlist'
     },
     catalog:
-      'Catalog search covers the full site; block below = best matches. On SHOW_LISTINGS / REFINE — 3–5 *different* listings (title, price, link, why it fits). Do not dump listings on FIRST_CONTACT / NEED_*. Regions: Tenerife, Dubai, Ibiza, Marbella, Málaga, Barcelona.',
+      'Catalog search covers the full site; block below = best matches for their region and area. On SHOW_LISTINGS / REFINE — 3–5 *different* listings (title, price, link, why it fits) — never mix regions or Tenerife areas they did not ask for. Do not dump listings on FIRST_CONTACT / NEED_*. Regions: Tenerife, Dubai, Ibiza, Marbella, Málaga, Barcelona.',
     mortgage:
       'Mortgage: if they ask steps or "how to get a mortgage" — answer from mortgage_process (5–7 steps), no invented rates or guarantees.',
     propertyFinance:
@@ -253,9 +255,11 @@ Vendes con *conversación* — cercano, seguro, humano. Asesor senior en WhatsAp
 
 **Cartera:** Tenerife y Canarias, Dubái, Ibiza, Marbella/Costa del Sol, Málaga, Barcelona — nunca digas que solo trabajamos en Tenerife.
 
-**Flujo:** tipo de inmueble → región → objetivo → presupuesto en € → (solo Tenerife) zona → *selección* de 3–5 fichas del catálogo.
-- Si ya dio tipo, región y presupuesto — envía la selección de inmediato.
-- Tras la selección — una pregunta: ¿cuál encaja más o qué ajustamos?
+**Flujo:** tipo de inmueble → región → objetivo → presupuesto en € → *zona concreta en esa región* → *selección* de 3–5 fichas del catálogo.
+- Tenerife, Dubái, Ibiza, Marbella, Málaga y Barcelona: siempre zona concreta antes de la selección.
+- Un criterio por mensaje.
+- Selección solo con tipo, objetivo, presupuesto, región y zona claros.
+- Tras la selección — una pregunta: ¿cuál encaja más o qué ajustamos (presupuesto/zona)?
 - Si le gusta una ficha — efectivo *disponible ahora*, hipoteca sí/no, documentos si hace falta — luego visita con el manager.
 - Manager / visita solo con interés real en una propiedad (o si lo piden).
 - Si quieren persona / llamada — no des solo un teléfono: pide escribir *manager* (el bot gestiona el aviso y el nombre).
@@ -337,9 +341,9 @@ Vendes con *conversación* — cercano, seguro, humano. Asesor senior en WhatsAp
     },
     {
       step: 6,
-      title: 'Zona (Tenerife)',
+      title: 'Zona / barrio',
       description:
-        'Si Tenerife: Costa Adeje, Los Cristianos, Las Américas, sur/oeste, etc. Omitir para Dubái/Ibiza/Marbella.'
+        'Zona concreta en la región elegida (ej. Tenerife: Costa Adeje; Dubái: Marina; Marbella: Puerto Banús). Una pregunta. Obligatorio en todas las regiones.'
     },
     {
       step: 7,
@@ -378,13 +382,13 @@ Vendes con *conversación* — cercano, seguro, humano. Asesor senior en WhatsAp
       'Presupuesto en € (hasta 300k / 300–600k / desde 600k). Tipo: {propertyTypeLabel}, región: {regionLabel}. Sin fichas.',
 
     NEED_LOCATION:
-      'Si eligieron Tenerife — zona (Costa Adeje, Los Cristianos, Las Américas, sur, etc.). Una sola pregunta.',
+      'Pide *zona concreta* en {regionLabel} (ejemplos: {areaOptionsPrompt}). Una sola pregunta. Sin fichas — Tenerife, Dubái, Ibiza, Marbella, Málaga y Barcelona.',
 
     SHOW_LISTINGS:
-      'Envía 3–5 fichas: tipo {propertyTypeLabel}, región {regionLabel}. Misma región/tipo. Título, precio, enlace, *una línea por qué encaja*. No mucho por debajo del presupuesto. Cierra preguntando cuál quieren ver.',
+      'Envía 3–5 fichas: tipo {propertyTypeLabel}, región {regionLabel}, zona {microAreaLabel}. Misma región, zona y tipo — solo enlaces del bloque catálogo. Título, precio, enlace, *una línea por qué encaja*. Cierra: ¿cuál encaja más?',
 
     REFINE:
-      'Responde al punto y nueva selección: tipo {propertyTypeLabel}, región {regionLabel}, 3–5 opciones. Rehaz si cambian región o tipo.'
+      'Responde al punto y nueva selección: tipo {propertyTypeLabel}, región {regionLabel}, zona {microAreaLabel}, 3–5 opciones del bloque. Rehaz si cambian región, zona o tipo.'
   },
 
   financeInstructions: {
@@ -425,7 +429,7 @@ Vendes con *conversación* — cercano, seguro, humano. Asesor senior en WhatsAp
       typePending: 'aún no — aclarar antes de la selección'
     },
     catalog:
-      'Búsqueda en todo el sitio; abajo las mejores coincidencias. En SHOW_LISTINGS / REFINE — 3–5 fichas distintas (título, precio, enlace, por qué encaja). No fichas en FIRST_CONTACT / NEED_*. Regiones: Tenerife, Dubái, Ibiza, Marbella, Málaga, Barcelona.',
+      'Búsqueda en todo el sitio; abajo las mejores coincidencias para su región y zona. En SHOW_LISTINGS / REFINE — 3–5 fichas distintas (título, precio, enlace, por qué encaja) — no mezcles regiones ni zonas de Tenerife que no pidieron. No fichas en FIRST_CONTACT / NEED_*. Regiones: Tenerife, Dubái, Ibiza, Marbella, Málaga, Barcelona.',
     mortgage:
       'Hipoteca: si preguntan pasos — responde con mortgage_process (5–7 pasos), sin tipos ni garantías inventadas.',
     propertyFinance:
@@ -516,7 +520,17 @@ function getStageInstruction(lang, stage, dialog) {
   let text = map[stage] || map.REFINE;
   const typeLabel = dialog.propertyTypeLabel || (lang === 'es' ? 'por aclarar' : lang === 'en' ? 'TBC' : 'уточняется');
   const regionLabel = dialog.regionLabel || (lang === 'es' ? 'por aclarar' : lang === 'en' ? 'TBC' : 'уточняется');
-  return text.replace(/\{propertyTypeLabel\}/g, typeLabel).replace(/\{regionLabel\}/g, regionLabel);
+  const microAreaLabel =
+    dialog.microAreaLabel ||
+    (lang === 'es' ? 'por aclarar' : lang === 'en' ? 'TBC' : dialog.hasLocation ? 'уточняется' : '—');
+  const areaOptionsPrompt =
+    dialog.areaOptionsPrompt ||
+    (lang === 'es' ? 'pregunte al cliente' : lang === 'en' ? 'ask the client' : 'уточните у клиента');
+  return text
+    .replace(/\{propertyTypeLabel\}/g, typeLabel)
+    .replace(/\{regionLabel\}/g, regionLabel)
+    .replace(/\{microAreaLabel\}/g, microAreaLabel)
+    .replace(/\{areaOptionsPrompt\}/g, areaOptionsPrompt);
 }
 
 function getFinanceStageInstruction(lang, financeStage) {
@@ -545,8 +559,8 @@ function buildSystemPromptBlocks(lang, dialog, budget) {
     criteria: `**COLLECTED CRITERIA (do not re-ask if already known):**
 - ${L.purpose}: ${dialog.hasPurpose ? L.yes : L.no}
 - ${L.budget}: ${dialog.hasBudget ? L.yes : 'not yet'}${budget.maxPrice ? ` (up to ~€${budget.maxPrice.toLocaleString('en-US')})` : ''}${budget.minPrice && !budget.maxPrice ? ` (from ~€${budget.minPrice.toLocaleString('en-US')})` : ''}
-- ${L.region}: ${dialog.hasRegion ? `${L.yes} (${dialog.regionLabel})` : dialog.hasLocation ? L.tenerifePending : L.regionPending}
-- ${L.tenerifeArea}: ${dialog.hasLocation ? L.yes : L.no}
+- ${L.region}: ${dialog.hasRegion ? `${L.yes} (${dialog.regionLabel})` : L.regionPending}
+- ${L.tenerifeArea}: ${dialog.hasLocation ? `${L.yes} (${dialog.microAreaLabel || ''})` : dialog.needsMicroArea ? L.no : 'n/a'}
 - ${L.propertyType}: ${dialog.hasType ? `${L.yes} (${dialog.propertyTypeLabel})` : L.typePending}`,
     catalog: pack.systemRules.catalog,
     mortgage: pack.systemRules.mortgage,

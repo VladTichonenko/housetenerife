@@ -44,6 +44,12 @@ function detectPropertyInterest(history, allUserText) {
       lower
     ) ||
     /(?:этот|эту|это)\s+(?:объект|вариант|квартир|вилл)/i.test(lower) ||
+    /(?:option|listing|property|apartment|villa)\s*(?:#|no\.?|number)?\s*[12345]/i.test(lower) ||
+    /(?:the\s+)?(?:first|second|third|fourth|fifth)\s+(?:one|option|listing|property)/i.test(lower) ||
+    /(?:opción|ficha|propiedad|apartamento|villa)\s*(?:#|n[ºo]\.?)?\s*[12345]/i.test(lower) ||
+    /(?:la\s+)?(?:primera|segunda|tercera|cuarta|quinta)\s+(?:opción|ficha|propiedad)/i.test(lower) ||
+    /(?:this|that)\s+(?:one|property|listing|apartment|villa)/i.test(lower) ||
+    /(?:esta|ese|esa)\s+(?:ficha|propiedad|opción|villa|apartamento)/i.test(lower) ||
     /housetenerife\.eu\/[a-z]{0,3}\/?property\//i.test(lower) ||
     /\bhz\d{2,5}\b/i.test(lower);
 
@@ -51,12 +57,25 @@ function detectPropertyInterest(history, allUserText) {
     /(?:понравил|нравится|интересует|хочу\s+(?:его|эту|этот|смотреть|купить)|выбираю|остановлюсь|беру)/i.test(
       lower
     ) ||
+    /(?:i\s+like|love\s+this|interested\s+in|want\s+to\s+(?:see|view|buy)|i(?:'ll| will)\s+take|this\s+one\s+works)/i.test(
+      lower
+    ) ||
+    /(?:me\s+gusta|me\s+interesa|quiero\s+(?:ver|comprar)|me\s+quedo\s+con|esta\s+me\s+encaja)/i.test(lower) ||
     /(?:просмотр|посмотреть|запиш|бронир|связ.*менеджер|организуй.*просмотр)/i.test(lower) ||
-    /(?:как\s+оформ|как\s+куп|что\s+дальше|следующий\s+шаг|как\s+проходит\s+сделк)/i.test(lower);
+    /(?:viewing|schedule\s+a\s+view|book\s+a\s+view|arrange\s+a\s+visit)/i.test(lower) ||
+    /(?:visita|ver\s+en\s+persona|agendar\s+visita)/i.test(lower) ||
+    /(?:как\s+оформ|как\s+куп|что\s+дальше|следующий\s+шаг|как\s+проходит\s+сделк)/i.test(lower) ||
+    /(?:how\s+to\s+buy|next\s+step|what(?:'s|\s+is)\s+next|how\s+does\s+the\s+deal)/i.test(lower) ||
+    /(?:cómo\s+comprar|siguiente\s+paso|qué\s+sigue)/i.test(lower);
 
   if (pickedObject) return true;
   if (listingsShown && strongInterest && userTurns >= 2) return true;
-  if (listingsShown && /(?:какой|какая).{0,15}(?:ближе|подходит)|этот\s+подходит/i.test(lower)) {
+  if (
+    listingsShown &&
+    /(?:какой|какая).{0,15}(?:ближе|подходит)|этот\s+подходит|which\s+one.{0,20}(?:closest|best)|this\s+one\s+fits|cuál.{0,20}(?:encaja|mejor)/i.test(
+      lower
+    )
+  ) {
     return true;
   }
 
@@ -81,7 +100,7 @@ function extractFundsAvailableNow(text, opts = {}) {
   const last = String(opts.lastUserMessage || '').toLowerCase().trim();
 
   const fundsContext =
-    /(?:на\s+руках|сейчас\s+(?:есть|могу|готов)|готов\s+внести|накоплен|собственн(?:ые|ых)\s+средств|внесу\s+сразу|имею\s+сейчас|own\s+funds|cash\s+ready|внесу|готов\s+оплат)/i;
+    /(?:на\s+руках|сейчас\s+(?:есть|могу|готов)|готов\s+внести|накоплен|собственн(?:ые|ых)\s+средств|внесу\s+сразу|имею\s+сейчас|own\s+funds|cash\s+ready|cash\s+available|money\s+available|ready\s+to\s+pay|внесу|готов\s+оплат|efectivo\s+disponible|dinero\s+ahora|tengo\s+ahora)/i;
 
   const budgetOnly =
     /(?:бюджет|ищу\s+до|максимум\s+до|до\s+\d|подборк|вариант.*(?:до|до\s*€)|ориентир\s+до)/i;

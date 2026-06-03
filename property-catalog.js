@@ -1,6 +1,11 @@
 const fs = require('fs');
 const path = require('path');
-const { LOCATION_KEYWORDS, derivePriceTarget } = require('./dialog-context');
+const { derivePriceTarget } = require('./dialog-context');
+const {
+  itemMatchesMicroAreas,
+  scoreMicroAreaFit,
+  detectMicroAreas
+} = require('./location-matching');
 const {
   getItemPropertyCategories,
   itemMatchesPropertyTypes,
@@ -144,15 +149,11 @@ function parseItemPriceEur(item) {
   return v;
 }
 
-function scoreLocation(item, contextText) {
-  const blob = itemSearchBlob(item).toLowerCase();
-  const lower = String(contextText || '').toLowerCase();
-  let sc = 0;
-  for (const k of LOCATION_KEYWORDS) {
-    const key = k.toLowerCase();
-    if (lower.includes(key) && blob.includes(key)) sc += 18;
-  }
-  return sc;
+function scoreLocation(item, contextText, microDetection) {
+  const detection =
+    microDetection ||
+    (contextText ? detectMicroAreas(contextText) : { groupIds: [], broadIds: [], keywords: [] });
+  return scoreMicroAreaFit(item, detection, itemSearchBlob);
 }
 
 function scorePriceFit(price, options = {}) {
@@ -193,7 +194,7 @@ function scorePriceFit(price, options = {}) {
 function scoreItem(item, tokens, options = {}) {
   const blob = itemSearchBlob(item);
   const hay = tokenize(blob);
-  let sc = scoreLocation(item, options.contextText);
+  let sc = scoreLocation(item, options.contextText, options.microDetection);
 
   for (const t of tokens) {
     if (t.length < 2) continue;
@@ -223,19 +224,24 @@ function filterByMacroRegions(ranked, macroRegions) {
   return ranked.filter((r) => itemMatchesRegions(r.item, macroRegions));
 }
 
+function filterByMicroAreas(ranked, microAreaGroupIds) {
+  if (!microAreaGroupIds?.length) return ranked;
+  const filtered = ranked.filter((r) =>
+    itemMatchesMicroAreas(r.item, microAreaGroupIds, itemSearchBlob)
+  );
+  return filtered.length ? filtered : ranked;
+}
+
 function filterByPropertyTypes(ranked, propertyTypes) {
   if (!propertyTypes?.length) return ranked;
   return ranked.filter((r) => itemMatchesPropertyTypes(r.item, propertyTypes));
 }
 
 function locationBucketForItem(item) {
-  const region = getPrimaryMacroRegion(item);
-  const blob = itemSearchBlob(item).toLowerCase();
-  for (const k of LOCATION_KEYWORDS) {
-    const key = k.toLowerCase();
-    if (blob.includes(key)) return `${region}:${key}`;
-  }
-  return region || '';
+  const region = getPrimaryMacroRegion(item) || 'unknown';
+  const micro = detectMicroAreas(itemSearchBlob(item));
+  if (micro.groupIds.length) return `${region}:${micro.groupIds[0]}`;
+  return region;
 }
 
 /** Разнообразие: не отдавать 5 объектов из одного района подряд */
@@ -332,12 +338,17 @@ function searchForContext(query, limit = 8, options = {}) {
     });
   const propertyTypes = options.propertyTypes ?? [];
   const macroRegions = options.macroRegions ?? [];
+  const microAreaGroupIds = options.microAreaGroupIds ?? [];
+  const microDetection =
+    options.microDetection ||
+    detectMicroAreas(options.contextText || query || '', lang);
   const scoreOpts = {
     minPrice: options.minPrice ?? null,
     maxPrice: options.maxPrice ?? null,
     priceTarget,
     propertyTypes,
     macroRegions,
+    microDetection,
     contextText: options.contextText || query || ''
   };
 
@@ -370,6 +381,10 @@ function searchForContext(query, limit = 8, options = {}) {
     ranked = filterByMacroRegions(ranked, macroRegions);
   }
 
+  if (microAreaGroupIds.length) {
+    ranked = filterByMicroAreas(ranked, microAreaGroupIds);
+  }
+
   if (priceTarget) {
     const priceFiltered = filterByPriceTarget(ranked, priceTarget);
     if (priceFiltered.length) ranked = priceFiltered;
@@ -380,8 +395,10 @@ function searchForContext(query, limit = 8, options = {}) {
   if (!ranked.length) {
     ranked = data.items
       .map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }))
-      .sort((a, b) => b.s - a.s)
-      .slice(0, Math.max(limit, 1) * 3);
+      .sort((a, b) => b.s - a.s);
+    if (propertyTypes.length) ranked = filterByPropertyTypes(ranked, propertyTypes);
+    if (macroRegions.length) ranked = filterByMacroRegions(ranked, macroRegions);
+    if (microAreaGroupIds.length) ranked = filterByMicroAreas(ranked, microAreaGroupIds);
     if (priceTarget) ranked = filterByPriceTarget(ranked, priceTarget);
     ranked = ranked.slice(0, Math.max(limit, 1));
   }
