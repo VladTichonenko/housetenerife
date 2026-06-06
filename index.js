@@ -31,12 +31,20 @@ const {
   beginManagerHandoff,
   connectWithManager,
   setRecordHandoff,
+  detectAffirmativeResponse,
+  detectNegativeResponse,
+  shouldTrackCallOfferAfterReply,
+  startHandoffFromCallAcceptance,
 } = require('./manager-handoff');
 const {
   getPendingHandoff,
   clearPendingHandoff,
   extractClientName,
+  getPendingCallOffer,
+  setPendingCallOffer,
+  clearPendingCallOffer,
 } = require('./handoff-pending');
+const { analyzeConversation } = require('./dialog-context');
 const { recordHandoff, HANDOFF_PATH } = require('./handoff-leads');
 const { localizeUrlsInText } = require('./property-share');
 const propertyPreviewRouter = require('./property-preview');
@@ -1113,6 +1121,63 @@ async function handleIncomingMessage(msg) {
       }
     }
 
+    const pendingCallOffer = getPendingCallOffer(chatId);
+    if (pendingCallOffer && !commandHandlers[trimmedMessage]) {
+      const offerLang = pendingCallOffer.language || dialogLanguage;
+
+      if (detectNegativeResponse(messageText)) {
+        addToHistory(chatId, 'user', messageText);
+        clearPendingCallOffer(chatId);
+        console.log(`📞 Клиент отказался от созвона: ${chatId}`);
+        try {
+          const history = getHistory(chatId);
+          const aiResponse = await withChatTyping(msg, () => askAI(history, offerLang));
+          const outgoing = localizeUrlsInText(aiResponse, offerLang);
+          addToHistory(chatId, 'assistant', outgoing);
+          await sendMessageSafely(msg, outgoing, client);
+        } catch (e) {
+          console.warn('⚠️ AI после отказа от созвона:', e.message);
+        }
+        return 'processed';
+      }
+
+      if (
+        detectAffirmativeResponse(messageText) ||
+        wantsManagerHandoff(messageText) ||
+        extractClientName(messageText)
+      ) {
+        addToHistory(chatId, 'user', messageText);
+        clearPendingCallOffer(chatId);
+        const clientName = extractClientName(messageText);
+        console.log(`📞 Клиент согласился на созвон: ${chatId}`);
+        const result = await startHandoffFromCallAcceptance(
+          msg,
+          client,
+          offerLang,
+          sendMessageSafely,
+          {
+            reasonKey: pendingCallOffer.reasonKey || 'handoff',
+            preview: pendingCallOffer.preview || messageText,
+            conversationHistory: getHistory(chatId),
+            clientName,
+          }
+        );
+        if (result.action === 'connected') {
+          addToHistory(
+            chatId,
+            'assistant',
+            buildHandoffReply(offerLang, 'manager_handoff', result.clientName)
+          );
+        } else {
+          addToHistory(chatId, 'assistant', buildHandoffAskName(offerLang));
+        }
+        return 'processed';
+      }
+
+      clearPendingCallOffer(chatId);
+      console.log(`📞 Неясный ответ на предложение созвона — продолжаем диалог: ${chatId}`);
+    }
+
     if (isImageWithDescription(msg, messageText)) {
       console.log(`📷 Фото с описанием от ${chatId} — запрос имени перед менеджером`);
       addToHistory(chatId, 'user', `[фото] ${messageText}`);
@@ -1126,14 +1191,28 @@ async function handleIncomingMessage(msg) {
     }
 
     if (wantsManagerHandoff(messageText)) {
-      console.log(`👤 Запрос менеджера от ${chatId} — запрос имени`);
+      console.log(`👤 Запрос менеджера/созвона от ${chatId} — предложение через AI`);
       addToHistory(chatId, 'user', messageText);
-      await beginManagerHandoff(msg, client, dialogLanguage, sendMessageSafely, {
-        reasonKey: 'handoff',
-        preview: messageText,
-        translationKey: 'manager_handoff',
-      });
-      addToHistory(chatId, 'assistant', buildHandoffAskName(dialogLanguage));
+      try {
+        const history = getHistory(chatId);
+        const aiResponse = await withChatTyping(msg, () => askAI(history, dialogLanguage));
+        const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
+        addToHistory(chatId, 'assistant', outgoing);
+        await sendMessageSafely(msg, outgoing, client);
+        const dialog = analyzeConversation(getHistory(chatId), dialogLanguage);
+        if (shouldTrackCallOfferAfterReply(dialog, outgoing)) {
+          setPendingCallOffer(chatId, {
+            reasonKey: 'handoff',
+            preview: messageText,
+            language: dialogLanguage,
+          });
+          console.log(`📞 Ожидание ответа на предложение созвона: ${chatId}`);
+        }
+      } catch (aiError) {
+        console.error('❌ Ошибка AI при запросе менеджера:', aiError);
+        const errorText = getTranslation(userLanguage, 'error');
+        await sendMessageSafely(msg, errorText, client);
+      }
       return 'processed';
     }
 
@@ -1173,6 +1252,16 @@ async function handleIncomingMessage(msg) {
         console.log(`📤 Отправка ответа от AI на ${chatId}`);
         await sendMessageSafely(msg, outgoing, client);
         console.log(`✅ Ответ от AI отправлен успешно`);
+
+        const dialog = analyzeConversation(getHistory(chatId), dialogLanguage);
+        if (shouldTrackCallOfferAfterReply(dialog, outgoing)) {
+          setPendingCallOffer(chatId, {
+            reasonKey: dialog.hasPropertyInterest ? 'handoff' : 'handoff',
+            preview: messageText,
+            language: dialogLanguage,
+          });
+          console.log(`📞 Ожидание ответа на предложение созвона: ${chatId}`);
+        }
       } catch (aiError) {
         console.error('❌ Ошибка при запросе к AI:', aiError);
         // В случае ошибки отправляем сообщение об ошибке

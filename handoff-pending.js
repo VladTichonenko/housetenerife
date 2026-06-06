@@ -7,6 +7,9 @@ function looksLikeLink(text) {
 /** @type {Map<string, object>} */
 const pending = new Map();
 
+/** @type {Map<string, object>} */
+const pendingCallOffers = new Map();
+
 const PENDING_TTL_MS = 30 * 60 * 1000;
 
 function setPendingHandoff(chatId, data) {
@@ -30,6 +33,27 @@ function clearPendingHandoff(chatId) {
   pending.delete(chatId);
 }
 
+function setPendingCallOffer(chatId, data) {
+  pendingCallOffers.set(chatId, {
+    ...data,
+    startedAt: Date.now(),
+  });
+}
+
+function getPendingCallOffer(chatId) {
+  const item = pendingCallOffers.get(chatId);
+  if (!item) return null;
+  if (Date.now() - item.startedAt > PENDING_TTL_MS) {
+    pendingCallOffers.delete(chatId);
+    return null;
+  }
+  return item;
+}
+
+function clearPendingCallOffer(chatId) {
+  pendingCallOffers.delete(chatId);
+}
+
 function extractClientName(text) {
   if (!text || typeof text !== 'string') return null;
   if (looksLikeLink(text)) return null;
@@ -51,5 +75,8 @@ module.exports = {
   setPendingHandoff,
   getPendingHandoff,
   clearPendingHandoff,
+  setPendingCallOffer,
+  getPendingCallOffer,
+  clearPendingCallOffer,
   extractClientName,
 };

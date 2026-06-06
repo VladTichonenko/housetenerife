@@ -22,6 +22,7 @@ const {
   formatFinanceSummaryForPrompt
 } = require('./purchase-finance');
 const { normalizeSalesLang, getStageInstruction } = require('./sales-localization');
+const { wantsManagerHandoff, buildCallOfferContext } = require('./manager-handoff');
 
 
 /**
@@ -107,12 +108,33 @@ function analyzeConversation(history, lang = 'ru') {
   const wantsMortgageSteps = detectMortgageStepsQuestion(lastUser || allUserText);
 
   const finance = analyzePurchaseFinance(history, allUserText, salesLang);
-  if (finance.financeStage) {
+  const managerCallRequested = wantsManagerHandoff(lastUser || allUserText);
+
+  const callOfferContext = buildCallOfferContext(
+    {
+      propertyTypeLabel,
+      regionLabel,
+      microAreaLabel: microAreas.label,
+      stage: finance.hasPropertyInterest ? 'SHOW_LISTINGS' : stage,
+      hasPropertyInterest: finance.hasPropertyInterest,
+    },
+    salesLang
+  );
+
+  if (finance.financeStage && finance.financeStage !== 'PROPERTY_CLOSING') {
     stage = finance.financeStage;
+  } else if (managerCallRequested || finance.financeStage === 'PROPERTY_CLOSING') {
+    stage = 'OFFER_MANAGER_CALL';
   }
 
-  const dialogCtx = { propertyTypeLabel, regionLabel, areaOptionsPrompt, microAreaLabel: microAreas.label };
-  let stageInstruction = finance.financeStage
+  const dialogCtx = {
+    propertyTypeLabel,
+    regionLabel,
+    areaOptionsPrompt,
+    microAreaLabel: microAreas.label,
+    callOfferContext,
+  };
+  let stageInstruction = finance.financeStage && finance.financeStage !== 'PROPERTY_CLOSING'
     ? getFinanceStageInstruction(finance.financeStage, salesLang)
     : getStageInstruction(salesLang, stage, dialogCtx) ||
       resolveStageInstruction(stage, dialogCtx);
@@ -147,6 +169,8 @@ function analyzeConversation(history, lang = 'ru') {
     stage,
     stageInstruction,
     wantsMortgageSteps,
+    managerCallRequested,
+    callOfferContext,
     propertyTypeOptions: formatPropertyTypeOptions(salesLang),
     ...finance,
     financeSummaryBlock
@@ -168,7 +192,9 @@ const stageInstructions = {
 
   SHOW_LISTINGS: `Покажи 3–5 объектов из каталога: тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, район ${'{microAreaLabel}'}. Только из блока каталога — тот же регион и район, без подмешивания других зон. Название, цена, ссылка, одна фраза почему подходит. Закрой вопросом: какой вариант ближе?`,
 
-  REFINE: `Ответь по сути. Подборка: тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, район ${'{microAreaLabel}'}, 3–5 объектов из блока. Если сменили регион, район или тип — пересобери.`
+  REFINE: `Ответь по сути. Подборка: тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, район ${'{microAreaLabel}'}, 3–5 объектов из блока. Если сменили регион, район или тип — пересобери.`,
+
+  OFFER_MANAGER_CALL: `Клиент готов к живому контакту (сам просил менеджера/звонок/просмотр — или финансы по объекту уже ясны). Коротко отрази контекст: ${'{callOfferContext}'}. Тёпло предложи созвон с нашим менеджером, чтобы обсудить ${'{callOfferContext}'}. Один вопрос в конце — да/нет, без команды «менеджер», без телефона в сообщении. 2–4 строки.`,
 };
 
 function resolveStageInstruction(stage, dialog) {
@@ -177,11 +203,13 @@ function resolveStageInstruction(stage, dialog) {
   const regionLabel = dialog.regionLabel || 'уточняется';
   const microAreaLabel = dialog.microAreaLabel || (dialog.hasLocation ? 'уточняется' : '—');
   const areaOptionsPrompt = dialog.areaOptionsPrompt || 'уточните у клиента';
+  const callOfferContext = dialog.callOfferContext || 'ваш запрос';
   return text
     .replace(/\{propertyTypeLabel\}/g, typeLabel)
     .replace(/\{regionLabel\}/g, regionLabel)
     .replace(/\{microAreaLabel\}/g, microAreaLabel)
-    .replace(/\{areaOptionsPrompt\}/g, areaOptionsPrompt);
+    .replace(/\{areaOptionsPrompt\}/g, areaOptionsPrompt)
+    .replace(/\{callOfferContext\}/g, callOfferContext);
 }
 
 function buildCatalogSearchQuery(history) {

@@ -102,7 +102,182 @@ function wantsManagerHandoff(text) {
     return true;
   }
 
+  if (
+    /(?:просмотр|посмотреть|запиш|записать|организуй.*просмотр|созвон|созвониться|перезвон|позвоните|позвони)/i.test(
+      lower
+    )
+  ) {
+    return true;
+  }
+
+  if (/(?:viewing|schedule\s+a\s+call|call\s+me|book\s+a\s+view|arrange\s+a\s+visit)/i.test(lower)) {
+    return true;
+  }
+
+  if (/(?:visita|agendar\s+(?:una\s+)?visita|llamar|llamada|crear\s+una\s+llamada)/i.test(lower)) {
+    return true;
+  }
+
   return false;
+}
+
+function detectAffirmativeResponse(text) {
+  const t = String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!t || t.length > 120) return false;
+  if (detectNegativeResponse(text)) return false;
+
+  if (
+    /^(?:да|ага|угу|ок|okay|ok|yes|yeah|yep|yup|sure|please|pls|go\s+ahead|of\s+course|why\s+not|давай|конечно|хочу|please\s+do|sounds\s+good|perfect|great|si|sí|claro|vale|por\s+favor|de\s+acuerdo|perfecto|genial|👍|✅)$/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+
+  return (
+    /(?:^|\s)(?:да|yes|yeah|yep|sure|ok|okay|please|давай|конечно|хочу|sí|si|claro|vale)(?:[\s,.!?]|$)/i.test(
+      t
+    ) &&
+    !/(?:не\s+да|not\s+yes|no\s+thanks)/i.test(t)
+  );
+}
+
+function detectNegativeResponse(text) {
+  const t = String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!t) return false;
+  return (
+    /^(?:нет|no|nope|nah|не\s+надо|не\s+нужно|not\s+now|later|maybe\s+later|позже|потом|спасибо\s+нет|no\s+gracias|not\s+yet|ещё\s+нет|пока\s+нет)$/i.test(
+      t
+    ) ||
+    /(?:не\s+(?:хочу|надо|нужен|сейчас)|don't\s+want|not\s+interested|sin\s+interés|ahora\s+no)/i.test(
+      t
+    )
+  );
+}
+
+/** Ответ ассистента похож на предложение созвона / связи с менеджером */
+function detectCallOfferInAssistantText(text) {
+  const t = String(text || '').toLowerCase();
+  if (!t) return false;
+  const hasOffer =
+    /(?:созвон|созвониться|перезвон|позвон|звонок|связаться|свяжется|обсудить\s+(?:это|всё|все)|на\s+связи)/i.test(
+      t
+    ) ||
+    /(?:schedule\s+a\s+call|call\s+you|get\s+on\s+a\s+call|speak\s+(?:with|to)|connect\s+you|reach\s+out)/i.test(
+      t
+    ) ||
+    /(?:llamada|llamar|crear\s+una\s+llamada|hablar\s+contigo|ponerse\s+en\s+contacto)/i.test(t);
+  const hasQuestion = /\?/.test(t);
+  return hasOffer && hasQuestion;
+}
+
+/**
+ * Краткий контекст для предложения созвона (текущий шаг диалога).
+ */
+function buildCallOfferContext(dialog, lang = 'ru') {
+  const l = ['ru', 'en', 'es'].includes(lang) ? lang : 'en';
+  const type = dialog?.propertyTypeLabel;
+  const region = dialog?.regionLabel;
+  const area = dialog?.microAreaLabel;
+  const stage = dialog?.stage;
+
+  if (dialog?.hasPropertyInterest) {
+    if (l === 'en') return 'the property you liked and next steps';
+    if (l === 'es') return 'la propiedad que te interesa y los siguientes pasos';
+    return 'понравившийся объект и следующие шаги';
+  }
+
+  const parts = [];
+  if (type && !/уточняется|TBC|por aclarar/i.test(type)) parts.push(type);
+  if (region && !/уточняется|TBC|por aclarar/i.test(region)) parts.push(region);
+  if (area && area !== '—' && !/уточняется|TBC|por aclarar/i.test(area)) parts.push(area);
+
+  if (parts.length) {
+    const joined = parts.join(l === 'ru' ? ', ' : ', ');
+    if (l === 'en') return `your search (${joined})`;
+    if (l === 'es') return `tu búsqueda (${joined})`;
+    return `ваш запрос (${joined})`;
+  }
+
+  const byStage = {
+    NEED_PROPERTY_TYPE: {
+      ru: 'подбор недвижимости — с чего начать',
+      en: 'finding the right property',
+      es: 'encontrar la propiedad adecuada',
+    },
+    NEED_REGION: {
+      ru: 'выбор региона и возможностей',
+      en: 'choosing the right region',
+      es: 'elegir la región adecuada',
+    },
+    NEED_PURPOSE: {
+      ru: 'цель покупки и стратегию',
+      en: 'your goals and strategy',
+      es: 'tus objetivos y estrategia',
+    },
+    NEED_BUDGET: {
+      ru: 'бюджет и реальные варианты',
+      en: 'budget and realistic options',
+      es: 'presupuesto y opciones realistas',
+    },
+    NEED_LOCATION: {
+      ru: 'район и локацию',
+      en: 'area and location',
+      es: 'zona y ubicación',
+    },
+    SHOW_LISTINGS: {
+      ru: 'подборку объектов',
+      en: 'the shortlist and your options',
+      es: 'la selección de propiedades',
+    },
+    REFINE: {
+      ru: 'ваши пожелания и подборку',
+      en: 'your criteria and options',
+      es: 'tus criterios y opciones',
+    },
+  };
+
+  const fallback = byStage[stage] || byStage.REFINE;
+  return fallback[l] || fallback.en;
+}
+
+function shouldTrackCallOfferAfterReply(dialog, assistantText) {
+  if (dialog?.stage === 'OFFER_MANAGER_CALL') return true;
+  return detectCallOfferInAssistantText(assistantText);
+}
+
+async function startHandoffFromCallAcceptance(
+  msg,
+  client,
+  userLanguage,
+  sendMessageSafely,
+  { reasonKey = 'handoff', preview = '', conversationHistory = [], clientName = '' } = {}
+) {
+  const name = clientName || extractClientNameFromHistory(conversationHistory);
+  if (name) {
+    await connectWithManager(msg, client, userLanguage, sendMessageSafely, {
+      reasonKey,
+      preview,
+      conversationHistory,
+      clientName: name,
+    });
+    return { action: 'connected', clientName: name };
+  }
+  await beginManagerHandoff(msg, client, userLanguage, sendMessageSafely, {
+    reasonKey,
+    preview,
+  });
+  return { action: 'ask_name' };
+}
+
+function extractClientNameFromHistory(history) {
+  const { extractClientName } = require('./handoff-pending');
+  for (const m of [...(history || [])].reverse()) {
+    if (m.sender !== 'user') continue;
+    const name = extractClientName(m.text);
+    if (name && name.length >= 2) return name;
+  }
+  return '';
 }
 
 function formatCustomerPhone(chatId) {
@@ -125,7 +300,7 @@ function buildVoiceReply(userLanguage) {
 }
 
 function buildHandoffAskName(userLanguage) {
-  return getTranslation(userLanguage, 'handoff_ask_name');
+  return applyManagerPlaceholders(getTranslation(userLanguage, 'handoff_ask_name'));
 }
 
 function buildHandoffNameInvalid(userLanguage) {
@@ -200,6 +375,12 @@ module.exports = {
   containsLink,
   isCatalogSiteText,
   wantsManagerHandoff,
+  detectAffirmativeResponse,
+  detectNegativeResponse,
+  detectCallOfferInAssistantText,
+  buildCallOfferContext,
+  shouldTrackCallOfferAfterReply,
+  startHandoffFromCallAcceptance,
   buildVoiceReply,
   buildHandoffAskName,
   buildHandoffNameInvalid,

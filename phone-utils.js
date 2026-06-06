@@ -57,7 +57,7 @@ const translations = {
     error: '❌ Произошла ошибка при обработке сообщения. Попробуйте еще раз.',
     ciphertext_reply: '📩 Сообщение получено, но это зашифрованное или одноразовое сообщение — я не вижу текст. Напишите, пожалуйста, обычным текстом.',
     voice_reply:
-      '🎤 Я не могу прослушивать голосовые сообщения.\n\nНапишите, пожалуйста, *текстом* — или ответьте *«менеджер»*, если хотите связаться с {manager_name} ({manager_phone}).',
+      '🎤 Я не могу прослушивать голосовые сообщения.\n\nНапишите, пожалуйста, *текстом* — или скажите, если хотите созвон с {manager_name}, он поможет с вашим запросом.',
     manager_handoff:
       'Спасибо{client_name_part}! Запрос передан менеджеру.\n\nНаш менеджер *{manager_name}* скоро свяжется с вами. Или можете написать ему первыми в WhatsApp: {manager_phone}\n\n(Вы обращались через бот House Tenerife.)',
     manager_handoff_image:
@@ -65,7 +65,7 @@ const translations = {
     manager_handoff_link:
       'Спасибо{client_name_part}! Запрос передан менеджеру.\n\nНаш менеджер *{manager_name}* скоро свяжется с вами. Или можете написать ему первыми в WhatsApp: {manager_phone}\n\n(Вы обращались через бот House Tenerife.)',
     handoff_ask_name:
-      'Чтобы передать вас менеджеру, *как к вам обращаться?* (имя)',
+      'Отлично! Чтобы *{manager_name}* мог с вами связаться, *как к вам обращаться?* (имя)',
     handoff_name_invalid:
       'Пожалуйста, напишите, как к вам обращаться (имя или как вас называть).'
   },
@@ -88,7 +88,7 @@ const translations = {
     useHelp: 'Usa /help para ver la lista de comandos.',
     error: '❌ Ocurrió un error al procesar el mensaje. Inténtalo de nuevo.',
     voice_reply:
-      '🎤 No puedo escuchar mensajes de voz.\n\nEscríbeme por *texto* — o responde *«manager»* si quieres hablar con {manager_name} ({manager_phone}).',
+      '🎤 No puedo escuchar mensajes de voz.\n\nEscríbeme por *texto* — o dime si quieres una llamada con {manager_name} para hablar de tu consulta.',
     manager_handoff:
       'Gracias{client_name_part}! Hemos pasado tu consulta al manager.\n\n*{manager_name}* se pondrá en contacto contigo pronto. O puedes escribirle primero por WhatsApp: {manager_phone}\n\n(Contactaste a través del bot House Tenerife.)',
     manager_handoff_image:
@@ -96,7 +96,7 @@ const translations = {
     manager_handoff_link:
       'Gracias{client_name_part}! Hemos pasado tu consulta al manager.\n\n*{manager_name}* se pondrá en contacto contigo pronto. O puedes escribirle primero por WhatsApp: {manager_phone}\n\n(Contactaste a través del bot House Tenerife.)',
     handoff_ask_name:
-      'Para pasarte con el manager, *¿cómo debemos llamarte?* (nombre)',
+      '¡Perfecto! Para que *{manager_name}* pueda contactarte, *¿cómo debemos llamarte?* (nombre)',
     handoff_name_invalid:
       'Por favor, escribe cómo debemos llamarte (tu nombre).'
   },
@@ -120,7 +120,7 @@ Just write me any message and I will reply!`,
     error: '❌ An error occurred while processing the message. Please try again.',
     ciphertext_reply: '📩 I received your message but it\'s encrypted or view-once — I can\'t read the text. Please send a regular text message.',
     voice_reply:
-      '🎤 I can\'t listen to voice messages.\n\nPlease send *text* — or reply *"manager"* to reach {manager_name} ({manager_phone}).',
+      '🎤 I can\'t listen to voice messages.\n\nPlease send *text* — or say if you\'d like a call with {manager_name} to discuss your request.',
     manager_handoff:
       'Thank you{client_name_part}! Your request has been passed to our manager.\n\n*{manager_name}* will contact you soon. Or you can message them first on WhatsApp: {manager_phone}\n\n(You contacted us via the House Tenerife bot.)',
     manager_handoff_image:
@@ -128,7 +128,7 @@ Just write me any message and I will reply!`,
     manager_handoff_link:
       'Thank you{client_name_part}! Your request has been passed to our manager.\n\n*{manager_name}* will contact you soon. Or you can message them first on WhatsApp: {manager_phone}\n\n(You contacted us via the House Tenerife bot.)',
     handoff_ask_name:
-      'To connect you with our manager, *how should we address you?* (name)',
+      'Great! So *{manager_name}* can reach you, *how should we address you?* (name)',
     handoff_name_invalid:
       'Please tell us how to address you (your name).'
   },
