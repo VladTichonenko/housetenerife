@@ -3,6 +3,10 @@ node_modules/
 web/node_modules/
 web/dist/
 
+# WhatsApp session & cache (локально / Railway Volume — не в git)
+.wwebjs_auth_ht/
+.wwebjs_cache/
+
 # Runtime data (лиды, не коммитить — на Railway хранить на Volume)
 data/handoff-leads.json
 data/telegram-alerts.json
