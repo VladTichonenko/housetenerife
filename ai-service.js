@@ -1,4 +1,4 @@
-const { chatCompletions, AI_MODEL } = require('./ai-client');
+const { chatCompletions, AI_MODEL, AI_API_KEY } = require('./ai-client');
 const { searchForContext, getCatalogSiteUrl } = require('./property-catalog');
 const { webSearchSnippets, shouldAugmentWithWeb } = require('./web-search');
 const { getBotConfig } = require('./bot-config');
@@ -283,6 +283,7 @@ async function callAI(messages, tierLabel) {
     {
       model: process.env.AI_MODEL || AI_MODEL,
       messages,
+      max_tokens: 2048,
       temperature: 0.78
     },
     { purpose: 'chat', label: tierLabel, maxAttempts: 1 }
@@ -298,7 +299,6 @@ async function callAI(messages, tierLabel) {
  * @param {string} userLanguage
  */
 async function askAI(conversationHistory, userLanguage = 'ru') {
-  const { AI_API_KEY } = require('./ai-client');
   if (!AI_API_KEY || !String(AI_API_KEY).trim()) {
     return 'Сервис ИИ не настроен: задайте AI_API_KEY в Railway Variables и перезапустите бота.';
   }
@@ -345,4 +345,66 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
   }
 }
 
-module.exports = { askAI };
+/** Короткая проверка для Telegram /ai и мониторинга. */
+async function checkAIHealth() {
+  const model = process.env.AI_MODEL || AI_MODEL;
+  const apiKey = process.env.AI_API_KEY || AI_API_KEY;
+  const started = Date.now();
+
+  if (!apiKey || !String(apiKey).trim()) {
+    return {
+      ok: false,
+      code: 'AI_KEY_MISSING',
+      message: 'AI_API_KEY не задан',
+      model,
+      latencyMs: 0
+    };
+  }
+
+  let lastEmpty = false;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await chatCompletions(
+        {
+          model,
+          messages: [{ role: 'user', content: 'Reply with one word only: ok' }],
+          max_tokens: 128,
+          temperature: 0
+        },
+        { purpose: 'chat', label: 'health-check', maxAttempts: 1, timeout: 60000 }
+      );
+      const usedModel = response.data?.model || model;
+      const sample = formatModelReply(response.data);
+      if (sample) {
+        return {
+          ok: true,
+          model: usedModel,
+          latencyMs: Date.now() - started,
+          sample: sample.slice(0, 80)
+        };
+      }
+      lastEmpty = true;
+    } catch (error) {
+      const status = error.response?.status;
+      return {
+        ok: false,
+        code: error.code || (status ? `HTTP_${status}` : 'error'),
+        message: apiErrorDetailFromResponse(error) || error.message,
+        model,
+        status,
+        latencyMs: Date.now() - started
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    code: 'EMPTY_REPLY',
+    message:
+      'Модель вернула пустой ответ. Попробуйте AI_MODEL=openrouter/free или перезапустите npm start.',
+    model,
+    latencyMs: Date.now() - started
+  };
+}
+
+module.exports = { askAI, checkAIHealth };

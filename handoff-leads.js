@@ -109,6 +109,13 @@ async function recordHandoff(payload) {
   saveStore(store);
   console.log(`📋 Лид handoff сохранён: ${phone} (${reasonKey}) → ${HANDOFF_PATH}`);
 
+  try {
+    const { notifyHandoffLead } = require('./telegram-notify');
+    notifyHandoffLead(item);
+  } catch {
+    /* ignore */
+  }
+
   setImmediate(() => {
     finishHandoffSummary(id, conversationHistory, {
       reasonKey,

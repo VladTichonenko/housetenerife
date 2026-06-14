@@ -43,6 +43,7 @@ export const api = {
   login: (code) => request('/api/admin/login', { method: 'POST', body: JSON.stringify({ code }) }),
   session: () => request('/api/admin/session'),
   qr: () => request('/api/admin/qr'),
+  logoutSession: () => request('/api/admin/session/logout', { method: 'POST', body: '{}' }),
   getConfig: () => request('/api/admin/config'),
   saveConfig: (body) =>
     request('/api/admin/config', { method: 'PUT', body: JSON.stringify(body) }),

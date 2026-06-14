@@ -1,12 +1,36 @@
+import { useState } from 'react';
 import { IconCheck } from './Icons';
 
-export default function SessionSection({ session, qr, loading, onRefresh }) {
+export default function SessionSection({ session, qr, loading, onRefresh, onLogout, showToast }) {
+  const [loggingOut, setLoggingOut] = useState(false);
+
   if (loading && !session) {
     return <div className="session-status__loader">Загрузка статуса…</div>;
   }
 
   const ready = session?.ready;
   const account = session?.account;
+
+  const handleLogout = async () => {
+    if (!onLogout || loggingOut) return;
+    const confirmed = window.confirm(
+      'Выйти из WhatsApp-сессии?\n\nБот отключится от аккаунта. Потребуется заново отсканировать QR-код.'
+    );
+    if (!confirmed) return;
+
+    setLoggingOut(true);
+    try {
+      const result = await onLogout();
+      showToast?.(result.message || 'Сессия завершена', result.success ? 'success' : 'error');
+      if (result.success) {
+        await onRefresh?.();
+      }
+    } catch (err) {
+      showToast?.(err.message || 'Не удалось выйти из сессии', 'error');
+    } finally {
+      setLoggingOut(false);
+    }
+  };
 
   return (
     <>
@@ -15,14 +39,24 @@ export default function SessionSection({ session, qr, loading, onRefresh }) {
           <p className="card__desc" style={{ margin: 0 }}>
             Статус WhatsApp-сессии. Обновляйте вручную или при возврате на вкладку браузера.
           </p>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={onRefresh}
-            disabled={loading}
-          >
-            {loading ? 'Обновление…' : 'Обновить статус'}
-          </button>
+          <div className="session-actions">
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={onRefresh}
+              disabled={loading || loggingOut}
+            >
+              {loading ? 'Обновление…' : 'Обновить статус'}
+            </button>
+            <button
+              type="button"
+              className="btn btn--danger btn--sm"
+              onClick={handleLogout}
+              disabled={loading || loggingOut}
+            >
+              {loggingOut ? 'Выход…' : 'Выйти из сессии'}
+            </button>
+          </div>
         </div>
         <div className="session-status">
           {ready ? (

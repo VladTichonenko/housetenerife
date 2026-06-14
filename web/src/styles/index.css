@@ -177,6 +177,24 @@ textarea {
   background: var(--color-bg);
 }
 
+.btn--danger {
+  background: #fff5f5;
+  color: #b42318;
+  border: 1px solid #fecdca;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: #fee4e2;
+  border-color: #fda29b;
+}
+
+.session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .btn--sm {
   padding: 8px 14px;
   font-size: 0.875rem;

@@ -89,6 +89,18 @@ function registerAdminRoutes(app, state) {
     }
   });
 
+  app.post('/api/admin/session/logout', requireAdmin, async (req, res) => {
+    if (typeof state.logoutWhatsAppSession !== 'function') {
+      return res.status(501).json({ success: false, message: 'Выход из сессии не поддерживается' });
+    }
+    try {
+      const result = await state.logoutWhatsAppSession();
+      res.status(result.success ? 200 : 500).json(result);
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message || 'Ошибка выхода из сессии' });
+    }
+  });
+
   app.get('/api/admin/config', requireAdmin, (req, res) => {
     res.json({ success: true, config: getBotConfig() });
   });

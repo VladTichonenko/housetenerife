@@ -22,12 +22,15 @@ const waiters = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function getProviders() {
+  const apiUrl = process.env.AI_API_URL || AI_API_URL;
+  const apiKey = process.env.AI_API_KEY || AI_API_KEY;
+  const model = process.env.AI_MODEL || AI_MODEL;
   const list = [
     {
       name: 'primary',
-      url: AI_API_URL,
-      key: AI_API_KEY,
-      model: process.env.AI_MODEL || AI_MODEL
+      url: apiUrl,
+      key: apiKey,
+      model
     }
   ];
   const fbKey = process.env.AI_FALLBACK_API_KEY;
@@ -36,13 +39,25 @@ function getProviders() {
       name: 'fallback',
       url:
         process.env.AI_FALLBACK_API_URL ||
-        process.env.AI_API_URL ||
+        apiUrl ||
         'https://api.intelligence.io.solutions/api/v1/chat/completions',
       key: fbKey,
-      model: process.env.AI_FALLBACK_MODEL || process.env.AI_MODEL || AI_MODEL
+      model: process.env.AI_FALLBACK_MODEL || model
     });
   }
   return list;
+}
+
+function normalizeChatPayload(payload, apiUrl) {
+  const next = { ...payload };
+  if (!String(apiUrl).includes('openrouter.ai')) return next;
+  if (next.max_tokens != null && next.max_completion_tokens == null) {
+    next.max_completion_tokens = Math.max(Number(next.max_tokens) || 0, 128);
+    delete next.max_tokens;
+  } else if (next.max_completion_tokens == null && next.max_tokens == null) {
+    next.max_completion_tokens = 1024;
+  }
+  return next;
 }
 
 function acquireSlot() {
@@ -130,7 +145,8 @@ function apiErrorDetail(err) {
 }
 
 async function postOnce(payload, provider, timeout) {
-  return axios.post(provider.url, payload, {
+  const body = normalizeChatPayload(payload, provider.url);
+  return axios.post(provider.url, body, {
     headers: buildAuthHeaders(provider.key, provider.url),
     timeout
   });

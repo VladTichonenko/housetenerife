@@ -55,6 +55,12 @@ export default function Dashboard({ showToast }) {
     }
   }, []);
 
+  const logoutWhatsAppSession = useCallback(async () => {
+    const result = await api.logoutSession();
+    await refreshSession();
+    return result;
+  }, [refreshSession]);
+
   useEffect(() => {
     refreshSession();
   }, [refreshSession]);
@@ -172,6 +178,8 @@ export default function Dashboard({ showToast }) {
               qr={sessionQr}
               loading={sessionLoading}
               onRefresh={refreshSession}
+              onLogout={logoutWhatsAppSession}
+              showToast={showToast}
             />
           )}
           {section === 'assistant' && <AssistantSection showToast={showToast} />}

@@ -35,6 +35,7 @@ const {
   detectNegativeResponse,
   shouldTrackCallOfferAfterReply,
   startHandoffFromCallAcceptance,
+  formatCustomerPhone,
 } = require('./manager-handoff');
 const {
   getPendingHandoff,
@@ -48,9 +49,29 @@ const { analyzeConversation } = require('./dialog-context');
 const { recordHandoff, HANDOFF_PATH } = require('./handoff-leads');
 const { localizeUrlsInText } = require('./property-share');
 const propertyPreviewRouter = require('./property-preview');
+const telegramNotify = require('./telegram-notify');
+
+const REPLY_IN_GROUPS =
+  process.env.WHATSAPP_REPLY_IN_GROUPS !== '0' &&
+  process.env.WHATSAPP_REPLY_IN_GROUPS !== 'false';
+const GROUP_ONLY_MENTION =
+  process.env.WHATSAPP_GROUP_ONLY_MENTION === '1' ||
+  process.env.WHATSAPP_GROUP_ONLY_MENTION === 'true';
 
 setRecordHandoff(recordHandoff);
 console.log(`📋 Лиды handoff (панель «Связь с менеджером»): ${HANDOFF_PATH}`);
+if (telegramNotify.isConfigured()) {
+  console.log('📱 Telegram: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID заданы (проверка при старте HTTP)');
+} else {
+  console.log('💡 Telegram: задайте TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID в .env');
+}
+if (REPLY_IN_GROUPS) {
+  console.log(
+    `💬 WhatsApp группы: ответы включены${GROUP_ONLY_MENTION ? ' (только @упоминание или reply)' : ''}`
+  );
+} else {
+  console.log('💬 WhatsApp группы: ответы выключены (только личные сообщения)');
+}
 
 
 // Создаем Express сервер для API
@@ -86,6 +107,43 @@ app.use((req, res, next) => {
 let botReady = false;
 let currentQr = null;
 let accountInfo = null;
+let waWatchState = null;
+
+function getConversationChatId(msg, chat) {
+  return chat?.id?._serialized || msg.from;
+}
+
+function getMessageSenderId(msg, chat) {
+  if (chat?.isGroup && msg.author) return msg.author;
+  return msg.from;
+}
+
+function isBotMentioned(msg) {
+  const mentions = msg.mentionedIds;
+  if (!mentions?.length) return false;
+  const botPhone = accountInfo?.phone;
+  if (!botPhone) return true;
+  return mentions.some((id) => String(id).includes(botPhone));
+}
+
+async function shouldRespondInGroup(msg) {
+  if (isBotMentioned(msg)) return true;
+  if (msg.hasQuotedMsg) {
+    try {
+      const quoted = await msg.getQuotedMessage();
+      if (quoted?.fromMe) return true;
+    } catch {
+      /* ignore */
+    }
+  }
+  return false;
+}
+
+function isPollingChat(chat) {
+  if (chat.isChannel) return false;
+  if (chat.isGroup) return REPLY_IN_GROUPS;
+  return true;
+}
 
 function isMarkedUnreadError(error) {
   const errorStr = error.message || error.toString() || '';
@@ -174,7 +232,8 @@ if (isRailway && !path.isAbsolute(sessionPath)) {
 const client = new Client({
   authStrategy: new LocalAuth({
     dataPath: sessionPath,
-    clientId: 'housetenerife-wa'
+    clientId: 'housetenerife-wa',
+    rmMaxRetries: 10
   }),
   puppeteer: {
     headless: true,
@@ -325,6 +384,102 @@ function startMessageMaintenance() {
     cleanupProcessedIds();
   }, 300000);
   console.log('🧹 Очистка кэша ID сообщений — каждые 5 мин');
+}
+
+function normalizeMsgTimestamp(ts) {
+  if (!ts) return 0;
+  return ts < 1000000000000 ? ts * 1000 : ts;
+}
+
+/** Резервный опрос чатов — в whatsapp-web.js 1.34.x события message часто не приходят. */
+function startMessagePolling() {
+  if (global.pollingInterval) return;
+
+  const pollMs = parseInt(process.env.POLLING_INTERVAL_MS, 10) || 3000;
+  const maxAgeMs = parseInt(process.env.POLLING_MAX_AGE_MS, 10) || 600000;
+  const reconnectThreshold = 3;
+  let pollingCounter = 0;
+  let consecutivePollingErrors = 0;
+  let lastPollingError = null;
+
+  console.log(
+    `🔄 Polling входящих каждые ${pollMs / 1000} с (резерв к событиям message/message_create)`
+  );
+
+  global.pollingInterval = trackedSetInterval(async () => {
+    if (!botReady) return;
+
+    pollingCounter++;
+    if (pollingCounter % 20 === 0) {
+      console.log(`🔄 [POLLING] цикл ${pollingCounter}, ID в кэше: ${processedMessageIds.size}`);
+      if (lastPollingError) {
+        console.warn(`⚠️ [POLLING] последняя ошибка: ${lastPollingError.message}`);
+      }
+    }
+
+    try {
+      const chats = await client.getChats();
+      const activeChats = chats.filter(isPollingChat);
+      let dispatched = 0;
+
+      for (const chat of activeChats) {
+        try {
+          const messages = await chat.fetchMessages({ limit: 15 });
+          const sorted = [...messages].sort(
+            (a, b) => normalizeMsgTimestamp(b.timestamp) - normalizeMsgTimestamp(a.timestamp)
+          );
+
+          for (const msg of sorted) {
+            if (msg.fromMe) continue;
+            const msgId = getMessageId(msg);
+            if (processedMessageIds.has(msgId) || processingMessageIds.has(msgId)) continue;
+
+            const age = Date.now() - normalizeMsgTimestamp(msg.timestamp);
+            if (age >= maxAgeMs) {
+              processedMessageIds.set(msgId, Date.now());
+              continue;
+            }
+            if (isMessageAlreadyHandled(msgId)) continue;
+
+            dispatched++;
+            console.log('📨 [POLLING] новое сообщение:', {
+              from: msg.from,
+              body: msg.body ? msg.body.slice(0, 50) : '(нет текста)',
+              ageSec: Math.round(age / 1000)
+            });
+            dispatchIncomingMessage(msg, 'polling');
+          }
+        } catch (chatErr) {
+          if (pollingCounter % 20 === 0) {
+            console.warn(`⚠️ [POLLING] чат ${chat.id?.user || chat.id}:`, chatErr.message);
+          }
+        }
+      }
+
+      consecutivePollingErrors = 0;
+      lastPollingError = null;
+      if (pollingCounter % 20 === 0 && dispatched > 0) {
+        console.log(`📊 [POLLING] отправлено на обработку: ${dispatched}`);
+      }
+    } catch (pollError) {
+      lastPollingError = pollError;
+      consecutivePollingErrors++;
+      console.error('❌ [POLLING]:', pollError.message);
+
+      if (consecutivePollingErrors >= reconnectThreshold) {
+        console.warn(`⚠️ [POLLING] ${consecutivePollingErrors} ошибок подряд → переподключение`);
+        consecutivePollingErrors = 0;
+        botReady = false;
+        reconnectClient().catch((err) =>
+          console.error('❌ переподключение после polling:', err.message)
+        );
+      }
+    }
+
+    if (pollingCounter % 100 === 0) {
+      cleanupProcessedIds();
+    }
+  }, pollMs);
 }
 
 async function withChatTyping(msg, work) {
@@ -513,6 +668,8 @@ function getTimeZoneByCountry(countryCode) {
 client.on('qr', (qr) => {
   currentQr = qr;
   accountInfo = null;
+  botReady = false;
+  telegramNotify.notifyWhatsAppConnection('qr_needed', { force: isManualLogoutInProgress });
   console.log('📱 Отсканируйте QR-код ниже для авторизации (или в веб-панели на сайте):');
   qrcode.generate(qr, { small: true });
 });
@@ -526,6 +683,7 @@ client.on('ready', async () => {
   console.log('✅ Бот готов к работе!');
   console.log('📱 WhatsApp бот запущен и готов получать сообщения');
   botReady = true;
+  waWatchState = 'CONNECTED';
   // Сбрасываем все счетчики при успешном подключении
   reconnectAttempts = 0;
   isReconnecting = false;
@@ -565,6 +723,10 @@ client.on('ready', async () => {
       };
       currentQr = null;
       console.log(`👤 Информация о клиенте: ${accountInfo.phone || 'неизвестно'} (${accountInfo.name || '—'})`);
+      telegramNotify.notifyWhatsAppConnection('connected', {
+        phone: accountInfo.phone,
+        name: accountInfo.name
+      });
     } catch (infoError) {
       console.warn('⚠️ Не удалось получить информацию о клиенте:', infoError.message);
     }
@@ -582,8 +744,9 @@ client.on('ready', async () => {
     
     console.log('🔍 Диагностика завершена. Бот готов получать сообщения.');
     
-    console.log('📡 Входящие: события message + message_create, очередь по чату, без polling');
+    console.log('📡 Входящие: события message + message_create + polling (резерв), очередь по чату');
     startMessageMaintenance();
+    startMessagePolling();
   } catch (error) {
     console.warn('⚠️ Не удалось подтвердить состояние клиента:', error.message);
   }
@@ -597,6 +760,7 @@ client.on('change_state', async (state) => {
     console.log('✅ Бот готов к работе! (определено через change_state)');
     console.log('📱 WhatsApp бот запущен и готов получать сообщения');
     botReady = true;
+    waWatchState = 'CONNECTED';
     // Сбрасываем все счетчики при успешном подключении
     reconnectAttempts = 0;
     isReconnecting = false;
@@ -608,8 +772,13 @@ client.on('change_state', async (state) => {
       clearTimeout(logoutTimeout);
       logoutTimeout = null;
     }
-  } else if (state === 'DISCONNECTED' || state === 'UNPAIRED' || state === 'UNLAUNCHED') {
+  } else if (state === 'UNPAIRED' || state === 'UNLAUNCHED') {
     botReady = false;
+    telegramNotify.notifyWhatsAppConnection('logout', { reason: state, force: true });
+    console.log('⚠️ Бот не готов к работе (состояние: ' + state + ')');
+  } else if (state === 'DISCONNECTED') {
+    botReady = false;
+    telegramNotify.notifyWhatsAppConnection('disconnected', { reason: state, force: true });
     console.log('⚠️ Бот не готов к работе (состояние: ' + state + ')');
   }
 });
@@ -774,6 +943,11 @@ async function reconnectClient() {
 client.on('disconnected', (reason) => {
   const now = Date.now();
   console.log('⚠️ Бот отключен:', reason);
+  botReady = false;
+  telegramNotify.notifyWhatsAppConnection(reason === 'LOGOUT' ? 'logout' : 'disconnected', {
+    reason: String(reason),
+    force: reason === 'LOGOUT'
+  });
   
   // Проверяем частоту отключений
   if (now - lastDisconnectTime < 60000) {
@@ -940,6 +1114,135 @@ async function reconnectClientAfterLogout() {
   }
 }
 
+let isManualLogoutInProgress = false;
+
+async function removeSessionDirWithRetries(dirPath, attempts = 5) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await fs.promises.rm(dirPath, { recursive: true, force: true, maxRetries: 8 });
+      return;
+    } catch (err) {
+      if (i >= attempts - 1) throw err;
+      const waitMs = 2000 * (i + 1);
+      console.log(`⏳ Папка сессии занята, повтор через ${waitMs / 1000} с…`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+}
+
+/** Выход из WhatsApp через админ-панель: закрыть браузер, удалить сессию, показать QR. */
+async function logoutWhatsAppSession() {
+  if (isManualLogoutInProgress) {
+    return { success: false, message: 'Выход из сессии уже выполняется' };
+  }
+  if (isReconnecting) {
+    return { success: false, message: 'Подождите завершения переподключения WhatsApp' };
+  }
+
+  isManualLogoutInProgress = true;
+  botReady = false;
+  accountInfo = null;
+  currentQr = null;
+  logoutHandled = true;
+
+  telegramNotify
+    .notifyWhatsAppConnection('logout', {
+      reason: 'Выход из сессии (админ-панель)',
+      force: true
+    })
+    .catch((err) => console.error('telegram-notify logout:', err.message));
+
+  if (logoutTimeout) {
+    clearTimeout(logoutTimeout);
+    logoutTimeout = null;
+  }
+
+  const sessionDir = path.join(sessionPath, 'session-housetenerife-wa');
+  console.log('🚪 Запрос выхода из WhatsApp-сессии (админ-панель)…');
+
+  try {
+    try {
+      await client.logout();
+      console.log('✅ WhatsApp logout выполнен');
+    } catch (logoutErr) {
+      console.warn('⚠️ client.logout():', logoutErr.message);
+      try {
+        await client.destroy();
+        console.log('✅ Клиент закрыт через destroy');
+      } catch (destroyErr) {
+        console.warn('⚠️ client.destroy():', destroyErr.message);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      if (fs.existsSync(sessionDir)) {
+        await removeSessionDirWithRetries(sessionDir);
+        console.log('✅ Папка сессии удалена вручную');
+      }
+    }
+
+    reconnectAttempts = 0;
+    disconnectCount = 0;
+    lastMaxAttemptsReachedAt = 0;
+    isReconnecting = false;
+
+    console.log('🔄 Переинициализация после выхода из сессии…');
+    await client.initialize();
+
+    logoutHandled = false;
+    return {
+      success: true,
+      message: 'Сессия WhatsApp завершена. Отсканируйте новый QR-код.'
+    };
+  } catch (error) {
+    console.error('❌ Ошибка выхода из сессии:', error.message);
+    logoutHandled = false;
+    return {
+      success: false,
+      message: error.message || 'Не удалось выйти из сессии WhatsApp'
+    };
+  } finally {
+    isManualLogoutInProgress = false;
+  }
+}
+
+// Следим за сессией WhatsApp — если событие disconnected не пришло, алерт всё равно уйдёт
+function startWhatsAppSessionWatchdog() {
+  const intervalMs = parseInt(process.env.WA_SESSION_WATCH_MS, 10) || 15000;
+  trackedSetInterval(async () => {
+    if (isManualLogoutInProgress || isReconnecting) return;
+    try {
+      const state = await client.getState();
+      if (waWatchState === null) {
+        waWatchState = state;
+        return;
+      }
+      if (state === waWatchState) return;
+
+      const prev = waWatchState;
+      waWatchState = state;
+      console.log(`👁️ WhatsApp session: ${prev} → ${state}`);
+
+      const wasOnline = botReady || prev === 'CONNECTED';
+      if (wasOnline && state !== 'CONNECTED') {
+        const alertState =
+          state === 'UNPAIRED' || state === 'UNLAUNCHED' ? 'logout' : 'disconnected';
+        await telegramNotify.notifyWhatsAppConnection(alertState, { reason: state, force: true });
+        botReady = false;
+      }
+    } catch (err) {
+      if (botReady) {
+        console.warn('👁️ WhatsApp session watch:', err.message);
+        await telegramNotify.notifyWhatsAppConnection('disconnected', {
+          reason: `watchdog: ${err.message}`,
+          force: true
+        });
+        botReady = false;
+        waWatchState = 'ERROR';
+      }
+    }
+  }, intervalMs);
+  console.log(`👁️ WhatsApp session watch каждые ${intervalMs / 1000} с (Telegram-алерты)`);
+}
+
 // Функция обработки сообщения (вынесена для переиспользования)
 async function handleIncomingMessage(msg) {
   const from = msg.from || '?';
@@ -1008,15 +1311,19 @@ async function handleIncomingMessage(msg) {
       return 'retry';
     }
 
-    // Пропускаем сообщения из групп
+    const senderId = getMessageSenderId(msg, chat);
+
+    // Группы: по умолчанию отвечаем; WHATSAPP_REPLY_IN_GROUPS=0 — только ЛС
     if (chat.isGroup) {
-      console.log(`⚠️ Пропущено сообщение из группы: ${chat.name || chat.id.user}`);
-      try {
-        const lang = getLanguageFromPhone(msg.from) || 'ru';
-        const hint = lang === 'ru' ? 'Напишите мне в *личные сообщения* (ЛС), не в группе — там я отвечаю.' : 'Please message me in *private* (DM), not in a group — I only reply there.';
-        await sendMessageSafely(msg, hint, client);
-      } catch (e) { /* ignore */ }
-      return 'processed';
+      if (!REPLY_IN_GROUPS) {
+        console.log(`⚠️ Пропущено сообщение из группы: ${chat.name || chat.id.user}`);
+        return 'skip';
+      }
+      if (GROUP_ONLY_MENTION && !(await shouldRespondInGroup(msg))) {
+        console.log(`⏭️ Группа «${chat.name || chat.id.user}»: без @упоминания бота`);
+        return 'skip';
+      }
+      console.log(`👥 Сообщение из группы «${chat.name || chat.id.user}»`);
     }
 
     // Пропускаем сообщения из каналов
@@ -1030,10 +1337,24 @@ async function handleIncomingMessage(msg) {
     msg = resolved.msg;
     const messageText = resolved.text;
 
-    const earlyLang = getLanguageFromPhone(msg.from) || 'ru';
+    const earlyLang = getLanguageFromPhone(senderId) || 'ru';
 
     if (isVoiceMessage(msg)) {
       const voiceReply = buildVoiceReply(earlyLang);
+      telegramNotify
+        .notifyIncomingWhatsAppMessage({
+          msgId,
+          chatId: getConversationChatId(msg, chat),
+          preview: '[голосовое сообщение]',
+          chatName: chat.isGroup
+            ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
+            : chat.name,
+          phone: formatCustomerPhone(senderId),
+          language: getLanguageName(earlyLang),
+          isGroup: chat.isGroup,
+          kind: 'voice'
+        })
+        .catch((err) => console.error('telegram-notify message:', err.message));
       await sendMessageSafely(msg, voiceReply, client);
       console.log('🎤 Голосовое сообщение — отправлена подсказка текст/менеджер');
       return 'processed';
@@ -1043,7 +1364,7 @@ async function handleIncomingMessage(msg) {
       if (isPermanentNonText(msg)) {
         clearEmptyBodyRetry(msgId);
         try {
-          const lang = getLanguageFromPhone(msg.from) || 'ru';
+          const lang = getLanguageFromPhone(senderId) || 'ru';
           const replyText = getTranslation(lang, 'ciphertext_reply');
           await sendMessageSafely(msg, replyText, client);
           console.log(`📩 [DEBUG] Сообщение без текста (медиа/одноразовое), type=${msg.type}`);
@@ -1064,7 +1385,7 @@ async function handleIncomingMessage(msg) {
     clearEmptyBodyRetry(msgId);
     
     console.log('✅ [DEBUG] Сообщение прошло все проверки, начинаем обработку...');
-    const chatId = msg.from;
+    const chatId = getConversationChatId(msg, chat);
     
     // Проверяем, это первое сообщение от пользователя?
     const isFirstMessage = !firstMessageUsers.has(chatId);
@@ -1079,14 +1400,29 @@ async function handleIncomingMessage(msg) {
       firstMessageUsers.add(chatId);
     } else {
       // Для последующих сообщений используем язык по номеру телефона
-      userLanguage = getLanguageFromPhone(chatId);
+      userLanguage = getLanguageFromPhone(senderId);
     }
     
-    const userCountry = getCountryFromPhone(chatId);
+    const userCountry = getCountryFromPhone(senderId);
     
     const dialogLanguage = resolveDialogLanguage(chatId, userLanguage);
     const languageName = getLanguageName(dialogLanguage);
     console.log(`📨 Получено сообщение от ${chatId} (${userCountry || 'неизвестно'}, язык: ${languageName} [${dialogLanguage}]): ${messageText}`);
+
+    telegramNotify
+      .notifyIncomingWhatsAppMessage({
+        msgId,
+        chatId,
+        preview: messageText,
+        chatName: chat.isGroup
+          ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
+          : chat.name,
+        phone: formatCustomerPhone(senderId),
+        language: languageName,
+        isGroup: chat.isGroup,
+        kind: 'text'
+      })
+      .catch((err) => console.error('telegram-notify message:', err.message));
 
     // Проверяем, является ли сообщение командой
     const trimmedMessage = messageText.toLowerCase();
@@ -1325,7 +1661,8 @@ app.get('/health', (req, res) => {
     },
     messages: {
       processedIds: processedMessageIds.size,
-      mode: 'events'
+      mode: 'events+polling',
+      pollingActive: Boolean(global.pollingInterval)
     },
     timestamp: new Date().toISOString()
   });
@@ -1354,7 +1691,8 @@ registerAdminRoutes(app, {
   get accountInfo() {
     return accountInfo;
   },
-  client
+  client,
+  logoutWhatsAppSession
 });
 
 // Веб-панель /admin — после API, чтобы /api не перехватывался
@@ -1400,7 +1738,7 @@ function startKeepAlive() {
 }
 
 // Запускаем HTTP сервер СНАЧАЛА (чтобы Railway не убил процесс)
-const server = app.listen(BOT_PORT, '0.0.0.0', () => {
+const server = app.listen(BOT_PORT, '0.0.0.0', async () => {
   const panel = getAdminPanelStatus();
   console.log(`🌐 HTTP сервер: 0.0.0.0:${BOT_PORT}`);
   if (process.env.RAILWAY_ENVIRONMENT) {
@@ -1410,6 +1748,28 @@ const server = app.listen(BOT_PORT, '0.0.0.0', () => {
     `📡 Панель: GET / ${panel.adminUi ? '(OK)' : '(не собрана)'} | API /api/admin/* | health /health`
   );
   console.log(`✅ HTTP сервер готов, Railway может проверить healthcheck`);
+
+  const telegramReady = await telegramNotify.startTelegram(app, () => ({
+    botReady,
+    clientState: waWatchState,
+    accountPhone: accountInfo?.phone || null,
+    processedIds: processedMessageIds.size,
+    uptime: process.uptime()
+  }));
+  if (telegramReady.ok) {
+    const delivered = await telegramNotify.sendAlert(
+      '🚀 <b>House Tenerife</b>: Telegram-алерты активны.\nWhatsApp-сообщения и отключения сессии будут приходить сюда.'
+    );
+    if (!delivered) {
+      console.error('❌ Тестовый Telegram-алерт не доставлен — см. инструкции выше (/start → /whoami)');
+    }
+    telegramNotify.notifyBotStarted({
+      port: BOT_PORT,
+      railway: Boolean(process.env.RAILWAY_ENVIRONMENT)
+    });
+  }
+
+  startWhatsAppSessionWatchdog();
   
   // Запускаем keep-alive механизм
   startKeepAlive();
@@ -1475,6 +1835,12 @@ async function gracefulShutdown(signal) {
     if (global.messageMaintenanceInterval) {
       clearInterval(global.messageMaintenanceInterval);
       global.messageMaintenanceInterval = null;
+    }
+
+    if (global.pollingInterval) {
+      clearInterval(global.pollingInterval);
+      global.pollingInterval = null;
+      console.log('✅ Polling остановлен');
     }
     
     // Очищаем logout timeout
