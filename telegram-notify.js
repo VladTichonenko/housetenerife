@@ -592,6 +592,12 @@ async function runAiHealthCheck() {
   return checkAIHealth();
 }
 
+async function resolveServiceStatus(getStatus) {
+  if (typeof getStatus !== 'function') return {};
+  const result = getStatus();
+  return result && typeof result.then === 'function' ? await result : result;
+}
+
 async function handleCommand(text, replyChatId, getStatus) {
   const cmd = parseCommand(text);
 
@@ -631,7 +637,7 @@ async function handleCommand(text, replyChatId, getStatus) {
   }
 
   if (cmd === '/status') {
-    const st = typeof getStatus === 'function' ? getStatus() : {};
+    const st = await resolveServiceStatus(getStatus);
     const lines = [
       '<b>Статус House Tenerife</b>',
       `WhatsApp: ${st.botReady ? '✅ online' : '❌ offline'}`,

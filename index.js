@@ -1204,13 +1204,59 @@ async function logoutWhatsAppSession() {
   }
 }
 
+/** Актуальный статус для /status и Telegram — не только флаг botReady. */
+async function getServiceStatus() {
+  let liveState = waWatchState;
+  let liveReady = botReady;
+
+  try {
+    const state = await client.getState();
+    liveState = state;
+    waWatchState = state;
+
+    if (state === 'CONNECTED') {
+      if (!botReady) {
+        console.log('📊 Статус: WhatsApp CONNECTED (синхронизация botReady)');
+        botReady = true;
+      }
+      liveReady = true;
+    } else if (state === 'OPENING' || state === 'PAIRING') {
+      liveReady = false;
+    } else {
+      liveReady = false;
+    }
+  } catch (err) {
+    // getState() иногда падает на Railway при живой сессии — опираемся на флаг
+    liveReady = botReady;
+    if (!liveState) liveState = 'unknown';
+  }
+
+  return {
+    botReady: liveReady,
+    clientState: liveState,
+    accountPhone: accountInfo?.phone || null,
+    processedIds: processedMessageIds.size,
+    uptime: process.uptime()
+  };
+}
+
 // Следим за сессией WhatsApp — если событие disconnected не пришло, алерт всё равно уйдёт
 function startWhatsAppSessionWatchdog() {
   const intervalMs = parseInt(process.env.WA_SESSION_WATCH_MS, 10) || 15000;
+  let watchErrors = 0;
+  const maxWatchErrors = 3;
+
   trackedSetInterval(async () => {
     if (isManualLogoutInProgress || isReconnecting) return;
     try {
       const state = await client.getState();
+      watchErrors = 0;
+
+      if (state === 'CONNECTED' && !botReady) {
+        botReady = true;
+        console.log('👁️ WhatsApp session: CONNECTED, botReady синхронизирован');
+      }
+
       if (waWatchState === null) {
         waWatchState = state;
         return;
@@ -1229,14 +1275,18 @@ function startWhatsAppSessionWatchdog() {
         botReady = false;
       }
     } catch (err) {
-      if (botReady) {
-        console.warn('👁️ WhatsApp session watch:', err.message);
+      watchErrors++;
+      if (watchErrors >= maxWatchErrors && botReady) {
+        console.warn(`👁️ WhatsApp session watch (${watchErrors}x):`, err.message);
         await telegramNotify.notifyWhatsAppConnection('disconnected', {
           reason: `watchdog: ${err.message}`,
           force: true
         });
         botReady = false;
         waWatchState = 'ERROR';
+        watchErrors = 0;
+      } else if (watchErrors === 1) {
+        console.warn('👁️ WhatsApp session watch (разовая ошибка, игнорируем):', err.message);
       }
     }
   }, intervalMs);
@@ -1749,13 +1799,7 @@ const server = app.listen(BOT_PORT, '0.0.0.0', async () => {
   );
   console.log(`✅ HTTP сервер готов, Railway может проверить healthcheck`);
 
-  const telegramReady = await telegramNotify.startTelegram(app, () => ({
-    botReady,
-    clientState: waWatchState,
-    accountPhone: accountInfo?.phone || null,
-    processedIds: processedMessageIds.size,
-    uptime: process.uptime()
-  }));
+  const telegramReady = await telegramNotify.startTelegram(app, getServiceStatus);
   if (telegramReady.ok) {
     const delivered = await telegramNotify.sendAlert(
       '🚀 <b>House Tenerife</b>: Telegram-алерты активны.\nWhatsApp-сообщения и отключения сессии будут приходить сюда.'
