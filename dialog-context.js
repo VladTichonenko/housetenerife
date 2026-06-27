@@ -37,7 +37,7 @@ function analyzeConversation(history, lang = 'ru') {
   const lastUser = userMsgs[userMsgs.length - 1]?.text || '';
 
   const hasPurpose =
-    /инвест|invest|inversi[oó]n|доход|аренд|rental|alquiler|бизнес|business|negocio|для жизни|для себя|переезд|relocate|live in|residen|vivir|para vivir|holiday home|segunda residencia|second home/i.test(
+    /инвест|invest|inversi[oó]n|доход|аренд|rental|alquiler|бизнес|business|negocio|для жизни|для себя|для семьи|личн(?:ой|ая)?\s+жизн|переезд|relocate|live in|residen|vivir|para vivir|holiday home|segunda residencia|second home/i.test(
       lower
     );
   const hasBudget =

@@ -59,6 +59,15 @@ function extractClientName(text) {
   if (looksLikeLink(text)) return null;
   const trimmed = text.trim();
   if (/^\[фото\]/i.test(trimmed)) return null;
+  const lowered = trimmed.toLowerCase().replace(/\s+/g, ' ');
+  if (
+    /^(?:да|нет|ок|okay|ok|yes|no|ага|угу|конечно|давай|для\s+(?:инвестиц|себя|жизни|семьи|личной\s+жизни)|инвестиц(?:ия|ии|ий)|апартамент(?:ы|ов)?|вилл(?:а|у|ы)?|дом|земл(?:я|ю)|бизнес|тенерифе|дубай|ибица|марбелья|малага|барселона)$/i.test(
+      lowered
+    ) ||
+    /^для\s+(?:инвест|себя|жизни|семьи|личной\s+жизни)/i.test(lowered)
+  ) {
+    return null;
+  }
 
   let name = trimmed.replace(/\s+/g, ' ');
   name = name.replace(

@@ -160,7 +160,7 @@ function detectCallOfferInAssistantText(text) {
   const t = String(text || '').toLowerCase();
   if (!t) return false;
   const hasOffer =
-    /(?:созвон|созвониться|созвонимся|обсудим|обсудить\s+подробнее|коротк(?:ий|ую)\s+(?:звонок|созвон)|10[\s–-]?15\s*мин|удобно\s+(?:созвониться|созвон|звонок)|перезвон|позвон|звонок|связаться|свяжется|подключу\s+коллегу|организуем\s+просмотр|на\s+связи)/i.test(
+    /(?:созвон|созвониться|созвонимся|коротк(?:ий|ую)\s+(?:звонок|созвон)|10[\s–-]?15\s*мин|удобно\s+(?:созвониться|созвон|звонок)|перезвон|позвон|звонок|связаться|свяжется|подключу\s+коллегу|организуем\s+просмотр|на\s+связи)/i.test(
       t
     ) ||
     /(?:schedule\s+a\s+call|call\s+you|get\s+on\s+a\s+call|speak\s+(?:with|to)|connect\s+you|reach\s+out)/i.test(
@@ -243,7 +243,8 @@ function buildCallOfferContext(dialog, lang = 'ru') {
 
 function shouldTrackCallOfferAfterReply(dialog, assistantText) {
   if (dialog?.stage === 'OFFER_MANAGER_CALL') return true;
-  return detectCallOfferInAssistantText(assistantText);
+  if (!detectCallOfferInAssistantText(assistantText)) return false;
+  return Boolean(dialog?.managerCallRequested || dialog?.hasPropertyInterest);
 }
 
 async function startHandoffFromCallAcceptance(
@@ -251,9 +252,15 @@ async function startHandoffFromCallAcceptance(
   client,
   userLanguage,
   sendMessageSafely,
-  { reasonKey = 'handoff', preview = '', conversationHistory = [], clientName = '' } = {}
+  {
+    reasonKey = 'handoff',
+    preview = '',
+    conversationHistory = [],
+    clientName = '',
+    useHistoryName = true,
+  } = {}
 ) {
-  const name = clientName || extractClientNameFromHistory(conversationHistory);
+  const name = clientName || (useHistoryName ? extractClientNameFromHistory(conversationHistory) : '');
   if (name) {
     await connectWithManager(msg, client, userLanguage, sendMessageSafely, {
       reasonKey,

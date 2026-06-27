@@ -1545,12 +1545,10 @@ async function handleIncomingMessage(msg) {
 
       if (
         detectAffirmativeResponse(messageText) ||
-        wantsManagerHandoff(messageText) ||
-        extractClientName(messageText)
+        wantsManagerHandoff(messageText)
       ) {
         addToHistory(chatId, 'user', messageText);
         clearPendingCallOffer(chatId);
-        const clientName = extractClientName(messageText);
         console.log(`📞 Клиент согласился на созвон: ${chatId}`);
         const result = await startHandoffFromCallAcceptance(
           msg,
@@ -1561,7 +1559,8 @@ async function handleIncomingMessage(msg) {
             reasonKey: pendingCallOffer.reasonKey || 'handoff',
             preview: pendingCallOffer.preview || messageText,
             conversationHistory: getHistory(chatId),
-            clientName,
+            clientName: '',
+            useHistoryName: false,
           }
         );
         if (result.action === 'connected') {
