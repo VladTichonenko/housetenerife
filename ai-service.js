@@ -290,13 +290,49 @@ function stripEmojis(text) {
   );
 }
 
+const URL_PLACEHOLDER_PREFIX = '__HT_URL_';
+
+function protectUrls(text) {
+  const urls = [];
+  const protectedText = String(text || '').replace(
+    /(?:https?:\/\/|www\.)[^\s<>\])"'}]+|housetenerife\.eu\/[^\s<>\])"'}]*/gi,
+    (match) => {
+      const token = `${URL_PLACEHOLDER_PREFIX}${urls.length}__`;
+      urls.push(match);
+      return token;
+    }
+  );
+  return { protectedText, urls };
+}
+
+function restoreUrls(text, urls) {
+  let s = String(text || '');
+  urls.forEach((url, idx) => {
+    s = s.replace(new RegExp(`${URL_PLACEHOLDER_PREFIX}${idx}__`, 'g'), url);
+  });
+  return s;
+}
+
+function repairKnownUrlSpacing(text) {
+  return String(text || '')
+    .replace(/https?:\s*\/\/\s*/gi, (match) => match.toLowerCase().startsWith('https') ? 'https://' : 'http://')
+    .replace(/www\s*\.\s*/gi, 'www.')
+    .replace(/housetenerife\s*\.\s*eu/gi, 'housetenerife.eu')
+    .replace(/(housetenerife\.eu)\s*\/\s*/gi, '$1/')
+    .replace(/(https?:\/\/(?:www\.)?housetenerife\.eu\/[^\s\n]*)\s+([a-z0-9-]+\/?)/gi, '$1$2');
+}
+
 function polishReply(text) {
   if (!text || typeof text !== 'string') return text;
-  let s = stripEmojis(text.replace(/\u00A0/g, ' ').replace(/\r\n/g, '\n'));
+  let s = repairKnownUrlSpacing(stripEmojis(text.replace(/\u00A0/g, ' ').replace(/\r\n/g, '\n')));
+  const protected = protectUrls(s);
+  s = protected.protectedText;
   // Склеенные слова: строчная + заглавная (латиница и кириллица)
   s = s.replace(/([a-zа-яё])([A-ZА-ЯЁ])/g, '$1 $2');
   // Пробел после знаков препинания, если модель его проглотила
   s = s.replace(/([.!?,:;])([^\s\n\d*])/g, '$1 $2');
+  s = restoreUrls(s, protected.urls);
+  s = repairKnownUrlSpacing(s);
   s = s.replace(/ {2,}/g, ' ');
   s = s.replace(/ +\n/g, '\n');
   s = s.replace(/\n{3,}/g, '\n\n');

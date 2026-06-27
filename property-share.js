@@ -55,6 +55,17 @@ function findItemByPropertyId(id) {
   return urlIndex.get(String(id || '').toUpperCase()) || null;
 }
 
+function repairKnownUrlSpacing(text) {
+  return String(text || '')
+    .replace(/https?:\s*\/\/\s*/gi, (match) =>
+      match.toLowerCase().startsWith('https') ? 'https://' : 'http://'
+    )
+    .replace(/www\s*\.\s*/gi, 'www.')
+    .replace(/housetenerife\s*\.\s*eu/gi, 'housetenerife.eu')
+    .replace(/(housetenerife\.eu)\s*\/\s*/gi, '$1/')
+    .replace(/(https?:\/\/(?:www\.)?housetenerife\.eu\/[^\s\n]*)\s+([a-z0-9-]+\/?)/gi, '$1$2');
+}
+
 function hasEnglishCatalogCopy(item) {
   const t = item.titles?.en;
   const d = item.descriptions?.en;
@@ -83,7 +94,7 @@ function getShareUrl(item, lang) {
 function localizeUrlsInText(text, lang) {
   if (!text || typeof text !== 'string') return text;
   ensureIndex();
-  return text.replace(PROPERTY_URL_RE, (match) => {
+  return repairKnownUrlSpacing(text).replace(PROPERTY_URL_RE, (match) => {
     const item = findItemByUrl(match);
     return item ? getShareUrl(item, lang) : match;
   });
