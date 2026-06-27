@@ -185,9 +185,10 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
     salesLang === 'ru'
       ? `**ПРАВИЛА РАЗГОВОРА (обязательно):**
 - Веди как опытный продавец-аналитик: сначала пойми человека, потом дай ценность (подборка), потом углубляй, потом мягко созвон.
-- Отзеркаль последнюю реплику клиента («понял, вам важен доход от аренды…»).
+- Не повторяй выбор клиента после каждого сообщения. Отражай его словами только если это снимает сомнение или помогает продать; чаще сразу переходи к следующему точному вопросу.
 - Один понятный вопрос в конце (не три сразу).
 - Не предлагай объекты, пока не ясны цель и тип.
+- Никогда не обещай «пришлю через пару минут / позже / через 90 секунд». Если пора показывать объекты — показывай их в этом же ответе. Если рано — задай следующий вопрос.
 - Запрещено: «благодарим за обращение», «запрос передан», «уважаемый клиент», «чем могу помочь» без продолжения.
 - 2–5 коротких строк + список объектов, когда пора.`
       : `**CONVERSATION RULES (mandatory):**
@@ -204,6 +205,7 @@ ${blocks.conversation}`;
 **Цена:** не предлагай варианты сильно дешевле бюджета клиента — только около названной суммы или чуть дороже (премиум/больше метраж), если клиент не просил именно дешевле.
 На этапах FIRST_CONTACT / NEED_* — объекты не вываливай. Регионы каталога: ${dialog.regionOptions} (housetenerife.eu).
 Подборка только когда ясны *цель*, тип, бюджет, регион и конкретная зона/район; ссылки только из блока ниже.
+Никогда не пиши клиенту, что отправишь подборку позже. Системная задержка ссылок уже есть: твоя задача — сформировать подборку сразу в текущем ответе.
 После подборки — один вопрос: какой вариант ближе или что скорректировать (бюджет/район).
 **Ипотека/кредит:** если спрашивают шаги, процесс, «как получить ипотеку» — ответь по mortgage_process (5–7 нумерованных шагов), без выдуманных ставок и гарантий одобрения.
 **Конкретный объект:** если клиент выбрал вариант — уточни деньги *сейчас на руках*, нужна ли ипотека; при ипотеке — шаги (mortgage_process) + документы и справка о доходах. Потом — предложи созвон с менеджером (да/нет).
@@ -301,6 +303,30 @@ function polishReply(text) {
   return s.trim();
 }
 
+function hasUnsupportedDelayedListingPromise(text) {
+  const s = String(text || '').toLowerCase();
+  if (!s) return false;
+  const hasLink = /(?:https?:\/\/|www\.|housetenerife\.eu)/i.test(s);
+  if (hasLink) return false;
+  return (
+    /(?:через|в течение|спустя|за)\s+(?:пару|несколько|1-2|2|3|5|10|90)\s*(?:минут|мин|секунд|сек).{0,80}(?:пришлю|отправлю|скину|подберу|подборк|вариант|объект)/i.test(s) ||
+    /(?:пришлю|отправлю|скину).{0,50}(?:позже|через|в течение|пару минут|вариант|подборк)/i.test(s) ||
+    /(?:i(?:'ll| will)|will)\s+(?:send|share).{0,80}(?:in|within|later|shortly|a few minutes|couple of minutes)/i.test(s) ||
+    /(?:te\s+(?:envío|mando|paso)|enviaré|mandaré).{0,80}(?:en|dentro de|luego|unos minutos)/i.test(s)
+  );
+}
+
+function sanitizeDelayedListingPromise(text) {
+  if (!hasUnsupportedDelayedListingPromise(text)) return text;
+  return polishReply(
+    String(text)
+      .replace(/[^.!?\n]*(?:через|в течение|спустя|за)\s+(?:пару|несколько|1-2|2|3|5|10|90)\s*(?:минут|мин|секунд|сек)[^.!?\n]*(?:пришлю|отправлю|скину|подберу|подборк|вариант|объект)[^.!?\n]*[.!?]?/gi, '')
+      .replace(/[^.!?\n]*(?:пришлю|отправлю|скину)[^.!?\n]*(?:позже|через|в течение|пару минут|вариант|подборк)[^.!?\n]*[.!?]?/gi, '')
+      .replace(/[^.!?\n]*(?:i(?:'ll| will)|will)\s+(?:send|share)[^.!?\n]*(?:in|within|later|shortly|a few minutes|couple of minutes)[^.!?\n]*[.!?]?/gi, '')
+      .replace(/[^.!?\n]*(?:te\s+(?:envío|mando|paso)|enviaré|mandaré)[^.!?\n]*(?:en|dentro de|luego|unos minutos)[^.!?\n]*[.!?]?/gi, '')
+  );
+}
+
 function getWritingQualityBlock(salesLang) {
   if (salesLang === 'en') {
     return `**TEXT QUALITY (critical for sales):**
@@ -375,7 +401,23 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
 
   try {
     const { messages } = await buildPromptParts(conversationHistory, userLanguage, 'full');
-    return await callAI(messages, 'chat');
+    let reply = await callAI(messages, 'chat');
+    if (hasUnsupportedDelayedListingPromise(reply)) {
+      console.warn('⚠️ AI обещал отправить подборку позже — переписываю ответ без отложенного обещания');
+      reply = await callAI(
+        [
+          ...messages,
+          { role: 'assistant', content: reply },
+          {
+            role: 'user',
+            content:
+              'Перепиши последний ответ. Нельзя обещать отправить варианты позже, через пару минут или через 90 секунд. Если критерии достаточны — дай подборку объектов прямо сейчас из доступного каталога. Если критериев недостаточно — задай один следующий вопрос. Кратко, WhatsApp-стиль.'
+          }
+        ],
+        'chat-no-delay-rewrite'
+      );
+    }
+    return sanitizeDelayedListingPromise(reply);
   } catch (error) {
     const status = error.response?.status;
     console.error('ai-service:', status || error.code || error.message);
@@ -405,7 +447,8 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
     ) {
       try {
         const { messages } = await buildPromptParts(conversationHistory, userLanguage, 'compact');
-        return await callAI(messages, 'chat-retry');
+        const retryReply = await callAI(messages, 'chat-retry');
+        return sanitizeDelayedListingPromise(retryReply);
       } catch (retryErr) {
         console.error('ai-service retry:', retryErr.message);
       }
