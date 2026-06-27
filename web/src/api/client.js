@@ -61,6 +61,15 @@ export const api = {
     if (q) params.set('q', q);
     return request(`/api/admin/properties?${params}`);
   },
+  getClients: ({ page = 1, limit = 50, q = '' } = {}) => {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit)
+    });
+    if (q) params.set('q', q);
+    return request(`/api/admin/clients?${params}`);
+  },
+  getClient: (id) => request(`/api/admin/clients/${encodeURIComponent(id)}`),
   getHandoffs: ({ page = 1, limit = 24 } = {}) => {
     const params = new URLSearchParams({
       page: String(page),

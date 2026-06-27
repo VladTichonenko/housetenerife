@@ -46,6 +46,7 @@ const {
 } = require('./handoff-pending');
 const { analyzeConversation } = require('./dialog-context');
 const { recordHandoff, HANDOFF_PATH } = require('./handoff-leads');
+const { recordClientMessage, CLIENTS_PATH } = require('./clients-store');
 const { offerSoftCallViaAi } = require('./index-handoff');
 const { localizeUrlsInText } = require('./property-share');
 const propertyPreviewRouter = require('./property-preview');
@@ -60,6 +61,7 @@ const GROUP_ONLY_MENTION =
 
 setRecordHandoff(recordHandoff);
 console.log(`📋 Лиды handoff (панель «Связь с менеджером»): ${HANDOFF_PATH}`);
+console.log(`👤 Клиенты WhatsApp: ${CLIENTS_PATH}`);
 if (telegramNotify.isConfigured()) {
   console.log('📱 Telegram: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID заданы (проверка при старте HTTP)');
 } else {
@@ -1407,6 +1409,23 @@ async function handleIncomingMessage(msg) {
 
     if (isVoiceMessage(msg)) {
       const voiceReply = buildVoiceReply(earlyLang);
+      try {
+        recordClientMessage({
+          chatId: getConversationChatId(msg, chat),
+          senderId,
+          chatName: chat.isGroup
+            ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
+            : chat.name,
+          messageText: '[голосовое сообщение]',
+          language: earlyLang,
+          languageLabel: getLanguageName(earlyLang),
+          country: getCountryFromPhone(senderId) || '',
+          isGroup: chat.isGroup,
+          kind: 'voice',
+        });
+      } catch (clientStoreErr) {
+        console.warn('⚠️ Не удалось сохранить клиента:', clientStoreErr.message);
+      }
       telegramNotify
         .notifyIncomingWhatsAppMessage({
           msgId,
@@ -1474,6 +1493,24 @@ async function handleIncomingMessage(msg) {
     const dialogLanguage = resolveDialogLanguage(chatId, userLanguage);
     const languageName = getLanguageName(dialogLanguage);
     console.log(`📨 Получено сообщение от ${chatId} (${userCountry || 'неизвестно'}, язык: ${languageName} [${dialogLanguage}]): ${messageText}`);
+
+    try {
+      recordClientMessage({
+        chatId,
+        senderId,
+        chatName: chat.isGroup
+          ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
+          : chat.name,
+        messageText,
+        language: dialogLanguage,
+        languageLabel: languageName,
+        country: userCountry || '',
+        isGroup: chat.isGroup,
+        kind: 'text',
+      });
+    } catch (clientStoreErr) {
+      console.warn('⚠️ Не удалось сохранить клиента:', clientStoreErr.message);
+    }
 
     telegramNotify
       .notifyIncomingWhatsAppMessage({

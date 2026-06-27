@@ -4,6 +4,7 @@ const { getBotConfig, saveBotConfig } = require('./bot-config');
 const { getKnowledgeBase, saveKnowledgeBase } = require('./knowledge-base');
 const { listProperties } = require('./property-catalog');
 const { listHandoffs, getHandoff } = require('./handoff-leads');
+const { listClients, getClient } = require('./clients-store');
 
 const ADMIN_CODE = process.env.ADMIN_CODE || '0397';
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
@@ -135,6 +136,31 @@ function registerAdminRoutes(app, state) {
         limit: req.query.limit
       });
       res.json({ success: true, ...result });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/admin/clients', requireAdmin, (req, res) => {
+    try {
+      const result = listClients({
+        page: req.query.page,
+        limit: req.query.limit,
+        q: req.query.q,
+      });
+      res.json({ success: true, ...result });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/admin/clients/:id', requireAdmin, (req, res) => {
+    try {
+      const item = getClient(req.params.id);
+      if (!item) {
+        return res.status(404).json({ success: false, message: 'Клиент не найден' });
+      }
+      res.json({ success: true, item });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
     }
