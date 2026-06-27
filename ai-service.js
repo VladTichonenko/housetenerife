@@ -3,6 +3,8 @@ const { searchForContext, getCatalogSiteUrl } = require('./property-catalog');
 const { webSearchSnippets, shouldAugmentWithWeb } = require('./web-search');
 const { getBotConfig } = require('./bot-config');
 const { getKnowledgeBaseForPrompt } = require('./knowledge-base');
+const { getFileDocKnowledgeForPrompt } = require('./file-doc-knowledge');
+const { getSalesPlaybookBlock } = require('./sales-playbook');
 const {
   normalizeSalesLang,
   formatLocalizedDialogPath,
@@ -48,7 +50,8 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
   const priceTarget = derivePriceTarget(budget);
   const showingListings =
     dialog.stage === 'SHOW_LISTINGS' || dialog.stage === 'REFINE' || dialog.wantsListings;
-  const maySearchCatalog = dialog.hasType && (showingListings || tier !== 'full');
+  const maySearchCatalog =
+    dialog.hasType && dialog.hasPurpose && (showingListings || tier !== 'full');
 
   const catalogLimit =
     tier === 'minimal'
@@ -83,7 +86,11 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
 
   const hints = getCatalogHints(salesLang);
   let catalogBlock = '';
-  if (!dialog.hasType && tier === 'full' && hints) {
+  if (!dialog.hasPurpose && tier === 'full') {
+    catalogBlock =
+      hints?.noPurpose ||
+      '\n\n(Цель покупки не ясна — сначала один вопрос: для жизни/переезда или инвестиция? Без объектов и ссылок.)\n';
+  } else if (!dialog.hasType && tier === 'full' && hints) {
     catalogBlock = hints.noType;
   } else if (!dialog.hasRegion && !dialog.hasLocation && tier === 'full' && hints) {
     catalogBlock =
@@ -177,13 +184,17 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
   const conversationRules =
     salesLang === 'ru'
       ? `**ПРАВИЛА РАЗГОВОРА (обязательно):**
-- Веди диалог вопрос → ответ: сначала пойми человека, потом подборка.
-- Один понятный вопрос в конце сообщения (не три сразу).
-- Отвечай на последнюю реплику клиента, не игнорируй её.
-- Не используй канцелярит («благодарим за обращение», «наша компания рада»).
-- 2–4 короткие строки + при необходимости список объектов.`
+- Веди как опытный продавец-аналитик: сначала пойми человека, потом дай ценность (подборка), потом углубляй, потом мягко созвон.
+- Отзеркаль последнюю реплику клиента («понял, вам важен доход от аренды…»).
+- Один понятный вопрос в конце (не три сразу).
+- Не предлагай объекты, пока не ясны цель и тип.
+- Запрещено: «благодарим за обращение», «запрос передан», «уважаемый клиент», «чем могу помочь» без продолжения.
+- 2–5 коротких строк + список объектов, когда пора.`
       : `**CONVERSATION RULES (mandatory):**
 ${blocks.conversation}`;
+
+  const salesPlaybookBlock =
+    tier === 'full' ? getSalesPlaybookBlock(salesLang) : '';
 
   const catalogRules =
     salesLang === 'ru'
@@ -192,7 +203,7 @@ ${blocks.conversation}`;
 На этапах SHOW_LISTINGS / REFINE — покажи 3–5 РАЗНЫХ объектов из блока ниже (название, цена, ссылка, одна фраза почему подходит). Только тот регион${dialog.microAreaLabel ? ` и район (${dialog.microAreaLabel})` : ''}, что выбрал клиент — не подмешивай Adeje, если просили Los Cristianos, и наоборот.
 **Цена:** не предлагай варианты сильно дешевле бюджета клиента — только около названной суммы или чуть дороже (премиум/больше метраж), если клиент не просил именно дешевле.
 На этапах FIRST_CONTACT / NEED_* — объекты не вываливай. Регионы каталога: ${dialog.regionOptions} (housetenerife.eu).
-Подборка только когда ясны тип, цель, бюджет, регион и конкретная зона/район (для всех регионов каталога); ссылки только из блока ниже.
+Подборка только когда ясны *цель*, тип, бюджет, регион и конкретная зона/район; ссылки только из блока ниже.
 После подборки — один вопрос: какой вариант ближе или что скорректировать (бюджет/район).
 **Ипотека/кредит:** если спрашивают шаги, процесс, «как получить ипотеку» — ответь по mortgage_process (5–7 нумерованных шагов), без выдуманных ставок и гарантий одобрения.
 **Конкретный объект:** если клиент выбрал вариант — уточни деньги *сейчас на руках*, нужна ли ипотека; при ипотеке — шаги (mortgage_process) + документы и справка о доходах. Потом — предложи созвон с менеджером (да/нет).
@@ -215,6 +226,9 @@ ${blocks.managerHandoff}`;
   const siteLabel =
     salesLang === 'es' ? '*Catálogo:*' : salesLang === 'en' ? '*Catalog site:*' : '*Сайт каталога:*';
 
+  const fileDocBlock =
+    tier === 'full' ? getFileDocKnowledgeForPrompt(userQuery || dialog.allUserText) : '';
+
   const systemPrompt = `${mainPrompt}
 
 ${siteLabel} ${siteUrl}
@@ -231,6 +245,10 @@ ${dialog.financeSummaryBlock || ''}
 
 ${conversationRules}
 
+${salesPlaybookBlock}
+
+${getWritingQualityBlock(salesLang)}
+
 ${langRule}
 
 ${disclaimerLabel}
@@ -241,9 +259,9 @@ ${ck}
 
 ${catalogRules}
 ${catalogBlock}
-${webBlock}
+${fileDocBlock ? `\n${fileDocBlock}\n` : ''}${webBlock}
 
-**WHATSAPP:** *bold*, bullets • or 1.`;
+**WHATSAPP:** *bold*, bullets • or 1. No emojis.`;
 
 
   const messages = [
@@ -263,28 +281,80 @@ function apiErrorDetailFromResponse(error) {
   return data.error?.message || data.message || data.detail || '';
 }
 
+function stripEmojis(text) {
+  return text.replace(
+    /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}]/gu,
+    ''
+  );
+}
+
+function polishReply(text) {
+  if (!text || typeof text !== 'string') return text;
+  let s = stripEmojis(text.replace(/\u00A0/g, ' ').replace(/\r\n/g, '\n'));
+  // Склеенные слова: строчная + заглавная (латиница и кириллица)
+  s = s.replace(/([a-zа-яё])([A-ZА-ЯЁ])/g, '$1 $2');
+  // Пробел после знаков препинания, если модель его проглотила
+  s = s.replace(/([.!?,:;])([^\s\n\d*])/g, '$1 $2');
+  s = s.replace(/ {2,}/g, ' ');
+  s = s.replace(/ +\n/g, '\n');
+  s = s.replace(/\n{3,}/g, '\n\n');
+  return s.trim();
+}
+
+function getWritingQualityBlock(salesLang) {
+  if (salesLang === 'en') {
+    return `**TEXT QUALITY (critical for sales):**
+- Flawless spelling, grammar, and punctuation — no typos, no glued words, no broken phrases.
+- Every word must have a space; complete sentences only.
+- No emojis or smileys — text only.
+- Sound like a real advisor texting on WhatsApp — warm, natural, never robotic or like machine translation.`;
+  }
+  if (salesLang === 'es') {
+    return `**CALIDAD DEL TEXTO (crítico para ventas):**
+- Ortografía, gramática y puntuación impecables — sin faltas, sin palabras pegadas ni frases rotas.
+- Cada palabra con su espacio; frases completas.
+- Sin emojis ni emoticonos — solo texto.
+- Tono humano en WhatsApp — cercano y natural, nunca robótico ni traducción automática.`;
+  }
+  return `**КАЧЕСТВО ТЕКСТА (критично для продаж):**
+- Без орфографических ошибок, без «склеенных» слов, без обрывков и канцелярита.
+- Каждое слово отдельно, предложения законченные — перечитай ответ перед отправкой.
+- Без смайликов и эмодзи — только текст.
+- Живой язык опытного риелтора в WhatsApp — тепло и по-человечески, не call-центр и не «переводчик».`;
+}
+
 function formatModelReply(data) {
   let messageContent = data.choices?.[0]?.message?.content || '';
   while (messageContent.includes('</think>')) {
     messageContent = messageContent.split('</think>').pop().trim();
   }
   messageContent = messageContent.replace(/<\/?redacted_reasoning>/g, '').trim();
-  messageContent = messageContent.replace(/#+/g, '').trim();
+  messageContent = messageContent.replace(/^#{1,6}\s+/gm, '');
   messageContent = messageContent.replace(/\*\*\*([^*]+)\*\*\*/g, '*$1*');
   messageContent = messageContent.replace(/\*\*([^*]+)\*\*/g, '*$1*');
   messageContent = messageContent.replace(/^\s*\*\s+/gm, '• ');
-  messageContent = messageContent.replace(/^#{1,6}\s+/gm, '');
   messageContent = messageContent.replace(/^[-=]{3,}$/gm, '');
-  return messageContent.trim();
+  return polishReply(messageContent);
 }
 
 async function callAI(messages, tierLabel) {
+  const model = process.env.AI_MODEL || AI_MODEL;
+  if (model === 'openrouter/free') {
+    console.warn(
+      '⚠️ AI_MODEL=openrouter/free — качество нестабильно (случайные слабые модели). ' +
+        'Рекомендуем: deepseek/deepseek-chat-v3-0324 или meta-llama/llama-3.3-70b-instruct'
+    );
+  }
+  const temperature = Math.min(
+    1,
+    Math.max(0, parseFloat(process.env.AI_TEMPERATURE || '0.55') || 0.55)
+  );
   const response = await chatCompletions(
     {
-      model: process.env.AI_MODEL || AI_MODEL,
+      model,
       messages,
       max_tokens: 2048,
-      temperature: 0.78
+      temperature
     },
     { purpose: 'chat', label: tierLabel, maxAttempts: 1 }
   );

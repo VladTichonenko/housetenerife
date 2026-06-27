@@ -28,7 +28,6 @@ const {
   buildHandoffAskName,
   buildHandoffNameInvalid,
   buildHandoffReply,
-  beginManagerHandoff,
   connectWithManager,
   setRecordHandoff,
   detectAffirmativeResponse,
@@ -47,6 +46,7 @@ const {
 } = require('./handoff-pending');
 const { analyzeConversation } = require('./dialog-context');
 const { recordHandoff, HANDOFF_PATH } = require('./handoff-leads');
+const { offerSoftCallViaAi } = require('./index-handoff');
 const { localizeUrlsInText } = require('./property-share');
 const propertyPreviewRouter = require('./property-preview');
 const telegramNotify = require('./telegram-notify');
@@ -155,8 +155,24 @@ function isMarkedUnreadError(error) {
 }
 
 // Безопасная отправка сообщений с обработкой ошибок markedUnread
+const LINK_MESSAGE_DELAY_MS = Math.max(
+  0,
+  parseInt(process.env.LINK_MESSAGE_DELAY_MS, 10) || 90000
+);
+
+function outboundContainsLink(text) {
+  return /(?:https?:\/\/|www\.|housetenerife\.eu)/i.test(String(text || ''));
+}
+
 async function sendMessageSafely(msg, text, client) {
   const chatId = msg.from;
+
+  if (outboundContainsLink(text) && LINK_MESSAGE_DELAY_MS > 0) {
+    console.log(
+      `⏳ Сообщение со ссылками — пауза ${Math.round(LINK_MESSAGE_DELAY_MS / 1000)}с перед отправкой (${chatId})`
+    );
+    await new Promise((resolve) => setTimeout(resolve, LINK_MESSAGE_DELAY_MS));
+  }
 
   // Метод 1: Пробуем отправить через chat.sendMessage (не вызывает sendSeen автоматически)
   try {
@@ -1565,52 +1581,80 @@ async function handleIncomingMessage(msg) {
     }
 
     if (isImageWithDescription(msg, messageText)) {
-      console.log(`📷 Фото с описанием от ${chatId} — запрос имени перед менеджером`);
-      addToHistory(chatId, 'user', `[фото] ${messageText}`);
-      await beginManagerHandoff(msg, client, dialogLanguage, sendMessageSafely, {
-        reasonKey: 'image',
-        preview: messageText,
-        translationKey: 'manager_handoff_image',
-      });
-      addToHistory(chatId, 'assistant', buildHandoffAskName(dialogLanguage));
+      console.log(`📷 Фото с описанием от ${chatId} — мягкое предложение созвона`);
+      try {
+        await offerSoftCallViaAi({
+          msg,
+          client,
+          chatId,
+          dialogLanguage,
+          reasonKey: 'image',
+          preview: messageText,
+          messageText,
+          userLine: `[фото] ${messageText}`,
+          sendMessageSafely,
+          withChatTyping,
+          askAI,
+          getHistory,
+          addToHistory,
+          localizeUrlsInText,
+        });
+      } catch (aiError) {
+        console.error('❌ Ошибка AI при фото:', aiError);
+        await sendMessageSafely(msg, getTranslation(userLanguage, 'error'), client);
+      }
       return 'processed';
     }
 
     if (wantsManagerHandoff(messageText)) {
       console.log(`👤 Запрос менеджера/созвона от ${chatId} — предложение через AI`);
-      addToHistory(chatId, 'user', messageText);
       try {
-        const history = getHistory(chatId);
-        const aiResponse = await withChatTyping(msg, () => askAI(history, dialogLanguage));
-        const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
-        addToHistory(chatId, 'assistant', outgoing);
-        await sendMessageSafely(msg, outgoing, client);
-        const dialog = analyzeConversation(getHistory(chatId), dialogLanguage);
-        if (shouldTrackCallOfferAfterReply(dialog, outgoing)) {
-          setPendingCallOffer(chatId, {
-            reasonKey: 'handoff',
-            preview: messageText,
-            language: dialogLanguage,
-          });
-          console.log(`📞 Ожидание ответа на предложение созвона: ${chatId}`);
-        }
+        await offerSoftCallViaAi({
+          msg,
+          client,
+          chatId,
+          dialogLanguage,
+          reasonKey: 'handoff',
+          preview: messageText,
+          messageText,
+          userLine: messageText,
+          sendMessageSafely,
+          withChatTyping,
+          askAI,
+          getHistory,
+          addToHistory,
+          localizeUrlsInText,
+        });
       } catch (aiError) {
         console.error('❌ Ошибка AI при запросе менеджера:', aiError);
-        const errorText = getTranslation(userLanguage, 'error');
-        await sendMessageSafely(msg, errorText, client);
+        await sendMessageSafely(msg, getTranslation(userLanguage, 'error'), client);
       }
       return 'processed';
     }
 
     if (containsLink(messageText) && !commandHandlers[trimmedMessage]) {
-      console.log(`🔗 Внешняя ссылка от ${chatId} — запрос имени перед менеджером`);
-      addToHistory(chatId, 'user', messageText);
-      await beginManagerHandoff(msg, client, dialogLanguage, sendMessageSafely, {
-        reasonKey: 'link',
-        preview: messageText,
-        translationKey: 'manager_handoff_link',
-      });
-      addToHistory(chatId, 'assistant', buildHandoffAskName(dialogLanguage));
+      console.log(`🔗 Внешняя ссылка от ${chatId} — мягкое предложение созвона`);
+      try {
+        await offerSoftCallViaAi({
+          msg,
+          client,
+          chatId,
+          dialogLanguage,
+          reasonKey: 'link',
+          preview: messageText,
+          messageText,
+          userLine: messageText,
+          sendMessageSafely,
+          withChatTyping,
+          askAI,
+          getHistory,
+          addToHistory,
+          localizeUrlsInText,
+        });
+      } catch (aiError) {
+        console.error('❌ Ошибка AI при ссылке:', aiError);
+        await sendMessageSafely(msg, getTranslation(userLanguage, 'error'), client);
+      }
       return 'processed';
     }
     

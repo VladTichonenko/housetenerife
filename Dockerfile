@@ -63,6 +63,8 @@ RUN npm ci --omit=dev
 # Код приложения (web/dist в .dockerignore — не перезапишет сборку)
 COPY . .
 
+RUN node scripts/ingest-file-doc.js || test -f data/file-doc-knowledge.json
+
 # Панель из stage 1 — всегда свежая после git push
 COPY --from=web-build /build/web/dist ./web/dist
 

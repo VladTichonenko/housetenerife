@@ -160,7 +160,7 @@ function detectCallOfferInAssistantText(text) {
   const t = String(text || '').toLowerCase();
   if (!t) return false;
   const hasOffer =
-    /(?:созвон|созвониться|перезвон|позвон|звонок|связаться|свяжется|обсудить\s+(?:это|всё|все)|на\s+связи)/i.test(
+    /(?:созвон|созвониться|созвонимся|обсудим|обсудить\s+подробнее|коротк(?:ий|ую)\s+(?:звонок|созвон)|10[\s–-]?15\s*мин|удобно\s+(?:созвониться|созвон|звонок)|перезвон|позвон|звонок|связаться|свяжется|подключу\s+коллегу|организуем\s+просмотр|на\s+связи)/i.test(
       t
     ) ||
     /(?:schedule\s+a\s+call|call\s+you|get\s+on\s+a\s+call|speak\s+(?:with|to)|connect\s+you|reach\s+out)/i.test(

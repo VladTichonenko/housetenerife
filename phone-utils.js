@@ -39,8 +39,8 @@ const countryToLanguage = {
 const translations = {
   ru: {
     start:
-      '👋 Привет! Я *Максим*, консультант House Tenerife — помогу с вопросами по недвижимости (Тенерифе, Дубай, Ибица, Марбелья, Малага, Барселона и др., каталог housetenerife.eu).\n\nНапишите, что ищете — или /help для команд.',
-    help: `📋 Доступные команды:
+      'Привет! Я *Максим*, инвестиционный аналитик House Tenerife — помогу с недвижимостью и инвестпроектами (Тенерифе, Дубай, Ибица, Марбелья, Малага, Барселона и др., каталог housetenerife.eu).\n\nДля начала подскажите: рассматриваете покупку *для жизни* или *для инвестиции*? Или /help для команд.',
+    help: `Доступные команды:
 /start - Начать работу с ботом
 /help - Показать справку
 /status - Проверить состояние бота
@@ -48,31 +48,31 @@ const translations = {
 /site - Перейти на сайт House Tenerife
 /ping - Проверить, видит ли бот вас
 
-Я консультирую по недвижимости House Tenerife: Тенерифе, Дубай, Ибица, Марбелья и др. Просто напишите вопрос.`,
-    status: '✅ Бот работает! Статус: готов к работе',
-    time: '🕐 Текущее время:',
-    site: '🌐 Каталог House Tenerife — объекты и подробности на сайте:',
+Я консультирую как инвестиционный аналитик House Tenerife: Тенерифе, Дубай, Ибица, Марбелья и др. Просто напишите вопрос.`,
+    status: 'Бот работает! Статус: готов к работе',
+    time: 'Текущее время:',
+    site: 'Каталог House Tenerife — объекты и подробности на сайте:',
     echo: 'Вы написали:',
     useHelp: 'Используйте /help для списка команд.',
-    error: '❌ Произошла ошибка при обработке сообщения. Попробуйте еще раз.',
-    ciphertext_reply: '📩 Сообщение получено, но это зашифрованное или одноразовое сообщение — я не вижу текст. Напишите, пожалуйста, обычным текстом.',
+    error: 'Произошла ошибка при обработке сообщения. Попробуйте еще раз.',
+    ciphertext_reply: 'Сообщение получено, но это зашифрованное или одноразовое сообщение — я не вижу текст. Напишите, пожалуйста, обычным текстом.',
     voice_reply:
-      '🎤 Я не могу прослушивать голосовые сообщения.\n\nНапишите, пожалуйста, *текстом* — или скажите, если хотите созвон с {manager_name}, он поможет с вашим запросом.',
+      'Я не могу прослушивать голосовые сообщения.\n\nНапишите, пожалуйста, *текстом* — или скажите, если хотите созвон с {manager_name}, он поможет с вашим запросом.',
     manager_handoff:
-      'Спасибо{client_name_part}! Запрос передан менеджеру.\n\nНаш менеджер *{manager_name}* скоро свяжется с вами. Или можете написать ему первыми в WhatsApp: {manager_phone}\n\n(Вы обращались через бот House Tenerife.)',
+      'Отлично{client_name_part}! Я передал вашу заявку — *{manager_name}* свяжется с вами в WhatsApp в ближайшее время.\n\nЕсли удобнее написать первым: {manager_phone}\n\nПока ждёте — могу уточнить подборку или ответить на вопросы здесь.',
     manager_handoff_image:
-      'Спасибо{client_name_part}! Запрос передан менеджеру.\n\nНаш менеджер *{manager_name}* скоро свяжется с вами. Или можете написать ему первыми в WhatsApp: {manager_phone}\n\n(Вы обращались через бот House Tenerife.)',
+      'Отлично{client_name_part}! Я передал вашу заявку — *{manager_name}* свяжется с вами в WhatsApp в ближайшее время.\n\nЕсли удобнее написать первым: {manager_phone}',
     manager_handoff_link:
-      'Спасибо{client_name_part}! Запрос передан менеджеру.\n\nНаш менеджер *{manager_name}* скоро свяжется с вами. Или можете написать ему первыми в WhatsApp: {manager_phone}\n\n(Вы обращались через бот House Tenerife.)',
+      'Отлично{client_name_part}! Я передал вашу заявку — *{manager_name}* свяжется с вами в WhatsApp в ближайшее время.\n\nЕсли удобнее написать первым: {manager_phone}',
     handoff_ask_name:
-      'Отлично! Чтобы *{manager_name}* мог с вами связаться, *как к вам обращаться?* (имя)',
+      'Хорошо, давайте созвонимся и обсудим детали.\n\nПодскажите, пожалуйста, *как к вам обращаться?*',
     handoff_name_invalid:
       'Пожалуйста, напишите, как к вам обращаться (имя или как вас называть).'
   },
   es: {
     start:
-      '👋 ¡Hola! Soy *Maksim*, de House Tenerife — te ayudo con inmuebles (Tenerife, Dubái, Ibiza, Marbella, Málaga, Barcelona y más, catálogo housetenerife.eu).\n\nCuéntame qué buscas — o escribe /help para comandos.',
-    help: `📋 Comandos disponibles:
+      '¡Hola! Soy *Maksim*, analista de inversiones de House Tenerife — te ayudo con inmuebles y proyectos de inversión (Tenerife, Dubái, Ibiza, Marbella, Málaga, Barcelona y más, catálogo housetenerife.eu).\n\nPara empezar: ¿buscas *para vivir* o *para invertir*? O escribe /help para comandos.',
+    help: `Comandos disponibles:
 /start - Comenzar a trabajar con el bot
 /help - Mostrar ayuda
 /status - Verificar el estado del bot
@@ -81,29 +81,29 @@ const translations = {
 /ping - Comprobar si el bot te ve
 
 ¡Simplemente escríbeme cualquier mensaje y responderé!`,
-    status: '✅ ¡El bot está funcionando! Estado: listo para trabajar',
-    time: '🕐 Hora actual:',
-    site: '🌐 Catálogo House Tenerife (Tenerife, España):',
+    status: '¡El bot está funcionando! Estado: listo para trabajar',
+    time: 'Hora actual:',
+    site: 'Catálogo House Tenerife (Tenerife, España):',
     echo: 'Escribiste:',
     useHelp: 'Usa /help para ver la lista de comandos.',
-    error: '❌ Ocurrió un error al procesar el mensaje. Inténtalo de nuevo.',
+    error: 'Ocurrió un error al procesar el mensaje. Inténtalo de nuevo.',
     voice_reply:
-      '🎤 No puedo escuchar mensajes de voz.\n\nEscríbeme por *texto* — o dime si quieres una llamada con {manager_name} para hablar de tu consulta.',
+      'No puedo escuchar mensajes de voz.\n\nEscríbeme por *texto* — o dime si quieres una llamada con {manager_name} para hablar de tu consulta.',
     manager_handoff:
-      'Gracias{client_name_part}! Hemos pasado tu consulta al manager.\n\n*{manager_name}* se pondrá en contacto contigo pronto. O puedes escribirle primero por WhatsApp: {manager_phone}\n\n(Contactaste a través del bot House Tenerife.)',
+      'Perfecto{client_name_part}! He pasado tu solicitud — *{manager_name}* te escribirá por WhatsApp en breve.\n\nO puedes escribirle primero: {manager_phone}\n\nMientras tanto, puedo afinar la selección o responder dudas aquí.',
     manager_handoff_image:
-      'Gracias{client_name_part}! Hemos pasado tu consulta al manager.\n\n*{manager_name}* se pondrá en contacto contigo pronto. O puedes escribirle primero por WhatsApp: {manager_phone}\n\n(Contactaste a través del bot House Tenerife.)',
+      'Perfecto{client_name_part}! He pasado tu solicitud — *{manager_name}* te escribirá por WhatsApp en breve.\n\nO puedes escribirle primero: {manager_phone}',
     manager_handoff_link:
-      'Gracias{client_name_part}! Hemos pasado tu consulta al manager.\n\n*{manager_name}* se pondrá en contacto contigo pronto. O puedes escribirle primero por WhatsApp: {manager_phone}\n\n(Contactaste a través del bot House Tenerife.)',
+      'Perfecto{client_name_part}! He pasado tu solicitud — *{manager_name}* te escribirá por WhatsApp en breve.\n\nO puedes escribirle primero: {manager_phone}',
     handoff_ask_name:
-      '¡Perfecto! Para que *{manager_name}* pueda contactarte, *¿cómo debemos llamarte?* (nombre)',
+      'Perfecto, organicemos una llamada breve para ver los detalles.\n\n*¿Cómo debemos llamarte?*',
     handoff_name_invalid:
       'Por favor, escribe cómo debemos llamarte (tu nombre).'
   },
   en: {
     start:
-      '👋 Hi! I\'m *Maxim*, your property advisor at House Tenerife — happy to help with real estate (Tenerife, Dubai, Ibiza, Marbella, Málaga, Barcelona and more, catalog at housetenerife.eu).\n\nTell me what you\'re looking for — or type /help for commands.',
-    help: `📋 Available commands:
+      'Hi! I\'m *Maxim*, investment analyst at House Tenerife — I help with property and investment projects (Tenerife, Dubai, Ibiza, Marbella, Málaga, Barcelona and more, catalog at housetenerife.eu).\n\nTo start: are you looking *to live* or *to invest*? Or type /help for commands.',
+    help: `Available commands:
 /start - Start working with the bot
 /help - Show help
 /status - Check bot status
@@ -112,29 +112,29 @@ const translations = {
 /ping - Check if the bot sees you
 
 Just write me any message and I will reply!`,
-    status: '✅ Bot is working! Status: ready to work',
-    time: '🕐 Current time:',
-    site: '🌐 House Tenerife catalog and details:',
+    status: 'Bot is working! Status: ready to work',
+    time: 'Current time:',
+    site: 'House Tenerife catalog and details:',
     echo: 'You wrote:',
     useHelp: 'Use /help for a list of commands.',
-    error: '❌ An error occurred while processing the message. Please try again.',
-    ciphertext_reply: '📩 I received your message but it\'s encrypted or view-once — I can\'t read the text. Please send a regular text message.',
+    error: 'An error occurred while processing the message. Please try again.',
+    ciphertext_reply: 'I received your message but it\'s encrypted or view-once — I can\'t read the text. Please send a regular text message.',
     voice_reply:
-      '🎤 I can\'t listen to voice messages.\n\nPlease send *text* — or say if you\'d like a call with {manager_name} to discuss your request.',
+      'I can\'t listen to voice messages.\n\nPlease send *text* — or say if you\'d like a call with {manager_name} to discuss your request.',
     manager_handoff:
-      'Thank you{client_name_part}! Your request has been passed to our manager.\n\n*{manager_name}* will contact you soon. Or you can message them first on WhatsApp: {manager_phone}\n\n(You contacted us via the House Tenerife bot.)',
+      'Perfect{client_name_part}! I\'ve passed your request — *{manager_name}* will reach out on WhatsApp shortly.\n\nOr message them first: {manager_phone}\n\nWhile you wait — I can refine the shortlist or answer questions here.',
     manager_handoff_image:
-      'Thank you{client_name_part}! Your request has been passed to our manager.\n\n*{manager_name}* will contact you soon. Or you can message them first on WhatsApp: {manager_phone}\n\n(You contacted us via the House Tenerife bot.)',
+      'Perfect{client_name_part}! I\'ve passed your request — *{manager_name}* will reach out on WhatsApp shortly.\n\nOr message them first: {manager_phone}',
     manager_handoff_link:
-      'Thank you{client_name_part}! Your request has been passed to our manager.\n\n*{manager_name}* will contact you soon. Or you can message them first on WhatsApp: {manager_phone}\n\n(You contacted us via the House Tenerife bot.)',
+      'Perfect{client_name_part}! I\'ve passed your request — *{manager_name}* will reach out on WhatsApp shortly.\n\nOr message them first: {manager_phone}',
     handoff_ask_name:
-      'Great! So *{manager_name}* can reach you, *how should we address you?* (name)',
+      'Great — let\'s arrange a quick call to go through the details.\n\n*How should we address you?*',
     handoff_name_invalid:
       'Please tell us how to address you (your name).'
   },
   de: {
-    start: '👋 Hallo! Ich bin dein WhatsApp-Bot. Tippe /help für eine Liste der Befehle.',
-    help: `📋 Verfügbare Befehle:
+    start: 'Hallo! Ich bin dein WhatsApp-Bot. Tippe /help für eine Liste der Befehle.',
+    help: `Verfügbare Befehle:
 /start - Mit dem Bot arbeiten beginnen
 /help - Hilfe anzeigen
 /status - Bot-Status überprüfen
@@ -142,16 +142,16 @@ Just write me any message and I will reply!`,
 /site - Katalog housetenerife.eu
 
 Schreibe mir einfach eine Nachricht und ich werde antworten!`,
-    status: '✅ Bot funktioniert! Status: bereit zum Arbeiten',
-    time: '🕐 Aktuelle Zeit:',
-    site: '🌐 House Tenerife — Immobilienkatalog:',
+    status: 'Bot funktioniert! Status: bereit zum Arbeiten',
+    time: 'Aktuelle Zeit:',
+    site: 'House Tenerife — Immobilienkatalog:',
     echo: 'Du hast geschrieben:',
     useHelp: 'Verwende /help für eine Liste der Befehle.',
-    error: '❌ Beim Verarbeiten der Nachricht ist ein Fehler aufgetreten. Bitte versuche es erneut.'
+    error: 'Beim Verarbeiten der Nachricht ist ein Fehler aufgetreten. Bitte versuche es erneut.'
   },
   fr: {
-    start: '👋 Bonjour! Je suis votre bot WhatsApp. Tapez /help pour voir la liste des commandes.',
-    help: `📋 Commandes disponibles:
+    start: 'Bonjour! Je suis votre bot WhatsApp. Tapez /help pour voir la liste des commandes.',
+    help: `Commandes disponibles:
 /start - Commencer à travailler avec le bot
 /help - Afficher l'aide
 /status - Vérifier l'état du bot
@@ -159,16 +159,16 @@ Schreibe mir einfach eine Nachricht und ich werde antworten!`,
 /site - Catalogue housetenerife.eu
 
 Écrivez-moi simplement un message et je répondrai!`,
-    status: '✅ Le bot fonctionne! Statut: prêt à travailler',
-    time: '🕐 Heure actuelle:',
-    site: '🌐 Catalogue House Tenerife:',
+    status: 'Le bot fonctionne! Statut: prêt à travailler',
+    time: 'Heure actuelle:',
+    site: 'Catalogue House Tenerife:',
     echo: 'Vous avez écrit:',
     useHelp: 'Utilisez /help pour voir la liste des commandes.',
-    error: '❌ Une erreur s\'est produite lors du traitement du message. Veuillez réessayer.'
+    error: 'Une erreur s\'est produite lors du traitement du message. Veuillez réessayer.'
   },
   it: {
-    start: '👋 Ciao! Sono il tuo bot WhatsApp. Digita /help per vedere l\'elenco dei comandi.',
-    help: `📋 Comandi disponibili:
+    start: 'Ciao! Sono il tuo bot WhatsApp. Digita /help per vedere l\'elenco dei comandi.',
+    help: `Comandi disponibili:
 /start - Iniziare a lavorare con il bot
 /help - Mostrare aiuto
 /status - Verificare lo stato del bot
@@ -176,16 +176,16 @@ Schreibe mir einfach eine Nachricht und ich werde antworten!`,
 /site - Vai al sito web House Tenerife
 
 Scrivimi semplicemente un messaggio e risponderò!`,
-    status: '✅ Il bot funziona! Stato: pronto per lavorare',
-    time: '🕐 Ora attuale:',
-    site: '🌐 Il nostro sito web ufficiale House Tenerife, dove puoi vedere tutti gli annunci immobiliari:',
+    status: 'Il bot funziona! Stato: pronto per lavorare',
+    time: 'Ora attuale:',
+    site: 'Il nostro sito web ufficiale House Tenerife, dove puoi vedere tutti gli annunci immobiliari:',
     echo: 'Hai scritto:',
     useHelp: 'Usa /help per vedere l\'elenco dei comandi.',
-    error: '❌ Si è verificato un errore durante l\'elaborazione del messaggio. Riprova.'
+    error: 'Si è verificato un errore durante l\'elaborazione del messaggio. Riprova.'
   },
   pt: {
-    start: '👋 Olá! Sou seu bot do WhatsApp. Digite /help para ver a lista de comandos.',
-    help: `📋 Comandos disponíveis:
+    start: 'Olá! Sou seu bot do WhatsApp. Digite /help para ver a lista de comandos.',
+    help: `Comandos disponíveis:
 /start - Começar a trabalhar com o bot
 /help - Mostrar ajuda
 /status - Verificar o status do bot
@@ -193,16 +193,16 @@ Scrivimi semplicemente un messaggio e risponderò!`,
 /site - Ir ao site House Tenerife
 
 Apenas me escreva uma mensagem e eu responderei!`,
-    status: '✅ O bot está funcionando! Status: pronto para trabalhar',
-    time: '🕐 Hora atual:',
-    site: '🌐 Nosso site oficial House Tenerife, onde você pode ver todos os anúncios de imóveis:',
+    status: 'O bot está funcionando! Status: pronto para trabalhar',
+    time: 'Hora atual:',
+    site: 'Nosso site oficial House Tenerife, onde você pode ver todos os anúncios de imóveis:',
     echo: 'Você escreveu:',
     useHelp: 'Use /help para ver a lista de comandos.',
-    error: '❌ Ocorreu um erro ao processar a mensagem. Tente novamente.'
+    error: 'Ocorreu um erro ao processar a mensagem. Tente novamente.'
   },
   pl: {
-    start: '👋 Cześć! Jestem twoim botem WhatsApp. Wpisz /help, aby zobaczyć listę poleceń.',
-    help: `📋 Dostępne polecenia:
+    start: 'Cześć! Jestem twoim botem WhatsApp. Wpisz /help, aby zobaczyć listę poleceń.',
+    help: `Dostępne polecenia:
 /start - Zacznij pracę z botem
 /help - Pokaż pomoc
 /status - Sprawdź status bota
@@ -210,16 +210,16 @@ Apenas me escreva uma mensagem e eu responderei!`,
 /site - Przejdź do strony House Tenerife
 
 Po prostu napisz mi wiadomość, a odpowiem!`,
-    status: '✅ Bot działa! Status: gotowy do pracy',
-    time: '🕐 Aktualny czas:',
-    site: '🌐 Nasza oficjalna strona House Tenerife, gdzie możesz zobaczyć wszystkie ogłoszenia nieruchomości:',
+    status: 'Bot działa! Status: gotowy do pracy',
+    time: 'Aktualny czas:',
+    site: 'Nasza oficjalna strona House Tenerife, gdzie możesz zobaczyć wszystkie ogłoszenia nieruchomości:',
     echo: 'Napisałeś:',
     useHelp: 'Użyj /help, aby zobaczyć listę poleceń.',
-    error: '❌ Wystąpił błąd podczas przetwarzania wiadomości. Spróbuj ponownie.'
+    error: 'Wystąpił błąd podczas przetwarzania wiadomości. Spróbuj ponownie.'
   },
   tr: {
-    start: '👋 Merhaba! Ben senin WhatsApp botunum. Komut listesini görmek için /help yazın.',
-    help: `📋 Mevcut komutlar:
+    start: 'Merhaba! Ben senin WhatsApp botunum. Komut listesini görmek için /help yazın.',
+    help: `Mevcut komutlar:
 /start - Bot ile çalışmaya başla
 /help - Yardım göster
 /status - Bot durumunu kontrol et
@@ -227,16 +227,16 @@ Po prostu napisz mi wiadomość, a odpowiem!`,
 /site - House Tenerife web sitesine git
 
 Sadece bana bir mesaj yaz ve cevap vereceğim!`,
-    status: '✅ Bot çalışıyor! Durum: çalışmaya hazır',
-    time: '🕐 Mevcut saat:',
-    site: '🌐 Tüm emlak ilanlarını görebileceğiniz resmi House Tenerife web sitemiz:',
+    status: 'Bot çalışıyor! Durum: çalışmaya hazır',
+    time: 'Mevcut saat:',
+    site: 'Tüm emlak ilanlarını görebileceğiniz resmi House Tenerife web sitemiz:',
     echo: 'Yazdın:',
     useHelp: 'Komut listesini görmek için /help kullanın.',
-    error: '❌ Mesaj işlenirken bir hata oluştu. Lütfen tekrar deneyin.'
+    error: 'Mesaj işlenirken bir hata oluştu. Lütfen tekrar deneyin.'
   },
   uk: {
-    start: '👋 Привіт! Я ваш WhatsApp бот. Введіть /help для списку команд.',
-    help: `📋 Доступні команди:
+    start: 'Привіт! Я ваш WhatsApp бот. Введіть /help для списку команд.',
+    help: `Доступні команди:
 /start - Почати роботу з ботом
 /help - Показати довідку
 /status - Перевірити стан бота
@@ -244,12 +244,12 @@ Sadece bana bir mesaj yaz ve cevap vereceğim!`,
 /site - Перейти на сайт House Tenerife
 
 Просто напишіть мені будь-яке повідомлення, і я відповім!`,
-    status: '✅ Бот працює! Стан: готовий до роботи',
-    time: '🕐 Поточний час:',
-    site: '🌐 Наш офіційний сайт House Tenerife, де ви можете переглянути всі оголошення нерухомості:',
+    status: 'Бот працює! Стан: готовий до роботи',
+    time: 'Поточний час:',
+    site: 'Наш офіційний сайт House Tenerife, де ви можете переглянути всі оголошення нерухомості:',
     echo: 'Ви написали:',
     useHelp: 'Використовуйте /help для списку команд.',
-    error: '❌ Сталася помилка при обробці повідомлення. Спробуйте ще раз.'
+    error: 'Сталася помилка при обробці повідомлення. Спробуйте ще раз.'
   },
   // Для остальных языков (zh, ja, ko, hi, ar) будет использоваться английский как fallback
 };
