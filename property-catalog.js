@@ -500,6 +500,7 @@ function listProperties({ q = '', page = 1, limit = 24, lang = 'ru' } = {}) {
     items: slice.map((item) => {
       const loc = getLocalizedItem(item, l);
       return {
+        id: item.id,
         url: loc.url,
         title: loc.title || 'Без названия',
         price: loc.price || null,

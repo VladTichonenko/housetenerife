@@ -2,7 +2,7 @@ const QRCode = require('qrcode');
 const { getBotConfig, saveBotConfig } = require('./bot-config');
 const { getKnowledgeBase, saveKnowledgeBase } = require('./knowledge-base');
 const { listProperties } = require('./property-catalog');
-const { listHandoffs, getHandoff, assignHandoff } = require('./handoff-leads');
+const { listHandoffs, getHandoff, assignHandoff, closeHandoff } = require('./handoff-leads');
 const { listClients, getClient } = require('./clients-store');
 const {
   findManagerByCode,
@@ -17,6 +17,7 @@ const {
   listConversationChats,
 } = require('./conversation-store');
 const { getChatSettings, setAiDisabled } = require('./chat-settings');
+const { getInterestedProperties } = require('./property-interest');
 
 function requireAdmin(req, res, next) {
   const auth = req.headers.authorization || '';
@@ -193,10 +194,11 @@ function registerAdminRoutes(app, state) {
   app.get('/api/admin/chats/:chatId/messages', requireAdmin, (req, res) => {
     try {
       const chatId = decodeURIComponent(req.params.chatId);
-      const excludeAssistant = req.query.excludeAssistant !== 'false';
+      const excludeAssistant = req.query.excludeAssistant === 'true';
       let messages = getMessages(chatId, { excludeAssistant });
       const settings = getChatSettings(chatId);
       const client = getClient(chatId);
+      const interestedProperties = getInterestedProperties(chatId, client?.language || 'ru');
 
       if (!messages.length && client?.lastMessages?.length) {
         messages = client.lastMessages.map((m, idx) => ({
@@ -214,6 +216,7 @@ function registerAdminRoutes(app, state) {
         messages,
         settings,
         client,
+        interestedProperties,
       });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
@@ -259,12 +262,18 @@ function registerAdminRoutes(app, state) {
 
   app.get('/api/admin/handoffs', requireAdmin, (req, res) => {
     try {
+      let filter = req.query.filter || 'open';
+      let managerId = String(req.query.managerId || '');
+      if (filter === 'mine') {
+        managerId = req.managerSession.managerId;
+      }
+
       const result = listHandoffs({
         page: req.query.page,
         limit: req.query.limit,
         q: req.query.q,
-        filter: req.query.filter || 'all',
-        managerId: req.query.managerId || '',
+        filter,
+        managerId,
       });
       res.json({ success: true, ...result });
     } catch (e) {
@@ -279,7 +288,14 @@ function registerAdminRoutes(app, state) {
         return res.status(404).json({ success: false, message: 'Лид не найден' });
       }
       const settings = getChatSettings(item.chatId);
-      res.json({ success: true, item: { ...item, chatSettings: settings } });
+      const interestedProperties =
+        item.interestedProperties?.length
+          ? item.interestedProperties
+          : getInterestedProperties(item.chatId, item.language);
+      res.json({
+        success: true,
+        item: { ...item, chatSettings: settings, interestedProperties },
+      });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
     }
@@ -288,6 +304,21 @@ function registerAdminRoutes(app, state) {
   app.put('/api/admin/handoffs/:id/assign', requireAdmin, (req, res) => {
     try {
       const item = assignHandoff(req.params.id, {
+        id: req.managerSession.managerId,
+        name: req.managerSession.managerName,
+      });
+      if (!item) {
+        return res.status(404).json({ success: false, message: 'Заявка не найдена' });
+      }
+      res.json({ success: true, item });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.put('/api/admin/handoffs/:id/close', requireAdmin, (req, res) => {
+    try {
+      const item = closeHandoff(req.params.id, {
         id: req.managerSession.managerId,
         name: req.managerSession.managerName,
       });

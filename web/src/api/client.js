@@ -99,9 +99,9 @@ export const api = {
     if (q) params.set('q', q);
     return request(`/api/admin/conversations?${params}`);
   },
-  getChatMessages: (chatId, { excludeAssistant = true } = {}) => {
+  getChatMessages: (chatId, { excludeAssistant = false } = {}) => {
     const params = new URLSearchParams();
-    if (!excludeAssistant) params.set('excludeAssistant', 'false');
+    if (excludeAssistant) params.set('excludeAssistant', 'true');
     const qs = params.toString();
     return request(
       `/api/admin/chats/${encodeURIComponent(chatId)}/messages${qs ? `?${qs}` : ''}`
@@ -130,4 +130,6 @@ export const api = {
   getHandoff: (id) => request(`/api/admin/handoffs/${encodeURIComponent(id)}`),
   assignHandoff: (id) =>
     request(`/api/admin/handoffs/${encodeURIComponent(id)}/assign`, { method: 'PUT', body: '{}' }),
+  closeHandoff: (id) =>
+    request(`/api/admin/handoffs/${encodeURIComponent(id)}/close`, { method: 'PUT', body: '{}' }),
 };

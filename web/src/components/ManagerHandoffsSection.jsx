@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { IconClose } from './Icons';
 
-const PAGE_SIZE = 24;
+const PAGE_SIZE = 50;
 
 const LANG_LABELS = {
   ru: 'Русский',
@@ -15,6 +15,21 @@ const LANG_LABELS = {
   pt: 'Португальский',
 };
 
+const STATUS_LABELS = {
+  new: 'Новая',
+  in_progress: 'В работе',
+  closed: 'Завершена',
+};
+
+const LEAD_FILTERS = [
+  { id: 'open', label: 'Открытые' },
+  { id: 'mine', label: 'Мои' },
+  { id: 'new', label: 'Новые' },
+  { id: 'in_progress', label: 'В работе' },
+  { id: 'active', label: 'Активные' },
+  { id: 'closed', label: 'Завершённые' },
+];
+
 function languageLabel(item) {
   return item.languageLabel || LANG_LABELS[item.language] || item.language || '—';
 }
@@ -25,7 +40,6 @@ function formatDate(iso) {
     return new Date(iso).toLocaleString('ru-RU', {
       day: '2-digit',
       month: 'short',
-      year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
     });
@@ -34,14 +48,77 @@ function formatDate(iso) {
   }
 }
 
-function summaryPreview(summary, max = 140) {
+function summaryPreview(summary, max = 120) {
   const s = (summary || '').trim();
   if (!s) return '';
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
+function linkifyText(text) {
+  const parts = String(text || '').split(/(https?:\/\/[^\s]+)/g);
+  return parts.map((part, i) =>
+    /^https?:\/\//.test(part) ? (
+      <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="chat-link">
+        {part}
+      </a>
+    ) : (
+      part
+    )
+  );
+}
+
+function bubbleRole(m) {
+  if (m.role === 'manager') return 'manager';
+  if (m.role === 'assistant') return 'bot';
+  return 'user';
+}
+
+function bubbleLabel(m) {
+  if (m.role === 'manager') return m.managerName || 'Менеджер';
+  if (m.role === 'assistant') return 'Бот';
+  return 'Клиент';
+}
+
+function PropertyLinks({ properties, compact = false }) {
+  if (!properties?.length) return null;
+  return (
+    <div className={`property-links${compact ? ' property-links--compact' : ''}`}>
+      <span className="property-links__title">
+        {compact ? 'Объекты' : 'Интерес клиента к объектам'}
+      </span>
+      <ul className="property-links__list">
+        {properties.map((p) => (
+          <li key={p.id} className="property-links__item">
+            <div className="property-links__main">
+              <span className="property-links__id">{p.id}</span>
+              <span className="property-links__name">{p.title}</span>
+              {p.price && <span className="property-links__price">{p.price}</span>}
+            </div>
+            {p.siteUrl && (
+              <a
+                href={p.siteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="property-links__url"
+              >
+                На сайте
+              </a>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  const label = STATUS_LABELS[status] || status;
+  return <span className={`lead-status lead-status--${status || 'new'}`}>{label}</span>;
+}
+
 function ChatPanel({ chatId, title, subtitle, onClose }) {
   const [messages, setMessages] = useState([]);
+  const [interestedProperties, setInterestedProperties] = useState([]);
   const [settings, setSettings] = useState({ aiDisabled: false });
   const [client, setClient] = useState(null);
   const [text, setText] = useState('');
@@ -54,8 +131,9 @@ function ChatPanel({ chatId, title, subtitle, onClose }) {
   const load = useCallback(async () => {
     if (!chatId) return;
     try {
-      const data = await api.getChatMessages(chatId, { excludeAssistant: true });
+      const data = await api.getChatMessages(chatId);
       setMessages(data.messages || []);
+      setInterestedProperties(data.interestedProperties || []);
       setSettings(data.settings || { aiDisabled: false });
       setClient(data.client);
       setError('');
@@ -75,6 +153,11 @@ function ChatPanel({ chatId, title, subtitle, onClose }) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    document.body.classList.add('chat-fullscreen-open');
+    return () => document.body.classList.remove('chat-fullscreen-open');
+  }, []);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -114,62 +197,61 @@ function ChatPanel({ chatId, title, subtitle, onClose }) {
   };
 
   return (
-    <div className="modal" role="dialog" aria-modal="true" aria-labelledby="chat-panel-title">
+    <div className="modal modal--chat" role="dialog" aria-modal="true" aria-labelledby="chat-panel-title">
       <button type="button" className="modal__backdrop" onClick={onClose} aria-label="Закрыть" />
       <div className="modal__dialog modal__dialog--wide chat-panel">
-        <button type="button" className="modal__close" onClick={onClose} aria-label="Закрыть">
-          <IconClose />
-        </button>
-
-        <div className="chat-panel__header">
-          <div>
-            <h2 id="chat-panel-title" className="modal__title">
+        <header className="chat-panel__topbar">
+          <button type="button" className="chat-panel__back" onClick={onClose} aria-label="Назад">
+            ←
+          </button>
+          <div className="chat-panel__topbar-info">
+            <h2 id="chat-panel-title" className="chat-panel__topbar-title">
               {title || client?.chatName || client?.phoneDisplay || chatId}
             </h2>
-            {subtitle && <p className="modal__subtitle">{subtitle}</p>}
+            {subtitle && <p className="chat-panel__topbar-sub">{subtitle}</p>}
           </div>
           <button
             type="button"
-            className={`btn btn--sm ${settings.aiDisabled ? 'btn--primary' : 'btn--outline'}`}
+            className={`btn btn--sm chat-panel__ai-btn ${settings.aiDisabled ? 'btn--primary' : 'btn--outline'}`}
             onClick={toggleAi}
             disabled={togglingAi}
           >
-            {togglingAi
-              ? '…'
-              : settings.aiDisabled
-                ? 'Включить ответы ИИ'
-                : 'Выключить ответы ИИ'}
+            {togglingAi ? '…' : settings.aiDisabled ? 'ИИ вкл' : 'ИИ выкл'}
           </button>
-        </div>
+        </header>
 
-        {settings.aiDisabled && (
-          <p className="chat-panel__ai-hint">
-            ИИ не отвечает этому клиенту — общение только от менеджера.
-          </p>
-        )}
+        <button type="button" className="modal__close modal__close--chat" onClick={onClose} aria-label="Закрыть">
+          <IconClose />
+        </button>
 
-        {error && <p className="form-error">{error}</p>}
-
-        <div className="chat-panel__messages">
-          {loading && !messages.length ? (
-            <p className="handoff-modal__loading">Загрузка переписки…</p>
-          ) : messages.length === 0 ? (
-            <p className="chat-panel__empty">Сообщений пока нет</p>
-          ) : (
-            messages.map((m) => (
-              <div
-                key={m.id || `${m.at}-${m.role}`}
-                className={`chat-bubble chat-bubble--${m.role === 'manager' ? 'manager' : 'user'}`}
-              >
-                {m.role === 'manager' && m.managerName && (
-                  <span className="chat-bubble__author">{m.managerName}</span>
-                )}
-                <p className="chat-bubble__text">{m.text}</p>
-                <span className="chat-bubble__time">{formatDate(m.at)}</span>
-              </div>
-            ))
+        <div className="chat-panel__body">
+          {settings.aiDisabled && (
+            <p className="chat-panel__ai-hint">ИИ не отвечает — только менеджер.</p>
           )}
-          <div ref={messagesEndRef} />
+
+          <PropertyLinks properties={interestedProperties} />
+
+          {error && <p className="form-error">{error}</p>}
+
+          <div className="chat-panel__messages">
+            {loading && !messages.length ? (
+              <p className="handoff-modal__loading">Загрузка…</p>
+            ) : messages.length === 0 ? (
+              <p className="chat-panel__empty">Сообщений пока нет</p>
+            ) : (
+              messages.map((m) => (
+                <div
+                  key={m.id || `${m.at}-${m.role}`}
+                  className={`chat-bubble chat-bubble--${bubbleRole(m)}`}
+                >
+                  <span className="chat-bubble__author">{bubbleLabel(m)}</span>
+                  <p className="chat-bubble__text">{linkifyText(m.text)}</p>
+                  <span className="chat-bubble__time">{formatDate(m.at)}</span>
+                </div>
+              ))
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
         <form className="chat-panel__composer" onSubmit={handleSend}>
@@ -177,12 +259,12 @@ function ChatPanel({ chatId, title, subtitle, onClose }) {
             className="chat-panel__input"
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Написать клиенту от лица WhatsApp-аккаунта…"
+            placeholder="Написать клиенту…"
             rows={2}
             disabled={sending}
           />
           <button type="submit" className="btn btn--primary" disabled={sending || !text.trim()}>
-            {sending ? 'Отправка…' : 'Отправить'}
+            {sending ? '…' : 'Отправить'}
           </button>
         </form>
       </div>
@@ -190,11 +272,11 @@ function ChatPanel({ chatId, title, subtitle, onClose }) {
   );
 }
 
-function HandoffModal({ leadId, onClose, onStartChat }) {
+function HandoffModal({ leadId, onClose, onStartChat, onUpdated }) {
   const { manager } = useAuth();
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [assigning, setAssigning] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -205,7 +287,7 @@ function HandoffModal({ leadId, onClose, onStartChat }) {
       setLead(data.item);
       setError('');
     } catch (err) {
-      setError(err.message || 'Не удалось загрузить карточку');
+      setError(err.message || 'Не удалось загрузить');
     } finally {
       setLoading(false);
     }
@@ -224,18 +306,33 @@ function HandoffModal({ leadId, onClose, onStartChat }) {
   }, [onClose]);
 
   const handleAssign = async () => {
-    setAssigning(true);
+    setBusy(true);
     try {
       const data = await api.assignHandoff(leadId);
       setLead(data.item);
+      onUpdated?.();
     } catch (err) {
-      setError(err.message || 'Не удалось обновить заявку');
+      setError(err.message || 'Ошибка');
     } finally {
-      setAssigning(false);
+      setBusy(false);
+    }
+  };
+
+  const handleClose = async () => {
+    setBusy(true);
+    try {
+      const data = await api.closeHandoff(leadId);
+      setLead(data.item);
+      onUpdated?.();
+    } catch (err) {
+      setError(err.message || 'Ошибка');
+    } finally {
+      setBusy(false);
     }
   };
 
   const isAssignedToMe = lead?.assignedManagerId === manager?.id;
+  const isClosed = lead?.status === 'closed';
 
   return (
     <div className="modal" role="dialog" aria-modal="true" aria-labelledby="handoff-modal-title">
@@ -256,17 +353,19 @@ function HandoffModal({ leadId, onClose, onStartChat }) {
           </>
         ) : lead ? (
           <>
-            <h2 id="handoff-modal-title" className="modal__title">
-              {lead.clientName || lead.phoneDisplay || lead.phone}
-            </h2>
-            <p className="modal__subtitle">
-              {lead.reasonLabel} · {formatDate(lead.createdAt)}
-            </p>
+            <div className="handoff-modal__top">
+              <div>
+                <h2 id="handoff-modal-title" className="modal__title">
+                  {lead.clientName || lead.phoneDisplay || lead.phone}
+                </h2>
+                <p className="modal__subtitle">
+                  {lead.reasonLabel} · {formatDate(lead.createdAt)}
+                </p>
+              </div>
+              <StatusBadge status={lead.status} />
+            </div>
 
-            <div className="handoff-modal__block handoff-modal__meta-row">
-              {lead.clientName && (
-                <span className="handoff-card__badge">{lead.clientName}</span>
-              )}
+            <div className="handoff-modal__meta-row">
               <span className="handoff-card__lang">{languageLabel(lead)}</span>
               {lead.assignedManagerName && (
                 <span className="handoff-card__badge handoff-card__badge--assigned">
@@ -275,31 +374,33 @@ function HandoffModal({ leadId, onClose, onStartChat }) {
               )}
             </div>
 
-            <label className="handoff-assign">
-              <input
-                type="checkbox"
-                checked={isAssignedToMe}
-                disabled={assigning}
-                onChange={handleAssign}
-              />
-              <span>Взять заявку в работу{manager ? ` (${manager.name})` : ''}</span>
-            </label>
+            <PropertyLinks properties={lead.interestedProperties} />
 
             <div className="handoff-modal__actions">
+              {!isClosed && (
+                <label className="handoff-assign">
+                  <input
+                    type="checkbox"
+                    checked={isAssignedToMe}
+                    disabled={busy}
+                    onChange={handleAssign}
+                  />
+                  <span>Взять в работу{manager ? ` (${manager.name})` : ''}</span>
+                </label>
+              )}
+              <button type="button" className="btn btn--primary btn--sm" onClick={() => onStartChat(lead)}>
+                Чат
+              </button>
               <button
                 type="button"
-                className="btn btn--primary"
-                onClick={() => onStartChat(lead)}
+                className={`btn btn--sm ${isClosed ? 'btn--outline' : 'btn--ghost'}`}
+                onClick={handleClose}
+                disabled={busy}
               >
-                Начать общение
+                {isClosed ? 'Вернуть в работу' : 'Завершить'}
               </button>
               {lead.waLink && (
-                <a
-                  href={lead.waLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn btn--outline btn--sm"
-                >
+                <a href={lead.waLink} target="_blank" rel="noopener noreferrer" className="btn btn--outline btn--sm">
                   WhatsApp
                 </a>
               )}
@@ -308,35 +409,25 @@ function HandoffModal({ leadId, onClose, onStartChat }) {
             <div className="handoff-modal__block">
               <span className="handoff-modal__label">Контакт</span>
               <p className="handoff-modal__phone">{lead.phoneDisplay}</p>
-              <p className="handoff-modal__meta">ID чата: {lead.chatId}</p>
             </div>
 
             {lead.preview && (
               <div className="handoff-modal__block">
-                <span className="handoff-modal__label">Триггер передачи</span>
+                <span className="handoff-modal__label">Триггер</span>
                 <p className="handoff-modal__preview">{lead.preview}</p>
               </div>
             )}
 
             <div className="handoff-modal__block">
-              <span className="handoff-modal__label">Выжимка для менеджера</span>
+              <span className="handoff-modal__label">Выжимка</span>
               {lead.summaryStatus === 'pending' ? (
-                <>
-                  <p className="handoff-modal__pending">ИИ формирует краткую выжимку…</p>
-                  <button type="button" className="btn btn--ghost btn--sm" onClick={load}>
-                    Обновить
-                  </button>
-                </>
+                <p className="handoff-modal__pending">Формируется…</p>
               ) : (
                 <div className="handoff-modal__summary">{lead.summary}</div>
               )}
             </div>
 
             {error && <p className="form-error">{error}</p>}
-
-            <button type="button" className="btn btn--ghost btn--sm" onClick={load}>
-              Обновить карточку
-            </button>
           </>
         ) : null}
       </div>
@@ -346,14 +437,14 @@ function HandoffModal({ leadId, onClose, onStartChat }) {
 
 export default function ManagerHandoffsSection() {
   const { manager } = useAuth();
-  const [mode, setMode] = useState('all');
+  const [mode, setMode] = useState('leads');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [meta, setMeta] = useState({ total: 0, page: 1, totalPages: 1 });
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
-  const [leadFilter, setLeadFilter] = useState('all');
+  const [leadFilter, setLeadFilter] = useState('open');
   const [managerFilter, setManagerFilter] = useState('');
   const [managers, setManagers] = useState([]);
   const [selectedLeadId, setSelectedLeadId] = useState(null);
@@ -385,7 +476,7 @@ export default function ManagerHandoffsSection() {
           totalPages: data.totalPages ?? 1,
         });
       } catch (err) {
-        setError(err.message || 'Не удалось загрузить данные');
+        setError(err.message || 'Не удалось загрузить');
         if (!silent) setItems([]);
       } finally {
         if (!silent) setLoading(false);
@@ -398,11 +489,10 @@ export default function ManagerHandoffsSection() {
     fetchPage(1);
   }, [fetchPage]);
 
-  const refresh = () => fetchPage(meta.page);
+  const refresh = () => fetchPage(meta.page, { silent: true });
 
   const goPage = (p) => {
-    const next = Math.max(1, Math.min(p, meta.totalPages));
-    fetchPage(next);
+    fetchPage(Math.max(1, Math.min(p, meta.totalPages)));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -411,13 +501,23 @@ export default function ManagerHandoffsSection() {
     setSearch(searchInput.trim());
   };
 
-  const handleAssignCard = async (e, leadId) => {
+  const handleAssignRow = async (e, leadId) => {
     e.stopPropagation();
     try {
       await api.assignHandoff(leadId);
       fetchPage(meta.page, { silent: true });
     } catch (err) {
-      setError(err.message || 'Не удалось закрепить заявку');
+      setError(err.message || 'Ошибка');
+    }
+  };
+
+  const handleCloseRow = async (e, leadId) => {
+    e.stopPropagation();
+    try {
+      await api.closeHandoff(leadId);
+      fetchPage(meta.page, { silent: true });
+    } catch (err) {
+      setError(err.message || 'Ошибка');
     }
   };
 
@@ -431,81 +531,78 @@ export default function ManagerHandoffsSection() {
 
   return (
     <>
-      <div className="card handoffs-intro">
-        <p className="card__desc">
-          <strong>Все</strong> — переписки с ботом (без ответов ИИ).{' '}
-          <strong>Заявки</strong> — переданные менеджеру с выжимкой.
-          {manager && (
-            <>
-              {' '}
-              Вы вошли как <strong>{manager.name}</strong>.
-            </>
-          )}
-        </p>
-        <div className="handoff-tabs">
-          <button
-            type="button"
-            className={`btn btn--sm ${mode === 'all' ? 'btn--primary' : 'btn--outline'}`}
-            onClick={() => {
-              setSelectedLeadId(null);
-              setChatTarget(null);
-              setMode('all');
-            }}
-          >
-            Все
-          </button>
-          <button
-            type="button"
-            className={`btn btn--sm ${mode === 'leads' ? 'btn--primary' : 'btn--outline'}`}
-            onClick={() => {
-              setSelectedLeadId(null);
-              setChatTarget(null);
-              setMode('leads');
-            }}
-          >
-            Заявки
-          </button>
+      <div className="inbox-shell">
+        <div className="inbox-shell__head">
+          <div>
+            <h3 className="inbox-shell__title">Входящие</h3>
+            {manager && <p className="inbox-shell__user">{manager.name}</p>}
+          </div>
+          <div className="segmented" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'all'}
+              className={`segmented__btn${mode === 'all' ? ' segmented__btn--active' : ''}`}
+              onClick={() => {
+                setSelectedLeadId(null);
+                setChatTarget(null);
+                setMode('all');
+              }}
+            >
+              Все переписки
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'leads'}
+              className={`segmented__btn${mode === 'leads' ? ' segmented__btn--active' : ''}`}
+              onClick={() => {
+                setSelectedLeadId(null);
+                setChatTarget(null);
+                setMode('leads');
+              }}
+            >
+              Заявки
+              {mode === 'leads' && meta.total > 0 && (
+                <span className="segmented__count">{meta.total}</span>
+              )}
+            </button>
+          </div>
         </div>
 
-        <form className="handoffs-toolbar" onSubmit={handleSearch}>
+        <form className="inbox-toolbar" onSubmit={handleSearch}>
           <input
             type="search"
-            className="handoffs-toolbar__search"
-            placeholder={mode === 'all' ? 'Поиск по имени, телефону…' : 'Поиск по заявкам…'}
+            className="inbox-toolbar__search"
+            placeholder={mode === 'all' ? 'Телефон, имя, сообщение…' : 'Поиск заявок…'}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
           <button type="submit" className="btn btn--outline btn--sm">
             Найти
           </button>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={refresh}
-            disabled={loading}
-          >
-            {loading ? 'Загрузка…' : 'Обновить'}
+          <button type="button" className="btn btn--ghost btn--sm" onClick={refresh} disabled={loading}>
+            {loading ? '…' : 'Обновить'}
           </button>
+          <span className="inbox-toolbar__meta">
+            {meta.total > 0 ? `${meta.total} записей` : ''}
+          </span>
         </form>
 
         {mode === 'leads' && (
-          <div className="handoffs-filters">
-            {[
-              { id: 'all', label: 'Все' },
-              { id: 'new', label: 'Новые' },
-              { id: 'active', label: 'Самые активные' },
-            ].map((f) => (
+          <div className="inbox-filters">
+            {LEAD_FILTERS.map((f) => (
               <button
                 key={f.id}
                 type="button"
-                className={`btn btn--sm ${leadFilter === f.id ? 'btn--primary' : 'btn--ghost'}`}
+                className={`inbox-filters__chip${leadFilter === f.id ? ' inbox-filters__chip--active' : ''}`}
                 onClick={() => setLeadFilter(f.id)}
               >
                 {f.label}
               </button>
             ))}
             <select
-              className="handoffs-filters__select"
+              className="inbox-filters__select"
               value={managerFilter}
               onChange={(e) => setManagerFilter(e.target.value)}
             >
@@ -523,109 +620,132 @@ export default function ManagerHandoffsSection() {
       {error && (
         <div className="card">
           <p className="form-error">{error}</p>
-          <button type="button" className="btn btn--primary" onClick={refresh}>
-            Повторить
-          </button>
         </div>
       )}
 
       {loading && !items.length ? (
-        <div className="session-status__loader">
-          {mode === 'all' ? 'Загрузка переписок…' : 'Загрузка заявок…'}
-        </div>
+        <div className="session-status__loader">Загрузка…</div>
       ) : items.length === 0 ? (
         <div className="card">
-          <p className="card__desc">
-            {mode === 'all'
-              ? 'Пока нет переписок. Они появятся после первого сообщения в WhatsApp.'
-              : 'Пока нет заявок. Они появятся после передачи клиента менеджеру.'}
-          </p>
+          <p className="card__desc">Ничего не найдено.</p>
         </div>
-      ) : (
+      ) : mode === 'leads' ? (
         <>
-          <div className={`handoff-grid${loading ? ' handoff-grid--loading' : ''}`}>
-            {items.map((item) => (
-              <div key={item.id} className="handoff-card-wrap">
-                {mode === 'leads' && (
-                  <label
-                    className="handoff-card__assign"
-                    onClick={(e) => e.stopPropagation()}
+          <div className={`lead-table-wrap${loading ? ' lead-table-wrap--loading' : ''}`}>
+            <table className="lead-table">
+              <thead>
+                <tr>
+                  <th>Статус</th>
+                  <th>Клиент</th>
+                  <th>Причина</th>
+                  <th>Менеджер</th>
+                  <th>Объекты</th>
+                  <th>Активность</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr
+                    key={item.id}
+                    className={`lead-table__row${item.status === 'closed' ? ' lead-table__row--closed' : ''}`}
+                    onClick={() => setSelectedLeadId(item.id)}
                   >
-                    <input
-                      type="checkbox"
-                      checked={item.assignedManagerId === manager?.id}
-                      onChange={(e) => handleAssignCard(e, item.id)}
-                    />
-                    <span>В работе</span>
-                  </label>
-                )}
-                <button
-                  type="button"
-                  className="handoff-card"
-                  onClick={() =>
-                    mode === 'all' ? openChat(item) : setSelectedLeadId(item.id)
-                  }
-                >
-                  <span className="handoff-card__badge">
-                    {mode === 'all' ? 'Переписка' : item.reasonLabel}
-                  </span>
-                  {mode === 'leads' && item.assignedManagerName && (
-                    <span className="handoff-card__badge handoff-card__badge--assigned">
-                      {item.assignedManagerName}
-                    </span>
-                  )}
-                  <span className="handoff-card__phone">
-                    {item.clientName || item.chatName
-                      ? `${item.clientName || item.chatName} · `
-                      : ''}
-                    {item.phoneDisplay || item.phone}
-                  </span>
-                  <span className="handoff-card__date">
-                    {languageLabel(item)} ·{' '}
-                    {formatDate(
-                      mode === 'all'
-                        ? item.lastSeenAt
-                        : item.lastActivityAt || item.createdAt
-                    )}
-                  </span>
-                  {mode === 'all' ? (
-                    <span className="handoff-card__summary">
-                      {summaryPreview(item.lastMessage) ||
-                        `Сообщений: ${item.messageCount || 0}`}
-                    </span>
-                  ) : item.summaryStatus === 'pending' ? (
-                    <span className="handoff-card__summary handoff-card__summary--pending">
-                      Выжимка формируется
-                    </span>
-                  ) : (
-                    <span className="handoff-card__summary">
-                      {summaryPreview(item.summary) || 'Выжимка готова'}
-                    </span>
-                  )}
-                </button>
-              </div>
-            ))}
+                    <td>
+                      <StatusBadge status={item.status} />
+                    </td>
+                    <td>
+                      <span className="lead-table__name">
+                        {item.clientName || item.phoneDisplay || item.phone}
+                      </span>
+                      <span className="lead-table__sub">{item.phoneDisplay}</span>
+                    </td>
+                    <td className="lead-table__reason">{item.reasonLabel}</td>
+                    <td>{item.assignedManagerName || '—'}</td>
+                    <td>
+                      {item.interestedProperties?.length ? (
+                        <span className="lead-table__props" title={item.interestedProperties.map((p) => p.title).join(', ')}>
+                          {item.interestedProperties.length} · {item.interestedProperties[0].id}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="lead-table__date">
+                      {formatDate(item.lastActivityAt || item.createdAt)}
+                    </td>
+                    <td className="lead-table__actions" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className={`lead-table__action${item.assignedManagerId === manager?.id ? ' lead-table__action--on' : ''}`}
+                        title="Взять в работу"
+                        onClick={(e) => handleAssignRow(e, item.id)}
+                      >
+                        ✓
+                      </button>
+                      <button
+                        type="button"
+                        className="lead-table__action"
+                        title="Чат"
+                        onClick={() => openChat(item)}
+                      >
+                        💬
+                      </button>
+                      <button
+                        type="button"
+                        className={`lead-table__action${item.status === 'closed' ? ' lead-table__action--on' : ''}`}
+                        title={item.status === 'closed' ? 'Вернуть' : 'Завершить'}
+                        onClick={(e) => handleCloseRow(e, item.id)}
+                      >
+                        {item.status === 'closed' ? '↩' : '✕'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-
           {meta.totalPages > 1 && (
             <div className="catalog-pagination">
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                disabled={meta.page <= 1 || loading}
-                onClick={() => goPage(meta.page - 1)}
-              >
+              <button type="button" className="btn btn--ghost btn--sm" disabled={meta.page <= 1} onClick={() => goPage(meta.page - 1)}>
                 Назад
               </button>
               <span className="catalog-pagination__info">
-                {meta.page} / {meta.totalPages} · всего {meta.total}
+                {meta.page} / {meta.totalPages}
               </span>
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                disabled={meta.page >= meta.totalPages || loading}
-                onClick={() => goPage(meta.page + 1)}
-              >
+              <button type="button" className="btn btn--ghost btn--sm" disabled={meta.page >= meta.totalPages} onClick={() => goPage(meta.page + 1)}>
+                Вперёд
+              </button>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div className={`conv-list${loading ? ' conv-list--loading' : ''}`}>
+            {items.map((item) => (
+              <button key={item.id} type="button" className="conv-list__row" onClick={() => openChat(item)}>
+                <div className="conv-list__main">
+                  <span className="conv-list__name">
+                    {item.chatName || item.clientName || item.phoneDisplay || item.phone}
+                  </span>
+                  <span className="conv-list__preview">{summaryPreview(item.lastMessage, 80) || '—'}</span>
+                </div>
+                <div className="conv-list__meta">
+                  <span>{formatDate(item.lastSeenAt)}</span>
+                  <span>{item.messageCount || 0} msg</span>
+                </div>
+              </button>
+            ))}
+          </div>
+          {meta.totalPages > 1 && (
+            <div className="catalog-pagination">
+              <button type="button" className="btn btn--ghost btn--sm" disabled={meta.page <= 1} onClick={() => goPage(meta.page - 1)}>
+                Назад
+              </button>
+              <span className="catalog-pagination__info">
+                {meta.page} / {meta.totalPages}
+              </span>
+              <button type="button" className="btn btn--ghost btn--sm" disabled={meta.page >= meta.totalPages} onClick={() => goPage(meta.page + 1)}>
                 Вперёд
               </button>
             </div>
@@ -641,6 +761,7 @@ export default function ManagerHandoffsSection() {
             setSelectedLeadId(null);
             openChat(lead);
           }}
+          onUpdated={refresh}
         />
       )}
 

@@ -552,6 +552,8 @@ function persistChatMessage(chatId, role, text, extra = {}) {
   try {
     persistMessage(chatId, { role, text, ...extra });
     touchHandoffActivity(chatId);
+    const { onConversationMessage } = require('./property-interest');
+    onConversationMessage(chatId, role, text, extra.language || 'ru');
   } catch (e) {
     console.warn('⚠️ persistChatMessage:', e.message);
   }

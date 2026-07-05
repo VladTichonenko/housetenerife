@@ -19,7 +19,7 @@ function resolveHandoffPath() {
 }
 
 const HANDOFF_PATH = resolveHandoffPath();
-const MAX_LEADS = 500;
+const MAX_LEADS = parseInt(process.env.HANDOFF_MAX_LEADS, 10) || 10000;
 
 function ensureDataDir() {
   const dir = path.dirname(HANDOFF_PATH);
@@ -105,6 +105,10 @@ async function recordHandoff(payload) {
     assignedManagerName: '',
     assignedAt: null,
     status: 'new',
+    closedAt: null,
+    closedByManagerId: '',
+    closedByManagerName: '',
+    interestedProperties: [],
   };
 
   const store = loadStore();
@@ -170,6 +174,47 @@ function touchHandoffActivity(chatId) {
   if (touched) saveStore(store);
 }
 
+function updateHandoffProperties(chatId, properties) {
+  const store = loadStore();
+  let updated = false;
+  store.items = store.items.map((item) => {
+    if (item.chatId !== chatId) return item;
+    updated = true;
+    return { ...item, interestedProperties: properties || [] };
+  });
+  if (updated) saveStore(store);
+}
+
+function closeHandoff(id, manager) {
+  const store = loadStore();
+  const idx = store.items.findIndex((x) => x.id === id);
+  if (idx === -1) return null;
+
+  const existing = store.items[idx];
+  const now = new Date().toISOString();
+
+  if (existing.status === 'closed') {
+    store.items[idx] = {
+      ...existing,
+      status: existing.assignedManagerId ? 'in_progress' : 'new',
+      closedAt: null,
+      closedByManagerId: '',
+      closedByManagerName: '',
+    };
+  } else {
+    store.items[idx] = {
+      ...existing,
+      status: 'closed',
+      closedAt: now,
+      closedByManagerId: manager.id,
+      closedByManagerName: manager.name,
+    };
+  }
+
+  saveStore(store);
+  return publicLead(store.items[idx]);
+}
+
 function assignHandoff(id, manager) {
   const store = loadStore();
   const idx = store.items.findIndex((x) => x.id === id);
@@ -185,14 +230,17 @@ function assignHandoff(id, manager) {
         assignedManagerId: '',
         assignedManagerName: '',
         assignedAt: null,
-        status: 'new',
+        status: existing.status === 'closed' ? 'closed' : 'new',
       }
     : {
         ...existing,
         assignedManagerId: manager.id,
         assignedManagerName: manager.name,
         assignedAt: now,
-        status: 'in_progress',
+        status: existing.status === 'closed' ? 'closed' : 'in_progress',
+        closedAt: existing.status === 'closed' ? existing.closedAt : null,
+        closedByManagerId: existing.status === 'closed' ? existing.closedByManagerId : '',
+        closedByManagerName: existing.status === 'closed' ? existing.closedByManagerName : '',
       };
 
   saveStore(store);
@@ -232,8 +280,18 @@ function listHandoffs({
     items = items.filter((item) => item.assignedManagerId === managerId);
   }
 
-  if (filter === 'new') {
-    items = items.filter((item) => !item.assignedManagerId || item.status === 'new');
+  if (filter === 'mine') {
+    items = items.filter(
+      (item) => item.assignedManagerId === managerId && item.status !== 'closed'
+    );
+  } else if (filter === 'new') {
+    items = items.filter((item) => item.status !== 'closed' && (!item.assignedManagerId || item.status === 'new'));
+  } else if (filter === 'in_progress') {
+    items = items.filter((item) => item.status === 'in_progress');
+  } else if (filter === 'closed') {
+    items = items.filter((item) => item.status === 'closed');
+  } else if (filter === 'open') {
+    items = items.filter((item) => item.status !== 'closed');
   }
 
   if (filter === 'active') {
@@ -249,7 +307,19 @@ function listHandoffs({
   const lim = Math.min(100, Math.max(1, parseInt(limit, 10) || 24));
   const totalPages = Math.max(1, Math.ceil(total / lim));
   const start = (p - 1) * lim;
-  const pageItems = items.slice(start, start + lim).map(publicLead);
+  const pageItems = items.slice(start, start + lim).map((item) => {
+    const lead = publicLead(item);
+    if (!lead.interestedProperties?.length) {
+      try {
+        const { getInterestedProperties } = require('./property-interest');
+        const props = getInterestedProperties(item.chatId, item.language);
+        if (props.length) lead.interestedProperties = props;
+      } catch {
+        /* ignore */
+      }
+    }
+    return lead;
+  });
 
   return { items: pageItems, total, page: p, totalPages, limit: lim, updatedAt: store.updatedAt };
 }
@@ -257,7 +327,18 @@ function listHandoffs({
 function getHandoff(id) {
   const store = loadStore();
   const item = store.items.find((x) => x.id === id);
-  return item ? publicLead(item) : null;
+  if (!item) return null;
+  const lead = publicLead(item);
+  if (!lead.interestedProperties?.length) {
+    try {
+      const { getInterestedProperties } = require('./property-interest');
+      const props = getInterestedProperties(item.chatId, item.language);
+      if (props.length) lead.interestedProperties = props;
+    } catch {
+      /* ignore */
+    }
+  }
+  return lead;
 }
 
 function publicLead(item) {
@@ -282,6 +363,9 @@ function publicLead(item) {
     assignedManagerName: item.assignedManagerName || '',
     assignedAt: item.assignedAt || null,
     status: item.status || (item.assignedManagerId ? 'in_progress' : 'new'),
+    closedAt: item.closedAt || null,
+    closedByManagerName: item.closedByManagerName || '',
+    interestedProperties: Array.isArray(item.interestedProperties) ? item.interestedProperties : [],
   };
 }
 
@@ -290,6 +374,8 @@ module.exports = {
   listHandoffs,
   getHandoff,
   assignHandoff,
+  closeHandoff,
+  updateHandoffProperties,
   touchHandoffActivity,
   HANDOFF_PATH,
   resolveHandoffPath,
