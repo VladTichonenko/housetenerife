@@ -6,10 +6,12 @@ function catalog() {
   return require('./property-catalog');
 }
 
+// RU/ES: /ru/property/… /es/property/… — EN: /property/… (без /en/, такого пути на сайте нет)
 const PROPERTY_URL_RE =
-  /https?:\/\/(?:www\.)?housetenerife\.eu\/[a-z]{2}\/property\/[^\s<>\])"'}]+/gi;
+  /https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en))?\/property\/[^\s<>\])"'}]+/gi;
 
 let urlIndex = null;
+let slugIndex = null;
 
 function getPublicBase() {
   const explicit = process.env.PUBLIC_BASE_URL || process.env.BOT_PUBLIC_URL;
@@ -19,9 +21,19 @@ function getPublicBase() {
   return null;
 }
 
+function propertySlugFromPath(pathname) {
+  const m = String(pathname || '').match(/\/property\/([^/]+)/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
 function normalizePropertyPath(url) {
   try {
-    return new URL(url).pathname.replace(/\/+$/, '').toLowerCase();
+    let pathname = new URL(url).pathname.replace(/\/+$/, '').toLowerCase();
+    // На housetenerife.eu английская версия — /property/…, не /en/property/…
+    if (pathname.startsWith('/en/property/')) {
+      pathname = pathname.replace(/^\/en\/property\//, '/property/');
+    }
+    return pathname;
   } catch {
     return '';
   }
@@ -29,12 +41,15 @@ function normalizePropertyPath(url) {
 
 function rebuildUrlIndex() {
   urlIndex = new Map();
+  slugIndex = new Map();
   const data = catalog().load();
   for (const item of data.items) {
     const candidates = new Set([item.url, ...(item.urls ? Object.values(item.urls) : [])].filter(Boolean));
     for (const u of candidates) {
       const key = normalizePropertyPath(u);
       if (key) urlIndex.set(key, item);
+      const slug = propertySlugFromPath(key);
+      if (slug) slugIndex.set(slug, item);
     }
     if (item.id) urlIndex.set(String(item.id).toUpperCase(), item);
   }
@@ -47,7 +62,17 @@ function ensureIndex() {
 function findItemByUrl(url) {
   ensureIndex();
   const key = normalizePropertyPath(url);
-  return key ? urlIndex.get(key) : null;
+  if (key && urlIndex.has(key)) return urlIndex.get(key);
+  const slug = propertySlugFromPath(key);
+  return slug ? slugIndex.get(slug) || null : null;
+}
+
+/** Убирает несуществующий префикс /en/ (404 на сайте). */
+function stripInvalidEnPrefix(url) {
+  return String(url || '').replace(
+    /^(https?:\/\/(?:www\.)?housetenerife\.eu)\/en(\/property\/)/i,
+    '$1$2'
+  );
 }
 
 function findItemByPropertyId(id) {
@@ -96,12 +121,14 @@ function localizeUrlsInText(text, lang) {
   ensureIndex();
   return repairKnownUrlSpacing(text).replace(PROPERTY_URL_RE, (match) => {
     const item = findItemByUrl(match);
-    return item ? getShareUrl(item, lang) : match;
+    if (item) return getShareUrl(item, lang);
+    return stripInvalidEnPrefix(match);
   });
 }
 
 function invalidateUrlIndex() {
   urlIndex = null;
+  slugIndex = null;
 }
 
 module.exports = {

@@ -29,7 +29,7 @@ const NAV_ITEMS = [
 ];
 
 export default function Dashboard({ showToast }) {
-  const { logout } = useAuth();
+  const { logout, manager } = useAuth();
   const [section, setSection] = useState('guide');
   const [session, setSession] = useState(null);
   const [sessionQr, setSessionQr] = useState(null);
@@ -159,6 +159,7 @@ export default function Dashboard({ showToast }) {
             </button>
           ))}
         </nav>
+        {manager && <p className="sidebar__manager">{manager.name}</p>}
         <button type="button" className="btn btn--ghost sidebar__logout" onClick={logout}>
           Выйти
         </button>

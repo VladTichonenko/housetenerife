@@ -1,58 +1,61 @@
-const crypto = require('crypto');
 const QRCode = require('qrcode');
 const { getBotConfig, saveBotConfig } = require('./bot-config');
 const { getKnowledgeBase, saveKnowledgeBase } = require('./knowledge-base');
 const { listProperties } = require('./property-catalog');
-const { listHandoffs, getHandoff } = require('./handoff-leads');
+const { listHandoffs, getHandoff, assignHandoff } = require('./handoff-leads');
 const { listClients, getClient } = require('./clients-store');
-
-const ADMIN_CODE = process.env.ADMIN_CODE || '0397';
-const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
-
-if (
-  (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) &&
-  !process.env.ADMIN_CODE
-) {
-  console.warn(
-    '⚠️ Railway: задайте переменную ADMIN_CODE (пароль панели /admin). Сейчас используется код по умолчанию.'
-  );
-}
-
-const sessions = new Map();
-
-function createToken() {
-  const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, { createdAt: Date.now() });
-  return token;
-}
-
-function isValidToken(token) {
-  if (!token || !sessions.has(token)) return false;
-  const session = sessions.get(token);
-  if (Date.now() - session.createdAt > TOKEN_TTL_MS) {
-    sessions.delete(token);
-    return false;
-  }
-  return true;
-}
+const {
+  findManagerByCode,
+  createToken,
+  getSession,
+  isValidToken,
+  listManagersPublic,
+} = require('./managers-auth');
+const {
+  recordMessage,
+  getMessages,
+  listConversationChats,
+} = require('./conversation-store');
+const { getChatSettings, setAiDisabled } = require('./chat-settings');
 
 function requireAdmin(req, res, next) {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!isValidToken(token)) {
+  const session = getSession(token);
+  if (!session) {
     return res.status(401).json({ success: false, message: 'Требуется авторизация' });
   }
+  req.managerSession = session;
   next();
 }
 
 function registerAdminRoutes(app, state) {
   app.post('/api/admin/login', (req, res) => {
     const code = String(req.body?.code || '').trim();
-    if (code !== ADMIN_CODE) {
-      return res.status(401).json({ success: false, message: 'Неверный код доступа' });
+    const manager = findManagerByCode(code);
+    if (!manager) {
+      return res.status(401).json({ success: false, message: 'Неверный пароль' });
     }
-    const token = createToken();
-    res.json({ success: true, token });
+    const token = createToken(manager);
+    res.json({
+      success: true,
+      token,
+      manager: { id: manager.id, name: manager.name },
+    });
+  });
+
+  app.get('/api/admin/me', requireAdmin, (req, res) => {
+    res.json({
+      success: true,
+      manager: {
+        id: req.managerSession.managerId,
+        name: req.managerSession.managerName,
+      },
+    });
+  });
+
+  app.get('/api/admin/managers', requireAdmin, (req, res) => {
+    res.json({ success: true, managers: listManagersPublic() });
   });
 
   app.get('/api/admin/session', requireAdmin, async (req, res) => {
@@ -70,7 +73,11 @@ function registerAdminRoutes(app, state) {
       ready: state.botReady,
       clientState,
       hasQr: Boolean(state.currentQr),
-      account: state.accountInfo
+      account: state.accountInfo,
+      manager: {
+        id: req.managerSession.managerId,
+        name: req.managerSession.managerName,
+      },
     });
   });
 
@@ -82,7 +89,7 @@ function registerAdminRoutes(app, state) {
       const dataUrl = await QRCode.toDataURL(state.currentQr, {
         width: 280,
         margin: 2,
-        color: { dark: '#1a1a2e', light: '#ffffff' }
+        color: { dark: '#1a1a2e', light: '#ffffff' },
       });
       res.json({ success: true, qr: dataUrl });
     } catch (e) {
@@ -109,7 +116,11 @@ function registerAdminRoutes(app, state) {
   app.put('/api/admin/config', requireAdmin, (req, res) => {
     try {
       const config = saveBotConfig(req.body || {});
-      res.json({ success: true, config, message: 'Настройки сохранены. Бот использует их при следующем сообщении.' });
+      res.json({
+        success: true,
+        config,
+        message: 'Настройки сохранены. Бот использует их при следующем сообщении.',
+      });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
     }
@@ -121,7 +132,7 @@ function registerAdminRoutes(app, state) {
       res.json({
         success: true,
         knowledge,
-        updatedAt: knowledge._admin_meta?.updatedAt || null
+        updatedAt: knowledge._admin_meta?.updatedAt || null,
       });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
@@ -133,7 +144,7 @@ function registerAdminRoutes(app, state) {
       const result = listProperties({
         q: req.query.q,
         page: req.query.page,
-        limit: req.query.limit
+        limit: req.query.limit,
       });
       res.json({ success: true, ...result });
     } catch (e) {
@@ -166,11 +177,94 @@ function registerAdminRoutes(app, state) {
     }
   });
 
+  app.get('/api/admin/conversations', requireAdmin, (req, res) => {
+    try {
+      const result = listConversationChats({
+        page: req.query.page,
+        limit: req.query.limit,
+        q: req.query.q,
+      });
+      res.json({ success: true, ...result });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/admin/chats/:chatId/messages', requireAdmin, (req, res) => {
+    try {
+      const chatId = decodeURIComponent(req.params.chatId);
+      const excludeAssistant = req.query.excludeAssistant !== 'false';
+      let messages = getMessages(chatId, { excludeAssistant });
+      const settings = getChatSettings(chatId);
+      const client = getClient(chatId);
+
+      if (!messages.length && client?.lastMessages?.length) {
+        messages = client.lastMessages.map((m, idx) => ({
+          id: `legacy-${idx}`,
+          role: 'user',
+          text: m.text,
+          at: m.at,
+          kind: m.kind || 'text',
+        }));
+      }
+
+      res.json({
+        success: true,
+        chatId,
+        messages,
+        settings,
+        client,
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.post('/api/admin/chats/:chatId/messages', requireAdmin, async (req, res) => {
+    try {
+      const chatId = decodeURIComponent(req.params.chatId);
+      const text = String(req.body?.text || '').trim();
+      if (!text) {
+        return res.status(400).json({ success: false, message: 'Текст сообщения обязателен' });
+      }
+      if (typeof state.sendManagerMessage !== 'function') {
+        return res.status(501).json({ success: false, message: 'Отправка сообщений недоступна' });
+      }
+
+      const result = await state.sendManagerMessage(chatId, text, {
+        managerId: req.managerSession.managerId,
+        managerName: req.managerSession.managerName,
+      });
+
+      if (!result.success) {
+        return res.status(result.status || 500).json(result);
+      }
+
+      res.json({ success: true, message: result.message, settings: result.settings });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.put('/api/admin/chats/:chatId/ai-disabled', requireAdmin, (req, res) => {
+    try {
+      const chatId = decodeURIComponent(req.params.chatId);
+      const disabled = Boolean(req.body?.disabled);
+      const settings = setAiDisabled(chatId, disabled);
+      res.json({ success: true, settings });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
   app.get('/api/admin/handoffs', requireAdmin, (req, res) => {
     try {
       const result = listHandoffs({
         page: req.query.page,
         limit: req.query.limit,
+        q: req.query.q,
+        filter: req.query.filter || 'all',
+        managerId: req.query.managerId || '',
       });
       res.json({ success: true, ...result });
     } catch (e) {
@@ -183,6 +277,22 @@ function registerAdminRoutes(app, state) {
       const item = getHandoff(req.params.id);
       if (!item) {
         return res.status(404).json({ success: false, message: 'Лид не найден' });
+      }
+      const settings = getChatSettings(item.chatId);
+      res.json({ success: true, item: { ...item, chatSettings: settings } });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.put('/api/admin/handoffs/:id/assign', requireAdmin, (req, res) => {
+    try {
+      const item = assignHandoff(req.params.id, {
+        id: req.managerSession.managerId,
+        name: req.managerSession.managerName,
+      });
+      if (!item) {
+        return res.status(404).json({ success: false, message: 'Заявка не найдена' });
       }
       res.json({ success: true, item });
     } catch (e) {
@@ -197,7 +307,7 @@ function registerAdminRoutes(app, state) {
         success: true,
         knowledge,
         updatedAt: knowledge._admin_meta?.updatedAt,
-        message: 'База знаний сохранена. Бот использует её при следующем сообщении.'
+        message: 'База знаний сохранена. Бот использует её при следующем сообщении.',
       });
     } catch (e) {
       res.status(400).json({ success: false, message: e.message });
@@ -205,4 +315,4 @@ function registerAdminRoutes(app, state) {
   });
 }
 
-module.exports = { registerAdminRoutes, requireAdmin };
+module.exports = { registerAdminRoutes, requireAdmin, isValidToken };

@@ -84,6 +84,7 @@ async function recordHandoff(payload) {
 
   const id = crypto.randomUUID();
   const phone = formatCustomerPhone(chatId);
+  const now = new Date().toISOString();
   const item = {
     id,
     chatId,
@@ -98,7 +99,12 @@ async function recordHandoff(payload) {
     preview: String(preview || '').slice(0, 500),
     summary: '',
     summaryStatus: 'pending',
-    createdAt: new Date().toISOString(),
+    createdAt: now,
+    lastActivityAt: now,
+    assignedManagerId: '',
+    assignedManagerName: '',
+    assignedAt: null,
+    status: 'new',
   };
 
   const store = loadStore();
@@ -152,19 +158,100 @@ async function finishHandoffSummary(id, conversationHistory, meta) {
   console.log(`✅ Выжимка готова для лида ${id}`);
 }
 
-function listHandoffs({ page = 1, limit = 24 } = {}) {
+function touchHandoffActivity(chatId) {
   const store = loadStore();
-  const sorted = [...store.items].sort(
-    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-  );
-  const total = sorted.length;
+  const now = new Date().toISOString();
+  let touched = false;
+  store.items = store.items.map((item) => {
+    if (item.chatId !== chatId) return item;
+    touched = true;
+    return { ...item, lastActivityAt: now };
+  });
+  if (touched) saveStore(store);
+}
+
+function assignHandoff(id, manager) {
+  const store = loadStore();
+  const idx = store.items.findIndex((x) => x.id === id);
+  if (idx === -1) return null;
+
+  const existing = store.items[idx];
+  const now = new Date().toISOString();
+  const unassign = existing.assignedManagerId === manager.id;
+
+  store.items[idx] = unassign
+    ? {
+        ...existing,
+        assignedManagerId: '',
+        assignedManagerName: '',
+        assignedAt: null,
+        status: 'new',
+      }
+    : {
+        ...existing,
+        assignedManagerId: manager.id,
+        assignedManagerName: manager.name,
+        assignedAt: now,
+        status: 'in_progress',
+      };
+
+  saveStore(store);
+  return publicLead(store.items[idx]);
+}
+
+function listHandoffs({
+  page = 1,
+  limit = 24,
+  q = '',
+  filter = 'all',
+  managerId = '',
+} = {}) {
+  const store = loadStore();
+  const query = String(q || '').trim().toLowerCase();
+  let items = [...store.items];
+
+  if (query) {
+    items = items.filter((item) =>
+      [
+        item.clientName,
+        item.phone,
+        item.phoneDisplay,
+        item.preview,
+        item.summary,
+        item.reasonLabel,
+        item.assignedManagerName,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
+    );
+  }
+
+  if (managerId) {
+    items = items.filter((item) => item.assignedManagerId === managerId);
+  }
+
+  if (filter === 'new') {
+    items = items.filter((item) => !item.assignedManagerId || item.status === 'new');
+  }
+
+  if (filter === 'active') {
+    items.sort(
+      (a, b) => new Date(b.lastActivityAt || b.createdAt) - new Date(a.lastActivityAt || a.createdAt)
+    );
+  } else {
+    items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+
+  const total = items.length;
   const p = Math.max(1, parseInt(page, 10) || 1);
   const lim = Math.min(100, Math.max(1, parseInt(limit, 10) || 24));
   const totalPages = Math.max(1, Math.ceil(total / lim));
   const start = (p - 1) * lim;
-  const items = sorted.slice(start, start + lim).map(publicLead);
+  const pageItems = items.slice(start, start + lim).map(publicLead);
 
-  return { items, total, page: p, totalPages, limit: lim, updatedAt: store.updatedAt };
+  return { items: pageItems, total, page: p, totalPages, limit: lim, updatedAt: store.updatedAt };
 }
 
 function getHandoff(id) {
@@ -190,6 +277,11 @@ function publicLead(item) {
     summaryStatus: item.summaryStatus,
     createdAt: item.createdAt,
     summaryReadyAt: item.summaryReadyAt || null,
+    lastActivityAt: item.lastActivityAt || item.createdAt,
+    assignedManagerId: item.assignedManagerId || '',
+    assignedManagerName: item.assignedManagerName || '',
+    assignedAt: item.assignedAt || null,
+    status: item.status || (item.assignedManagerId ? 'in_progress' : 'new'),
   };
 }
 
@@ -197,6 +289,8 @@ module.exports = {
   recordHandoff,
   listHandoffs,
   getHandoff,
+  assignHandoff,
+  touchHandoffActivity,
   HANDOFF_PATH,
   resolveHandoffPath,
 };

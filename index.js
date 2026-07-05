@@ -45,8 +45,10 @@ const {
   clearPendingCallOffer,
 } = require('./handoff-pending');
 const { analyzeConversation } = require('./dialog-context');
-const { recordHandoff, HANDOFF_PATH } = require('./handoff-leads');
+const { recordHandoff, HANDOFF_PATH, touchHandoffActivity } = require('./handoff-leads');
 const { recordClientMessage, CLIENTS_PATH } = require('./clients-store');
+const { recordMessage: persistMessage } = require('./conversation-store');
+const { isAiDisabled, getChatSettings, setAiDisabled } = require('./chat-settings');
 const { offerSoftCallViaAi } = require('./index-handoff');
 const { localizeUrlsInText } = require('./property-share');
 const propertyPreviewRouter = require('./property-preview');
@@ -564,7 +566,17 @@ async function processIncomingMessage(msg, source = 'unknown') {
 const MAX_HISTORY_LENGTH = 20;
 
 // Функция для добавления сообщения в историю
-function addToHistory(chatId, sender, text) {
+function persistChatMessage(chatId, role, text, extra = {}) {
+  if (!chatId || !text) return;
+  try {
+    persistMessage(chatId, { role, text, ...extra });
+    touchHandoffActivity(chatId);
+  } catch (e) {
+    console.warn('⚠️ persistChatMessage:', e.message);
+  }
+}
+
+function addToHistory(chatId, sender, text, { persist = true } = {}) {
   if (!conversationHistory.has(chatId)) {
     conversationHistory.set(chatId, []);
   }
@@ -580,11 +592,46 @@ function addToHistory(chatId, sender, text) {
   if (history.length > MAX_HISTORY_LENGTH) {
     history.shift(); // Удаляем самое старое сообщение
   }
+
+  if (!persist || !text) return;
+
+  if (sender === 'user') {
+    persistChatMessage(chatId, 'user', text);
+  } else if (sender === 'assistant') {
+    persistChatMessage(chatId, 'assistant', text);
+  }
 }
 
 // Функция для получения истории разговора
 function getHistory(chatId) {
   return conversationHistory.get(chatId) || [];
+}
+
+async function sendManagerMessage(chatId, text, { managerId = '', managerName = '' } = {}) {
+  if (!botReady || !client) {
+    return { success: false, status: 503, message: 'WhatsApp бот не готов' };
+  }
+  try {
+    await client.sendMessage(chatId, text, { sendSeen: false });
+    addToHistory(chatId, 'assistant', text, { persist: false });
+    const message = persistMessage(chatId, {
+      role: 'manager',
+      text,
+      managerId,
+      managerName,
+    });
+    touchHandoffActivity(chatId);
+    setAiDisabled(chatId, true);
+    console.log(`👤 Менеджер ${managerName || managerId} → ${chatId}`);
+    return {
+      success: true,
+      message,
+      settings: getChatSettings(chatId),
+    };
+  } catch (e) {
+    console.error('❌ sendManagerMessage:', e.message);
+    return { success: false, status: 500, message: e.message || 'Не удалось отправить сообщение' };
+  }
 }
 
 /** Язык переписки по сообщениям клиента; иначе fallback (номер / первое сообщение). */
@@ -1426,6 +1473,9 @@ async function handleIncomingMessage(msg) {
       } catch (clientStoreErr) {
         console.warn('⚠️ Не удалось сохранить клиента:', clientStoreErr.message);
       }
+      persistChatMessage(getConversationChatId(msg, chat), 'user', '[голосовое сообщение]', {
+        kind: 'voice',
+      });
       telegramNotify
         .notifyIncomingWhatsAppMessage({
           msgId,
@@ -1526,6 +1576,12 @@ async function handleIncomingMessage(msg) {
         kind: 'text'
       })
       .catch((err) => console.error('telegram-notify message:', err.message));
+
+    if (isAiDisabled(chatId)) {
+      addToHistory(chatId, 'user', messageText);
+      console.log(`🔇 AI отключён для ${chatId} — сообщение сохранено, ответ не отправляется`);
+      return 'processed';
+    }
 
     // Проверяем, является ли сообщение командой
     const trimmedMessage = messageText.toLowerCase();
@@ -1822,7 +1878,8 @@ registerAdminRoutes(app, {
     return accountInfo;
   },
   client,
-  logoutWhatsAppSession
+  logoutWhatsAppSession,
+  sendManagerMessage,
 });
 
 // Веб-панель /admin — после API, чтобы /api не перехватывался

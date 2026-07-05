@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import PinInput from './PinInput';
 
 export default function LoginModal({ open, onClose, onSuccess, onError }) {
   const { login } = useAuth();
@@ -27,18 +26,18 @@ export default function LoginModal({ open, onClose, onSuccess, onError }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (code.length !== 4) {
-      setError('Введите 4 цифры');
+    if (!code.trim()) {
+      setError('Введите пароль');
       return;
     }
     setLoading(true);
     setError('');
     try {
-      await login(code);
+      await login(code.trim());
       onSuccess();
     } catch (err) {
-      setError(err.message || 'Неверный код');
-      onError?.('Неверный код доступа');
+      setError(err.message || 'Неверный пароль');
+      onError?.('Неверный пароль');
     } finally {
       setLoading(false);
     }
@@ -52,14 +51,23 @@ export default function LoginModal({ open, onClose, onSuccess, onError }) {
           ×
         </button>
         <h2 id="modal-title" className="modal__title">
-          Вход в панель
+          Вход менеджера
         </h2>
-        <p className="modal__subtitle">Введите 4-значный код доступа</p>
+        <p className="modal__subtitle">Введите ваш пароль для входа в панель</p>
         <form className="pin-form" onSubmit={handleSubmit}>
-          <PinInput value={code} onChange={setCode} disabled={loading} />
+          <input
+            type="password"
+            className="manager-login__input"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            disabled={loading}
+            placeholder="Пароль"
+            autoComplete="current-password"
+            autoFocus
+          />
           {error && <p className="form-error">{error}</p>}
           <button type="submit" className="btn btn--primary btn--full" disabled={loading}>
-            {loading ? 'Проверка…' : 'Подтвердить'}
+            {loading ? 'Проверка…' : 'Войти'}
           </button>
         </form>
       </div>
