@@ -39,6 +39,7 @@ function resolvePuppeteerExecutablePath() {
 function getPuppeteerLaunchOptions() {
   const executablePath = resolvePuppeteerExecutablePath();
   const container = isContainerRuntime();
+  const singleProcess = process.env.PUPPETEER_SINGLE_PROCESS === '1';
 
   const args = [
     '--no-sandbox',
@@ -58,12 +59,11 @@ function getPuppeteerLaunchOptions() {
   ];
 
   if (container) {
-    args.push(
-      '--no-zygote',
-      '--single-process',
-      '--disable-software-rasterizer',
-      '--disable-features=TranslateUI,VizDisplayCompositor'
-    );
+    args.push('--disable-software-rasterizer');
+    // НЕ используем --single-process по умолчанию: ломает E2E-расшифровку WhatsApp (type=ciphertext).
+    if (singleProcess) {
+      args.push('--no-zygote', '--single-process');
+    }
   }
 
   return {
@@ -76,9 +76,14 @@ function getPuppeteerLaunchOptions() {
 
 function logPuppeteerDiagnostics() {
   const opts = getPuppeteerLaunchOptions();
+  const singleProcess = process.env.PUPPETEER_SINGLE_PROCESS === '1';
   console.log(`🌐 Chromium: ${opts.executablePath || 'не найден (puppeteer скачает при npm ci)'}`);
   if (isContainerRuntime()) {
-    console.log('🐳 Режим контейнера: single-process + no-sandbox');
+    console.log(
+      singleProcess
+        ? '🐳 Режим контейнера: single-process (может ломать расшифровку WA — только если Chrome не стартует)'
+        : '🐳 Режим контейнера: multi-process + no-sandbox (нужно для расшифровки ciphertext)'
+    );
   }
   if (!opts.executablePath) {
     console.error(

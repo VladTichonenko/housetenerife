@@ -18,6 +18,7 @@ const {
   trackEmptyBodyRetry,
   clearEmptyBodyRetry,
   exceededEmptyBodyRetries,
+  MAX_EMPTY_BODY_RETRIES,
 } = require('./message-body');
 const {
   isVoiceMessage,
@@ -364,7 +365,7 @@ function trackedSetTimeout(callback, delay) {
   return id;
 }
 
-function scheduleMessageRetry(msg, delayMs = 2000) {
+function scheduleMessageRetry(msg, delayMs = 3000) {
   const msgId = getMessageId(msg);
   if (processedMessageIds.has(msgId) || deferredRetryIds.has(msgId)) return;
   deferredRetryIds.add(msgId);
@@ -1494,7 +1495,7 @@ async function handleIncomingMessage(msg) {
         console.warn(`⚠️ [DEBUG] Не удалось прочитать текст после ${attempts} попыток (type=${msg.type})`);
         return 'skip';
       }
-      console.log(`⏳ [DEBUG] Текст пока недоступен (type=${msg.type}), попытка ${attempts}/${6}`);
+      console.log(`⏳ [DEBUG] Текст пока недоступен (type=${msg.type}), попытка ${attempts}/${MAX_EMPTY_BODY_RETRIES}`);
       return 'retry';
     }
     clearEmptyBodyRetry(msgId);

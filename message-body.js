@@ -1,6 +1,7 @@
 'use strict';
 
-const RETRY_DELAYS_MS = [500, 1200, 2500];
+const RETRY_DELAYS_MS = [400, 900, 1800, 3000, 5000, 8000];
+const CIPHERTEXT_EXTRA_DELAYS_MS = [10000, 15000];
 
 const TEXT_LIKE_TYPES = new Set([
   'chat',
@@ -50,6 +51,19 @@ function extractMessageText(msg) {
   if (data) {
     const fromData = (data.body || data.caption || data.pollName || data.eventName || '').trim();
     if (fromData) return fromData;
+
+    const inner = data.message;
+    if (inner && typeof inner === 'object') {
+      const conversation = inner.conversation || inner.body;
+      if (conversation) return String(conversation).trim();
+      const ext = inner.extendedTextMessage?.text || inner.imageMessage?.caption;
+      if (ext) return String(ext).trim();
+      const btn = inner.buttonsResponseMessage?.selectedDisplayText;
+      if (btn) return String(btn).trim();
+      const list = inner.listResponseMessage?.title || inner.listResponseMessage?.singleSelectReply?.selectedRowId;
+      if (list) return String(list).trim();
+    }
+
     const selected = data.selectedButtonId || data.selectedRowId;
     if (selected) return String(selected).trim();
   }
@@ -59,6 +73,22 @@ function extractMessageText(msg) {
   if (msg.pollName) return String(msg.pollName).trim();
 
   return '';
+}
+
+async function refetchMessageFromChat(msg) {
+  try {
+    const chat = await msg.getChat();
+    const messages = await chat.fetchMessages({ limit: 12 });
+    const targetId = msg.id?._serialized || msg.id?.id || JSON.stringify(msg.id);
+    const found = messages.find((m) => {
+      const id = m.id?._serialized || m.id?.id || JSON.stringify(m.id);
+      return id === targetId;
+    });
+    return found || msg;
+  } catch (err) {
+    console.warn('⚠️ [resolveMessageText] refetch:', err.message);
+    return msg;
+  }
 }
 
 function isLikelyDecrypting(msg) {
@@ -91,19 +121,30 @@ async function resolveMessageText(msg) {
     return { text: '', msg: current };
   }
 
-  for (const delayMs of RETRY_DELAYS_MS) {
+  const isCipher = current?.type === 'ciphertext';
+  const delays = isCipher
+    ? [...RETRY_DELAYS_MS, ...CIPHERTEXT_EXTRA_DELAYS_MS]
+    : RETRY_DELAYS_MS;
+
+  for (const delayMs of delays) {
     await sleep(delayMs);
     try {
-      const reloaded = await current.reload();
-      if (reloaded) current = reloaded;
+      if (typeof current.reload === 'function') {
+        const reloaded = await current.reload();
+        if (reloaded) current = reloaded;
+      }
     } catch (err) {
       console.warn('⚠️ [resolveMessageText] reload:', err.message);
     }
+
+    current = await refetchMessageFromChat(current);
+
     text = extractMessageText(current);
     if (text) {
-      console.log('✅ [resolveMessageText] Текст получен после reload');
+      console.log(`✅ [resolveMessageText] Текст получен (type=${current.type || '?'})`);
       return { text, msg: current };
     }
+
     if (current.type && current.type !== 'ciphertext' && !TEXT_LIKE_TYPES.has(current.type)) {
       break;
     }
@@ -112,7 +153,7 @@ async function resolveMessageText(msg) {
   return { text: '', msg: current };
 }
 
-const MAX_EMPTY_BODY_RETRIES = 6;
+const MAX_EMPTY_BODY_RETRIES = 10;
 const emptyBodyRetryCount = new Map();
 
 function trackEmptyBodyRetry(msgId) {
@@ -137,5 +178,6 @@ module.exports = {
   trackEmptyBodyRetry,
   clearEmptyBodyRetry,
   exceededEmptyBodyRetries,
+  MAX_EMPTY_BODY_RETRIES,
   sleep,
 };
