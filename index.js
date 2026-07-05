@@ -53,6 +53,7 @@ const { offerSoftCallViaAi } = require('./index-handoff');
 const { localizeUrlsInText } = require('./property-share');
 const propertyPreviewRouter = require('./property-preview');
 const telegramNotify = require('./telegram-notify');
+const { getPuppeteerLaunchOptions, logPuppeteerDiagnostics } = require('./puppeteer-env');
 
 const REPLY_IN_GROUPS =
   process.env.WHATSAPP_REPLY_IN_GROUPS !== '0' &&
@@ -239,55 +240,34 @@ async function sendMessageSafely(msg, text, client) {
 
 // Создание клиента WhatsApp
 // Используем персистентное хранилище для сессии
-// В Railway данные сохраняются в volume, локально - в текущей директории
-const sessionPath = process.env.SESSION_PATH || './.wwebjs_auth_ht';
+// На Railway с Volume: SESSION_PATH=/data/.wwebjs_auth_ht
+function resolveSessionPath() {
+  if (process.env.SESSION_PATH) return process.env.SESSION_PATH;
+  if (fs.existsSync('/data')) return '/data/.wwebjs_auth_ht';
+  return './.wwebjs_auth_ht';
+}
+
+const sessionPath = resolveSessionPath();
 console.log(`📁 Путь к сессии: ${sessionPath}`);
 const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
 if (isRailway && !path.isAbsolute(sessionPath)) {
   console.warn(
     '⚠️ Railway: SESSION_PATH не на постоянном диске (нужен абсолютный путь на Volume). Сессия WhatsApp сотрётся после деплоя.'
   );
-  console.warn('   Volume → mount, например /data; Variables → SESSION_PATH=/data/.wwebjs_auth_ht; затем один раз QR в логах.');
+  console.warn('   Volume → mount /data; Variables → SESSION_PATH=/data/.wwebjs_auth_ht; затем один раз QR в панели.');
+} else if (isRailway && sessionPath.startsWith('/data')) {
+  console.log('💾 Railway Volume: сессия WhatsApp сохраняется на /data');
 }
+
+logPuppeteerDiagnostics();
+
 const client = new Client({
   authStrategy: new LocalAuth({
     dataPath: sessionPath,
     clientId: 'housetenerife-wa',
     rmMaxRetries: 10
   }),
-  puppeteer: {
-    headless: true,
-    // В Docker/Railway используйте системный Chromium (см. Dockerfile и PUPPETEER_EXECUTABLE_PATH)
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-    // Увеличиваем таймаут CDP — при простое на Railway браузер может отвечать дольше (избегаем Runtime.callFunctionOn timed out)
-    protocolTimeout: parseInt(process.env.PROTOCOL_TIMEOUT_MS, 10) || 180000, // 3 минуты по умолчанию
-    args: (() => {
-      // Базовые аргументы для всех окружений
-      const baseArgs = [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--disable-gpu',
-        '--disable-blink-features=AutomationControlled'
-      ];
-      
-      // Дополнительные аргументы только для Docker/Railway (Linux окружение)
-      const isDocker =
-        process.env.DOCKER === 'true' ||
-        Boolean(process.env.RAILWAY_ENVIRONMENT) ||
-        Boolean(process.env.RAILWAY_PROJECT_ID) ||
-        (process.platform === 'linux' && fs.existsSync('/.dockerenv'));
-      
-      if (isDocker) {
-        // Для Docker/Railway добавляем дополнительные флаги
-        baseArgs.push('--no-zygote');
-      }
-      
-      return baseArgs;
-    })()
-  },
+  puppeteer: getPuppeteerLaunchOptions(),
   // Дополнительные настройки для стабильности
   restartOnAuthFail: true,
   takeoverOnConflict: false,

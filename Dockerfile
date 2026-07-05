@@ -17,11 +17,11 @@ RUN npm run build \
 
 # =============================================================================
 # Stage 2: WhatsApp-бот + готовая панель /admin
+# Puppeteer ставит совместимый Chrome при npm ci (не apt chromium)
 # =============================================================================
 FROM node:20-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium \
     ca-certificates \
     fonts-liberation \
     libasound2 \
@@ -46,19 +46,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxfixes3 \
     libxkbcommon0 \
     libxrandr2 \
+    libxshmfence1 \
+    libxss1 \
     wget \
     xdg-utils \
   && rm -rf /var/lib/apt/lists/*
 
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV NODE_ENV=production
 ENV DOCKER=true
+# dbus в контейнере не нужен — убираем шум и редкие падения при старте
+ENV DBUS_SESSION_BUS_ADDRESS=/dev/null
 
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev
+# Puppeteer postinstall скачивает Chrome, совместимый с puppeteer-core из whatsapp-web.js
+RUN npm ci --omit=dev \
+  && node -e "const p=require('puppeteer'); const e=p.executablePath(); const fs=require('fs'); if(!fs.existsSync(e)) { console.error('Chrome not found:', e); process.exit(1); } console.log('✅ Puppeteer Chrome:', e);"
 
 # Код приложения (web/dist в .dockerignore — не перезапишет сборку)
 COPY . .

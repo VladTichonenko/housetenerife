@@ -27,6 +27,7 @@
     "libphonenumber-js": "^1.12.34",
     "mammoth": "^1.12.0",
     "pdf-parse": "^2.4.5",
+    "puppeteer": "^24.43.1",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "whatsapp-web.js": "^1.34.6"
