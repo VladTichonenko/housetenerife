@@ -10,7 +10,8 @@ const {
   formatLocalizedDialogPath,
   buildSystemPromptBlocks,
   getCatalogHints,
-  pickLocalizedPrompts
+  pickLocalizedPrompts,
+  buildReplyLanguageRule
 } = require('./sales-localization');
 const {
   analyzeConversation,
@@ -217,10 +218,7 @@ ${blocks.mortgage}
 ${blocks.propertyFinance}
 ${blocks.managerHandoff}`;
 
-  const langRule =
-    salesLang === 'ru'
-      ? `Ответ на языке пользователя: ${userLanguage}.`
-      : blocks.replyLanguage;
+  const langRule = buildReplyLanguageRule(userLanguage);
 
   const disclaimerLabel = salesLang === 'es' ? '**AVISO LEGAL:**' : salesLang === 'en' ? '**DISCLAIMER:**' : '**ДИСКЛЕЙМЕР:**';
   const knowledgeLabel =

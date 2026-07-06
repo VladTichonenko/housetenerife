@@ -161,6 +161,10 @@ function isMarkedUnreadError(error) {
 }
 
 // Безопасная отправка сообщений с обработкой ошибок markedUnread
+const BOT_REPLY_DELAY_MS = Math.max(
+  0,
+  parseInt(process.env.BOT_REPLY_DELAY_MS, 10) || 20000
+);
 const LINK_MESSAGE_DELAY_MS = Math.max(
   0,
   parseInt(process.env.LINK_MESSAGE_DELAY_MS, 10) || 90000
@@ -170,14 +174,24 @@ function outboundContainsLink(text) {
   return /(?:https?:\/\/|www\.|housetenerife\.eu)/i.test(String(text || ''));
 }
 
+function getOutboundDelayMs(text) {
+  let delayMs = BOT_REPLY_DELAY_MS;
+  if (outboundContainsLink(text) && LINK_MESSAGE_DELAY_MS > 0) {
+    delayMs = Math.max(delayMs, LINK_MESSAGE_DELAY_MS);
+  }
+  return delayMs;
+}
+
 async function sendMessageSafely(msg, text, client) {
   const chatId = msg.from;
 
-  if (outboundContainsLink(text) && LINK_MESSAGE_DELAY_MS > 0) {
+  const delayMs = getOutboundDelayMs(text);
+  if (delayMs > 0) {
+    const hasLink = outboundContainsLink(text);
     console.log(
-      `⏳ Сообщение со ссылками — пауза ${Math.round(LINK_MESSAGE_DELAY_MS / 1000)}с перед отправкой (${chatId})`
+      `⏳ Пауза ${Math.round(delayMs / 1000)}с перед отправкой${hasLink ? ' (со ссылками)' : ''} (${chatId})`
     );
-    await new Promise((resolve) => setTimeout(resolve, LINK_MESSAGE_DELAY_MS));
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
   // Метод 1: Пробуем отправить через chat.sendMessage (не вызывает sendSeen автоматически)
@@ -617,17 +631,20 @@ async function sendManagerMessage(chatId, text, { managerId = '', managerName = 
   }
 }
 
-/** Язык переписки по сообщениям клиента; иначе fallback (номер / первое сообщение). */
-function resolveDialogLanguage(chatId, fallback) {
-  const userTexts = getHistory(chatId)
-    .filter((m) => m.sender === 'user')
-    .map((m) => m.text)
-    .join('\n')
-    .trim();
-  if (userTexts.length >= 8) {
-    return detectLanguageFromText(userTexts);
+/** Язык ответа — по последнему сообщению клиента; для коротких реплик — из истории или номера. */
+function resolveDialogLanguage(chatId, currentMessageText, phoneFallback = 'ru') {
+  const trimmed = String(currentMessageText || '').trim();
+  if (trimmed.length >= 2) {
+    return detectLanguageFromText(trimmed);
   }
-  return fallback;
+  const userMsgs = getHistory(chatId).filter((m) => m.sender === 'user');
+  for (let i = userMsgs.length - 1; i >= 0; i--) {
+    const t = String(userMsgs[i].text || '').trim();
+    if (t.length >= 2 && !t.startsWith('[')) {
+      return detectLanguageFromText(t);
+    }
+  }
+  return phoneFallback;
 }
 
 // Хранилище для обработки команд (теперь с поддержкой языков)
@@ -1508,22 +1525,13 @@ async function handleIncomingMessage(msg) {
     // Проверяем, это первое сообщение от пользователя?
     const isFirstMessage = !firstMessageUsers.has(chatId);
     
-    // Определяем язык пользователя
-    let userLanguage;
-    if (isFirstMessage) {
-      // Для первого сообщения определяем язык из текста
-      userLanguage = detectLanguageFromText(messageText);
-      const languageName = getLanguageName(userLanguage);
-      console.log(`🌍 Первое сообщение от ${chatId} - определен язык из текста: ${languageName} (${userLanguage})`);
-      firstMessageUsers.add(chatId);
-    } else {
-      // Для последующих сообщений используем язык по номеру телефона
-      userLanguage = getLanguageFromPhone(senderId);
-    }
-    
+    const phoneLanguage = getLanguageFromPhone(senderId) || 'ru';
+    const dialogLanguage = resolveDialogLanguage(chatId, messageText, phoneLanguage);
     const userCountry = getCountryFromPhone(senderId);
-    
-    const dialogLanguage = resolveDialogLanguage(chatId, userLanguage);
+
+    if (isFirstMessage) {
+      firstMessageUsers.add(chatId);
+    }
     const languageName = getLanguageName(dialogLanguage);
     console.log(`📨 Получено сообщение от ${chatId} (${userCountry || 'неизвестно'}, язык: ${languageName} [${dialogLanguage}]): ${messageText}`);
 
@@ -1676,7 +1684,7 @@ async function handleIncomingMessage(msg) {
         });
       } catch (aiError) {
         console.error('❌ Ошибка AI при фото:', aiError);
-        await sendMessageSafely(msg, getTranslation(userLanguage, 'error'), client);
+        await sendMessageSafely(msg, getTranslation(dialogLanguage, 'error'), client);
       }
       return 'processed';
     }
@@ -1702,7 +1710,7 @@ async function handleIncomingMessage(msg) {
         });
       } catch (aiError) {
         console.error('❌ Ошибка AI при запросе менеджера:', aiError);
-        await sendMessageSafely(msg, getTranslation(userLanguage, 'error'), client);
+        await sendMessageSafely(msg, getTranslation(dialogLanguage, 'error'), client);
       }
       return 'processed';
     }
@@ -1728,15 +1736,14 @@ async function handleIncomingMessage(msg) {
         });
       } catch (aiError) {
         console.error('❌ Ошибка AI при ссылке:', aiError);
-        await sendMessageSafely(msg, getTranslation(userLanguage, 'error'), client);
+        await sendMessageSafely(msg, getTranslation(dialogLanguage, 'error'), client);
       }
       return 'processed';
     }
     
     if (commandHandlers[trimmedMessage]) {
-      // Выполняем команду с учетом языка пользователя
-      console.log(`⚡ Выполнение команды: ${trimmedMessage} (язык: ${userLanguage})`);
-      await commandHandlers[trimmedMessage](msg, userLanguage, client);
+      console.log(`⚡ Выполнение команды: ${trimmedMessage} (язык: ${dialogLanguage})`);
+      await commandHandlers[trimmedMessage](msg, dialogLanguage, client);
       console.log(`✅ Команда ${trimmedMessage} выполнена успешно`);
       return 'processed';
     } else {
@@ -1770,7 +1777,7 @@ async function handleIncomingMessage(msg) {
       } catch (aiError) {
         console.error('❌ Ошибка при запросе к AI:', aiError);
         // В случае ошибки отправляем сообщение об ошибке
-        const errorText = getTranslation(userLanguage, 'error');
+        const errorText = getTranslation(dialogLanguage, 'error');
         await sendMessageSafely(msg, errorText, client);
       }
     }

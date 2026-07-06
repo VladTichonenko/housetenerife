@@ -504,6 +504,17 @@ const RU = {
   catalogHints: null
 };
 
+function buildReplyLanguageRule(targetLang) {
+  const code = normalizeSalesLang(targetLang);
+  if (code === 'ru') {
+    return `**ЯЗЫК ОТВЕТА:** Отвечай СТРОГО на русском — на том же языке, что и последнее сообщение клиента. Весь ответ целиком на одном языке, без вставок на английском или испанском. Не переключайся на язык номера телефона или старых сообщений, если клиент сейчас пишет на другом языке.`;
+  }
+  if (code === 'es') {
+    return `**IDIOMA DE RESPUESTA:** Responde ESTRICTAMENTE en español — el mismo idioma del último mensaje del cliente. Toda la respuesta en un solo idioma, sin mezclar ruso o inglés. No cambies al idioma del teléfono ni mensajes antiguos si el cliente escribe ahora en otro idioma.`;
+  }
+  return `**REPLY LANGUAGE:** Reply STRICTLY in English — the same language as the client's last message. Entire reply in one language only — no Russian or Spanish mixed in. Do not switch to the phone number's language or older messages if the client is writing in another language now.`;
+}
+
 function getSalesPack(lang) {
   const code = normalizeSalesLang(lang);
   if (code === 'en') return EN;
@@ -622,6 +633,7 @@ module.exports = {
   buildSystemPromptBlocks,
   getCatalogHints,
   pickLocalizedPrompts,
+  buildReplyLanguageRule,
   EN,
   ES
 };
