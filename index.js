@@ -9,6 +9,11 @@ const path = require('path');
 const { getLanguageFromPhone, getTranslation, getCountryFromPhone } = require('./phone-utils');
 const { askAI } = require('./ai-service');
 const { enqueueForChat } = require('./chat-queue');
+const {
+  scheduleReplyBatch,
+  REPLY_WAIT_MS,
+  REPLY_BATCH_WAIT_MS,
+} = require('./reply-batch');
 const { detectLanguageFromText, getLanguageName } = require('./language-detector');
 const { registerAdminRoutes } = require('./admin-api');
 const { setupAdminPanel, getAdminPanelStatus } = require('./admin-panel');
@@ -78,6 +83,9 @@ if (REPLY_IN_GROUPS) {
 } else {
   console.log('💬 WhatsApp группы: ответы выключены (только личные сообщения)');
 }
+console.log(
+  `⏱️ Ответ: пауза ${REPLY_WAIT_MS / 1000} с (1 сообщение) / ${REPLY_BATCH_WAIT_MS / 1000} с (пачка в окне)`
+);
 
 
 // Создаем Express сервер для API
@@ -163,7 +171,7 @@ function isMarkedUnreadError(error) {
 // Безопасная отправка сообщений с обработкой ошибок markedUnread
 const BOT_REPLY_DELAY_MS = Math.max(
   0,
-  parseInt(process.env.BOT_REPLY_DELAY_MS, 10) || 20000
+  parseInt(process.env.BOT_REPLY_DELAY_MS, 10) || 0
 );
 const LINK_MESSAGE_DELAY_MS = Math.max(
   0,
@@ -528,8 +536,8 @@ function dispatchIncomingMessage(msg, source) {
   });
 }
 
-/** @returns {Promise<'processed'|'retry'|'skip'|null>} */
-async function processIncomingMessage(msg, source = 'unknown') {
+/** @returns {Promise<'processed'|'retry'|'skip'|'debounced'|null>} */
+async function processIncomingMessage(msg, source = 'unknown', opts = {}) {
   const msgId = getMessageId(msg);
   if (processedMessageIds.has(msgId)) return null;
   if (processingMessageIds.has(msgId)) {
@@ -541,20 +549,84 @@ async function processIncomingMessage(msg, source = 'unknown') {
     return null;
   }
 
+  if (!opts.skipReplyBatch) {
+    const debounce = await shouldDebounceForReply(msg);
+    if (debounce) {
+      scheduleReplyBatch(
+        debounce.chatId,
+        debounce.msg,
+        source,
+        (chatId, messages, src) => {
+          enqueueForChat(chatId, () => processReplyBatchFlush(chatId, messages, src));
+        },
+        trackedSetTimeout
+      );
+      return 'debounced';
+    }
+  }
+
   processingMessageIds.add(msgId);
   try {
-    const status = await handleIncomingMessage(msg);
+    const status = await handleIncomingMessage(msg, opts);
     if (status === 'retry') {
       scheduleMessageRetry(msg);
       return status;
     }
-    if (status) {
+    if (status && status !== 'debounced') {
       processedMessageIds.set(msgId, Date.now());
     }
     return status;
   } finally {
     processingMessageIds.delete(msgId);
   }
+}
+
+async function processReplyBatchFlush(chatId, messages, source) {
+  const pending = messages.filter((m) => !processedMessageIds.has(getMessageId(m)));
+  if (!pending.length) return;
+
+  for (const m of pending) {
+    processingMessageIds.add(getMessageId(m));
+  }
+  try {
+    await processBatchedIncomingMessages(pending, source);
+    for (const m of pending) {
+      processedMessageIds.set(getMessageId(m), Date.now());
+    }
+  } finally {
+    for (const m of pending) {
+      processingMessageIds.delete(getMessageId(m));
+    }
+  }
+}
+
+async function processBatchedIncomingMessages(messages, source) {
+  if (!messages.length) return;
+
+  const resolved = [];
+  for (const m of messages) {
+    const r = await resolveMessageText(m);
+    if (r.text) {
+      resolved.push({ msg: r.msg, text: r.text, msgId: getMessageId(r.msg) });
+    }
+  }
+  if (!resolved.length) return;
+
+  if (resolved.length === 1) {
+    await handleIncomingMessage(resolved[0].msg, { skipReplyBatch: true });
+    return;
+  }
+
+  console.log(
+    `📦 Пачка ${resolved.length} сообщ. → один ответ: ${resolved.map((r) => r.text.slice(0, 50)).join(' | ')}`
+  );
+
+  const last = resolved[resolved.length - 1];
+  await handleIncomingMessage(last.msg, {
+    skipReplyBatch: true,
+    prependUserTexts: resolved.slice(0, -1).map((r) => r.text),
+    batchMessages: resolved,
+  });
 }
 
 // Максимальное количество сообщений в истории (чтобы не перегружать контекст)
@@ -631,11 +703,14 @@ async function sendManagerMessage(chatId, text, { managerId = '', managerName = 
   }
 }
 
-/** Язык ответа — по последнему сообщению клиента; для коротких реплик — из истории или номера. */
+/** Язык ответа — по текущему сообщению (приоритет первым словам внутри детектора); для коротких реплик — из истории или номера. */
 function resolveDialogLanguage(chatId, currentMessageText, phoneFallback = 'ru') {
   const trimmed = String(currentMessageText || '').trim();
-  if (trimmed.length >= 2) {
-    return detectLanguageFromText(trimmed);
+  if (trimmed.length >= 1) {
+    const fromText = detectLanguageFromText(trimmed);
+    if (trimmed.length >= 2 || fromText !== 'ru') {
+      return fromText;
+    }
   }
   const userMsgs = getHistory(chatId).filter((m) => m.sender === 'user');
   for (let i = userMsgs.length - 1; i >= 0; i--) {
@@ -707,6 +782,53 @@ const commandHandlers = {
   },
 
 };
+
+async function shouldDebounceForReply(msg) {
+  if (!botReady) return null;
+  if (msg.fromMe) return null;
+  if (msg.from === 'status@broadcast' || String(msg.from || '').includes('@broadcast')) return null;
+
+  let chat;
+  try {
+    chat = await msg.getChat();
+  } catch {
+    return null;
+  }
+
+  if (chat.isChannel) return null;
+  if (chat.isGroup) {
+    if (!REPLY_IN_GROUPS) return null;
+    if (GROUP_ONLY_MENTION && !(await shouldRespondInGroup(msg))) return null;
+  }
+
+  const resolved = await resolveMessageText(msg);
+  if (isVoiceMessage(resolved.msg)) return null;
+  if (!resolved.text) return null;
+
+  const chatId = getConversationChatId(resolved.msg, chat);
+  const messageText = resolved.text;
+  const trimmed = messageText.trim().toLowerCase();
+
+  if (commandHandlers[trimmed]) return null;
+  if (getPendingHandoff(chatId)) return null;
+
+  const pendingCallOffer = getPendingCallOffer(chatId);
+  if (pendingCallOffer && !commandHandlers[trimmed]) {
+    if (
+      detectAffirmativeResponse(messageText) ||
+      detectNegativeResponse(messageText) ||
+      wantsManagerHandoff(messageText)
+    ) {
+      return null;
+    }
+  }
+
+  if (wantsManagerHandoff(messageText)) return null;
+  if (containsLink(messageText) && !commandHandlers[trimmed]) return null;
+  if (isImageWithDescription(resolved.msg, messageText)) return null;
+
+  return { chatId, msg: resolved.msg };
+}
 
 // Функция для определения часового пояса по стране
 function getTimeZoneByCountry(countryCode) {
@@ -1359,7 +1481,8 @@ function startWhatsAppSessionWatchdog() {
 }
 
 // Функция обработки сообщения (вынесена для переиспользования)
-async function handleIncomingMessage(msg) {
+async function handleIncomingMessage(msg, options = {}) {
+  const { prependUserTexts = [], batchMessages = null } = options;
   const from = msg.from || '?';
   const body = msg.body ? (msg.body.length > 80 ? msg.body.substring(0, 80) + '...' : msg.body) : '(нет текста)';
   const fromMe = !!msg.fromMe;
@@ -1533,42 +1656,56 @@ async function handleIncomingMessage(msg) {
       firstMessageUsers.add(chatId);
     }
     const languageName = getLanguageName(dialogLanguage);
-    console.log(`📨 Получено сообщение от ${chatId} (${userCountry || 'неизвестно'}, язык: ${languageName} [${dialogLanguage}]): ${messageText}`);
+    const recordItems =
+      batchMessages && batchMessages.length > 1
+        ? batchMessages
+        : [{ msg, text: messageText, msgId }];
 
-    try {
-      recordClientMessage({
-        chatId,
-        senderId,
-        chatName: chat.isGroup
-          ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
-          : chat.name,
-        messageText,
-        language: dialogLanguage,
-        languageLabel: languageName,
-        country: userCountry || '',
-        isGroup: chat.isGroup,
-        kind: 'text',
-      });
-    } catch (clientStoreErr) {
-      console.warn('⚠️ Не удалось сохранить клиента:', clientStoreErr.message);
+    console.log(
+      `📨 Получено сообщение от ${chatId} (${userCountry || 'неизвестно'}, язык: ${languageName} [${dialogLanguage}]): ${messageText}${prependUserTexts.length ? ` (+${prependUserTexts.length} в пачке)` : ''}`
+    );
+
+    for (const item of recordItems) {
+      const preview = item.text;
+      const itemMsgId = item.msgId || getMessageId(item.msg || msg);
+      try {
+        recordClientMessage({
+          chatId,
+          senderId,
+          chatName: chat.isGroup
+            ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
+            : chat.name,
+          messageText: preview,
+          language: dialogLanguage,
+          languageLabel: languageName,
+          country: userCountry || '',
+          isGroup: chat.isGroup,
+          kind: 'text',
+        });
+      } catch (clientStoreErr) {
+        console.warn('⚠️ Не удалось сохранить клиента:', clientStoreErr.message);
+      }
+
+      telegramNotify
+        .notifyIncomingWhatsAppMessage({
+          msgId: itemMsgId,
+          chatId,
+          preview,
+          chatName: chat.isGroup
+            ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
+            : chat.name,
+          phone: formatCustomerPhone(senderId),
+          language: languageName,
+          isGroup: chat.isGroup,
+          kind: 'text',
+        })
+        .catch((err) => console.error('telegram-notify message:', err.message));
     }
 
-    telegramNotify
-      .notifyIncomingWhatsAppMessage({
-        msgId,
-        chatId,
-        preview: messageText,
-        chatName: chat.isGroup
-          ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
-          : chat.name,
-        phone: formatCustomerPhone(senderId),
-        language: languageName,
-        isGroup: chat.isGroup,
-        kind: 'text'
-      })
-      .catch((err) => console.error('telegram-notify message:', err.message));
-
     if (isAiDisabled(chatId)) {
+      for (const t of prependUserTexts) {
+        addToHistory(chatId, 'user', t);
+      }
       addToHistory(chatId, 'user', messageText);
       console.log(`🔇 AI отключён для ${chatId} — сообщение сохранено, ответ не отправляется`);
       return 'processed';
@@ -1747,7 +1884,9 @@ async function handleIncomingMessage(msg) {
       console.log(`✅ Команда ${trimmedMessage} выполнена успешно`);
       return 'processed';
     } else {
-      // Добавляем сообщение пользователя в историю
+      for (const t of prependUserTexts) {
+        addToHistory(chatId, 'user', t);
+      }
       addToHistory(chatId, 'user', messageText);
       
       // Получаем ответ от AI

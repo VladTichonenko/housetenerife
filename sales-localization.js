@@ -4,6 +4,7 @@ const SUPPORTED = ['ru', 'en', 'es'];
 
 function normalizeSalesLang(lang) {
   const l = String(lang || 'ru').toLowerCase().slice(0, 2);
+  if (l === 'uk' || l === 'be') return 'ru';
   if (SUPPORTED.includes(l)) return l;
   return 'en';
 }
@@ -54,7 +55,7 @@ You sell through *conversation* — warm, confident, human. Think senior investm
 - 2–5 short WhatsApp lines; *one* question at the end (except the shortlist — end with "Which feels closest?").
 - Conversational English. No corporate filler.
 - Flawless spelling and grammar — no typos, no glued words; this is your sales voice.
-- No emojis or smileys — text only.
+- Emojis: at most one per message — a subtle emoji or text smiley :) only when it fits (greeting, warm «sounds good»). Not every message, not on mortgage/docs/errors, never forced.
 - Bold: *single asterisks* only.
 
 **Listings**
@@ -147,7 +148,7 @@ You sell through *conversation* — warm, confident, human. Think senior investm
       'Region not chosen — one question: Tenerife, Dubai, Ibiza, Marbella, Málaga or Barcelona? Do not default to Tenerife. No shortlist yet.',
 
     NEED_BUDGET:
-      'Ask budget in € (guides: up to €300k / €300–600k / €600k+). Type: {propertyTypeLabel}, region: {regionLabel}. No listings yet.',
+      'Ask about budget gently — not bluntly "what is your budget?". Meaning: suggest fitting options and avoid clearly unsuitable listings. Example (you may lightly rephrase, same intent): "{budgetQuestionExample}". Guides: up to €300k / €300–600k / €600k+. Type: {propertyTypeLabel}, region: {regionLabel}. One question at the end. No listings yet. Timing question — separate message later, not with budget.',
 
     NEED_LOCATION:
       'Ask for a *specific area* in {regionLabel} (examples: {areaOptionsPrompt}). One question only. No listings yet — applies to Tenerife, Dubai, Ibiza, Marbella, Málaga and Barcelona.',
@@ -292,7 +293,7 @@ Vendes con *conversación* — cercano, seguro, humano. Analista senior en Whats
 - 2–5 líneas en WhatsApp; *una* pregunta al final (salvo la selección — cierra con "¿Cuál te encaja más?").
 - Español natural (tú). Sin lenguaje corporativo vacío.
 - Ortografía impecable — sin faltas ni palabras pegadas; esto vende.
-- Sin emojis ni emoticonos — solo texto.
+- Emojis: como máximo uno por mensaje — emoji suave o :) solo si encaja (saludo, «perfecto»). No en cada mensaje, no en hipoteca/documentos/errores.
 - Negrita: un solo par de asteriscos *así*.
 
 **Fichas**
@@ -386,7 +387,7 @@ Vendes con *conversación* — cercano, seguro, humano. Analista senior en Whats
       'Objetivo: ¿vivir / familia o inversión (alquiler / plusvalía)? Una frase de por qué preguntas. Sin fichas.',
 
     NEED_BUDGET:
-      'Presupuesto en € (hasta 300k / 300–600k / desde 600k). Tipo: {propertyTypeLabel}, región: {regionLabel}. Sin fichas.',
+      'Pregunta el presupuesto con tacto — no en bruto «¿cuál es su presupuesto?». Sentido: opciones que encajen y no mostrar inmuebles que claramente no sirven. Ejemplo (puedes parafrasear ligeramente, mismo tono): «{budgetQuestionExample}». Guías: hasta 300k / 300–600k / desde 600k €. Tipo: {propertyTypeLabel}, región: {regionLabel}. Una pregunta al final. Sin fichas. Plazo de compra — en otro mensaje, no junto al presupuesto.',
 
     NEED_LOCATION:
       'Pide *zona concreta* en {regionLabel} (ejemplos: {areaOptionsPrompt}). Una sola pregunta. Sin fichas — Tenerife, Dubái, Ibiza, Marbella, Málaga y Barcelona.',
@@ -552,12 +553,18 @@ function getStageInstruction(lang, stage, dialog) {
   const callOfferContext =
     dialog.callOfferContext ||
     (lang === 'es' ? 'su consulta' : lang === 'en' ? 'their request' : 'их запрос');
+  let budgetQuestionExample = dialog.budgetQuestionExample || '';
+  if (!budgetQuestionExample && stage === 'NEED_BUDGET') {
+    ({ pickBudgetQuestionExample } = require('./budget-questions'));
+    budgetQuestionExample = pickBudgetQuestionExample(lang);
+  }
   return text
     .replace(/\{propertyTypeLabel\}/g, typeLabel)
     .replace(/\{regionLabel\}/g, regionLabel)
     .replace(/\{microAreaLabel\}/g, microAreaLabel)
     .replace(/\{areaOptionsPrompt\}/g, areaOptionsPrompt)
-    .replace(/\{callOfferContext\}/g, callOfferContext);
+    .replace(/\{callOfferContext\}/g, callOfferContext)
+    .replace(/\{budgetQuestionExample\}/g, budgetQuestionExample);
 }
 
 function getFinanceStageInstruction(lang, financeStage) {

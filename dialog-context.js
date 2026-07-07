@@ -23,6 +23,7 @@ const {
 } = require('./purchase-finance');
 const { normalizeSalesLang, getStageInstruction } = require('./sales-localization');
 const { wantsManagerHandoff, buildCallOfferContext } = require('./manager-handoff');
+const { pickBudgetQuestionExample } = require('./budget-questions');
 
 
 /**
@@ -134,6 +135,9 @@ function analyzeConversation(history, lang = 'ru') {
     microAreaLabel: microAreas.label,
     callOfferContext,
   };
+  if (stage === 'NEED_BUDGET') {
+    dialogCtx.budgetQuestionExample = pickBudgetQuestionExample(salesLang);
+  }
   let stageInstruction = finance.financeStage && finance.financeStage !== 'PROPERTY_CLOSING'
     ? getFinanceStageInstruction(finance.financeStage, salesLang)
     : getStageInstruction(salesLang, stage, dialogCtx) ||
@@ -186,7 +190,7 @@ const stageInstructions = {
 
   NEED_REGION: `Один вопрос про регион: Тенерифе, Дубай, Ибица, Марбелья, Малага, Барселона? Можно мягко подсказать: «если не определились — подскажу сильные зоны под вашу цель». Без подборки.`,
 
-  NEED_BUDGET: `Спроси бюджет в € мягко: «чтобы не тратить ваше время — в каком диапазоне смотрим?» Ориентиры: до 300k / 300–600k / от 600k. Тип: ${'{propertyTypeLabel}'}, регион: ${'{regionLabel}'}. По желанию уточни срок: «планируете в ближайшие месяцы или присматриваетесь?» — только если уместно, не вместе с бюджетом в одном сообщении.`,
+  NEED_BUDGET: `Спроси о бюджете мягко — не в лоб «какой у вас бюджет?». Смысл: подобрать подходящие варианты и не показывать заведомо неподходящие. Образец (можно слегка перефразировать, сохраняя смысл и тон): «{budgetQuestionExample}». Ориентиры по €: до 300k / 300–600k / от 600k. Тип: {propertyTypeLabel}, регион: {regionLabel}. Один вопрос в конце. Срок покупки — отдельным сообщением позже, не вместе с бюджетом.`,
 
   NEED_LOCATION: `Уточни район в ${'{regionLabel}'} (примеры: ${'{areaOptionsPrompt}'}). Покажи экспертизу: «для [цели] часто смотрят…». Один вопрос. Без подборки.`,
 
@@ -208,12 +212,15 @@ function resolveStageInstruction(stage, dialog) {
   const microAreaLabel = dialog.microAreaLabel || (dialog.hasLocation ? 'уточняется' : '—');
   const areaOptionsPrompt = dialog.areaOptionsPrompt || 'уточните у клиента';
   const callOfferContext = dialog.callOfferContext || 'ваш запрос';
+  const budgetQuestionExample =
+    dialog.budgetQuestionExample || pickBudgetQuestionExample('ru');
   return text
     .replace(/\{propertyTypeLabel\}/g, typeLabel)
     .replace(/\{regionLabel\}/g, regionLabel)
     .replace(/\{microAreaLabel\}/g, microAreaLabel)
     .replace(/\{areaOptionsPrompt\}/g, areaOptionsPrompt)
-    .replace(/\{callOfferContext\}/g, callOfferContext);
+    .replace(/\{callOfferContext\}/g, callOfferContext)
+    .replace(/\{budgetQuestionExample\}/g, budgetQuestionExample);
 }
 
 function buildCatalogSearchQuery(history) {

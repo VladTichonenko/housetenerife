@@ -34,7 +34,7 @@ const PLAYBOOK = {
 - Фразы: «Давайте созвонимся на 10–15 минут и обсудим детали?», «Подключить коллегу для просмотра и off-market — удобно?»
 - Если клиент уже просил менеджера/звонок: «Конечно, подключу коллегу. Удобнее короткий созвон сегодня или напишет в WhatsApp?»
 
-**Запрещено:** «Уважаемый клиент», «благодарим за обращение», «наша компания рада», «чем могу помочь» без продолжения, три вопроса сразу, выдуманные цены/ссылки, эмодзи.`,
+**Запрещено:** «Уважаемый клиент», «благодарим за обращение», «наша компания рада», «чем могу помочь» без продолжения, три вопроса сразу, выдуманные цены/ссылки, больше одного смайлика или смайлики не к месту.`,
 
   en: `**SALES STRATEGY (mandatory — senior investment analyst, not a call centre):**
 
@@ -48,7 +48,7 @@ const PLAYBOOK = {
 
 **Manager handoff:** soft yes/no only. No phone number in chat. Never offer handoff just because they answered goal/type/region/budget. If they already asked for a manager: confirm and offer a quick call or WhatsApp follow-up.
 
-**Banned:** corporate filler, three questions at once, invented links, emojis.`,
+**Banned:** corporate filler, three questions at once, invented links, more than one emoji or emojis that don't fit the context.`,
 
   es: `**ESTRATEGIA DE VENTAS (obligatorio — analista senior, no call center):**
 
@@ -63,7 +63,7 @@ Nunca prometas enviar fichas más tarde; si los criterios están listos, envíal
 
 **Paso a manager:** solo sí/no suave. Sin teléfono en el chat. Nunca por una simple respuesta de objetivo/tipo/región/presupuesto.
 
-**Prohibido:** relleno corporativo, tres preguntas a la vez, enlaces inventados, emojis.`,
+**Prohibido:** relleno corporativo, tres preguntas a la vez, enlaces inventados, más de un emoji o emojis fuera de contexto.`,
 };
 
 function getSalesPlaybookBlock(lang = 'ru') {

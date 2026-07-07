@@ -261,7 +261,7 @@ ${catalogRules}
 ${catalogBlock}
 ${fileDocBlock ? `\n${fileDocBlock}\n` : ''}${webBlock}
 
-**WHATSAPP:** *bold*, bullets • or 1. No emojis.`;
+**WHATSAPP:** *bold*, bullets • or 1. At most one contextual emoji or :) per message when it fits — not every time.`;
 
 
   const messages = [
@@ -366,20 +366,20 @@ function getWritingQualityBlock(salesLang) {
     return `**TEXT QUALITY (critical for sales):**
 - Flawless spelling, grammar, and punctuation — no typos, no glued words, no broken phrases.
 - Every word must have a space; complete sentences only.
-- No emojis or smileys — text only.
+- At most ONE emoji or text smiley :) per message — only when it fits (greeting, warm acknowledgment). Not every message, not on mortgage/documents/errors.
 - Sound like a real advisor texting on WhatsApp — warm, natural, never robotic or like machine translation.`;
   }
   if (salesLang === 'es') {
     return `**CALIDAD DEL TEXTO (crítico para ventas):**
 - Ortografía, gramática y puntuación impecables — sin faltas, sin palabras pegadas ni frases rotas.
 - Cada palabra con su espacio; frases completas.
-- Sin emojis ni emoticonos — solo texto.
+- Sin emojis salvo uno suave o :) si encaja (saludo, confirmación cálida). No en cada mensaje, no en hipoteca/documentos/errores.
 - Tono humano en WhatsApp — cercano y natural, nunca robótico ni traducción automática.`;
   }
   return `**КАЧЕСТВО ТЕКСТА (критично для продаж):**
 - Без орфографических ошибок, без «склеенных» слов, без обрывков и канцелярита.
 - Каждое слово отдельно, предложения законченные — перечитай ответ перед отправкой.
-- Без смайликов и эмодзи — только текст.
+- Не больше одного смайлика или :) на сообщение — только если уместно (приветствие, тёплое подтверждение). Не в каждом сообщении, не на ипотеке/документах/ошибках.
 - Живой язык опытного риелтора в WhatsApp — тепло и по-человечески, не call-центр и не «переводчик».`;
 }
 
