@@ -154,9 +154,65 @@ async function shouldRespondInGroup(msg) {
 }
 
 function isPollingChat(chat) {
+  if (!chat?.id) return false;
   if (chat.isChannel) return false;
-  if (chat.isGroup) return REPLY_IN_GROUPS;
+  if (chat.isGroup) {
+    if (process.env.POLLING_INCLUDE_GROUPS !== '1') return false;
+    return REPLY_IN_GROUPS;
+  }
   return true;
+}
+
+/** @type {Map<string, number>} chatId → skip until timestamp */
+const pollingSkipUntil = new Map();
+
+function getChatPollingKey(chat) {
+  if (!chat?.id) return '';
+  return chat.id._serialized || String(chat.id.user || chat.id || '');
+}
+
+function isSafePollingChat(chat) {
+  const key = getChatPollingKey(chat);
+  if (!key || key === '0' || key.includes('status@broadcast')) return false;
+  if (!isPollingChat(chat)) return false;
+  const skipUntil = pollingSkipUntil.get(key);
+  if (skipUntil && Date.now() < skipUntil) return false;
+  if (skipUntil) pollingSkipUntil.delete(key);
+  return true;
+}
+
+function isChatLoadError(err) {
+  const msg = String(err?.message || err);
+  return (
+    msg.includes('waitForChatLoading') ||
+    msg.includes("reading 'waitForChatLoading'") ||
+    msg.includes('Cannot read properties of undefined')
+  );
+}
+
+async function fetchChatMessagesSafe(chat) {
+  const key = getChatPollingKey(chat);
+  if (!key) return [];
+
+  let target = chat;
+  try {
+    if (typeof client.getChatById === 'function') {
+      target = await client.getChatById(key);
+    }
+  } catch {
+    pollingSkipUntil.set(key, Date.now() + 30 * 60 * 1000);
+    return [];
+  }
+
+  try {
+    return await target.fetchMessages({ limit: 15 });
+  } catch (err) {
+    if (isChatLoadError(err)) {
+      pollingSkipUntil.set(key, Date.now() + 20 * 60 * 1000);
+      return [];
+    }
+    throw err;
+  }
 }
 
 function isMarkedUnreadError(error) {
@@ -426,7 +482,7 @@ function startMessagePolling() {
   let lastPollingError = null;
 
   console.log(
-    `🔄 Polling входящих каждые ${pollMs / 1000} с (резерв к событиям message/message_create)`
+    `🔄 Polling входящих каждые ${pollMs / 1000} с (резерв к событиям message/message_create; только ЛС${process.env.POLLING_INCLUDE_GROUPS === '1' ? ', группы включены' : ''})`
   );
 
   global.pollingInterval = trackedSetInterval(async () => {
@@ -442,12 +498,12 @@ function startMessagePolling() {
 
     try {
       const chats = await client.getChats();
-      const activeChats = chats.filter(isPollingChat);
+      const activeChats = chats.filter(isSafePollingChat);
       let dispatched = 0;
 
       for (const chat of activeChats) {
         try {
-          const messages = await chat.fetchMessages({ limit: 15 });
+          const messages = await fetchChatMessagesSafe(chat);
           const sorted = [...messages].sort(
             (a, b) => normalizeMsgTimestamp(b.timestamp) - normalizeMsgTimestamp(a.timestamp)
           );
@@ -473,8 +529,8 @@ function startMessagePolling() {
             dispatchIncomingMessage(msg, 'polling');
           }
         } catch (chatErr) {
-          if (pollingCounter % 20 === 0) {
-            console.warn(`⚠️ [POLLING] чат ${chat.id?.user || chat.id}:`, chatErr.message);
+          if (!isChatLoadError(chatErr) && pollingCounter % 20 === 0) {
+            console.warn(`⚠️ [POLLING] чат ${getChatPollingKey(chat)}:`, chatErr.message);
           }
         }
       }

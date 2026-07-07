@@ -305,17 +305,20 @@ function getCountryFromPhone(phoneNumber) {
  * @returns {string} - Код языка (например, 'ru', 'es', 'en'), по умолчанию 'en'
  */
 function getLanguageFromPhone(phoneNumber) {
+  const raw = String(phoneNumber || '');
+  if (raw.includes('@lid') || raw.includes('@g.us') || raw.includes('@broadcast')) {
+    return 'en';
+  }
+
   const countryCode = getCountryFromPhone(phoneNumber);
-  
+
   if (countryCode && countryToLanguage[countryCode]) {
     const language = countryToLanguage[countryCode];
     console.log(`🗣️ Определен язык для страны ${countryCode}: ${language}`);
     return language;
   }
-  
-  // Язык по умолчанию
-  console.log(`⚠️ Не удалось определить язык, используется русский по умолчанию`);
-  return 'ru';
+
+  return 'en';
 }
 
 /**

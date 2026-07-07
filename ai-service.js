@@ -19,6 +19,7 @@ const {
   extractBudgetRange,
   derivePriceTarget
 } = require('./dialog-context');
+const { maybeAddWarmSmiley, getWarmTonePromptBlock } = require('./reply-warmth');
 
 function truncateKnowledge(knowledge, maxChars) {
   const raw = JSON.stringify(knowledge, null, 2);
@@ -249,6 +250,8 @@ ${salesPlaybookBlock}
 
 ${getWritingQualityBlock(salesLang)}
 
+${getWarmTonePromptBlock(salesLang)}
+
 ${langRule}
 
 ${disclaimerLabel}
@@ -261,7 +264,7 @@ ${catalogRules}
 ${catalogBlock}
 ${fileDocBlock ? `\n${fileDocBlock}\n` : ''}${webBlock}
 
-**WHATSAPP:** *bold*, bullets • or 1. At most one contextual emoji or :) per message when it fits — not every time.`;
+**WHATSAPP:** *bold*, bullets • or 1. One warm 🙂 or :) on conversation stages (see WARM TONE block).`;
 
 
   const messages = [
@@ -366,20 +369,20 @@ function getWritingQualityBlock(salesLang) {
     return `**TEXT QUALITY (critical for sales):**
 - Flawless spelling, grammar, and punctuation — no typos, no glued words, no broken phrases.
 - Every word must have a space; complete sentences only.
-- At most ONE emoji or text smiley :) per message — only when it fits (greeting, warm acknowledgment). Not every message, not on mortgage/documents/errors.
+- At most ONE emoji or text smiley :) per message — add it on greeting and warm replies (Perfecto, Got it, Hi…). Skip only on listings, mortgage, documents, errors.
 - Sound like a real advisor texting on WhatsApp — warm, natural, never robotic or like machine translation.`;
   }
   if (salesLang === 'es') {
     return `**CALIDAD DEL TEXTO (crítico para ventas):**
 - Ortografía, gramática y puntuación impecables — sin faltas, sin palabras pegadas ni frases rotas.
 - Cada palabra con su espacio; frases completas.
-- Sin emojis salvo uno suave o :) si encaja (saludo, confirmación cálida). No en cada mensaje, no en hipoteca/documentos/errores.
+- En saludo y confirmaciones cálidas (Perfecto, Hola, Genial) incluye un 🙂 o :) — uno por mensaje. No en fichas, hipoteca ni documentos.
 - Tono humano en WhatsApp — cercano y natural, nunca robótico ni traducción automática.`;
   }
   return `**КАЧЕСТВО ТЕКСТА (критично для продаж):**
 - Без орфографических ошибок, без «склеенных» слов, без обрывков и канцелярита.
 - Каждое слово отдельно, предложения законченные — перечитай ответ перед отправкой.
-- Не больше одного смайлика или :) на сообщение — только если уместно (приветствие, тёплое подтверждение). Не в каждом сообщении, не на ипотеке/документах/ошибках.
+- На приветствии и тёплых репликах (Отлично, Понял, Привет) — один 🙂 или :). Не в подборке, ипотеке, документах.
 - Живой язык опытного риелтора в WhatsApp — тепло и по-человечески, не call-центр и не «переводчик».`;
 }
 
@@ -434,6 +437,8 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
   }
 
   try {
+    const dialog = analyzeConversation(conversationHistory, userLanguage);
+    const salesLang = normalizeSalesLang(userLanguage);
     const { messages } = await buildPromptParts(conversationHistory, userLanguage, 'full');
     let reply = await callAI(messages, 'chat');
     if (hasUnsupportedDelayedListingPromise(reply)) {
@@ -451,7 +456,8 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
         'chat-no-delay-rewrite'
       );
     }
-    return sanitizeDelayedListingPromise(reply);
+    reply = maybeAddWarmSmiley(sanitizeDelayedListingPromise(reply), salesLang, dialog.stage);
+    return reply;
   } catch (error) {
     const status = error.response?.status;
     console.error('ai-service:', status || error.code || error.message);
@@ -482,7 +488,11 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
       try {
         const { messages } = await buildPromptParts(conversationHistory, userLanguage, 'compact');
         const retryReply = await callAI(messages, 'chat-retry');
-        return sanitizeDelayedListingPromise(retryReply);
+        return maybeAddWarmSmiley(
+          sanitizeDelayedListingPromise(retryReply),
+          normalizeSalesLang(userLanguage),
+          analyzeConversation(conversationHistory, userLanguage).stage
+        );
       } catch (retryErr) {
         console.error('ai-service retry:', retryErr.message);
       }
