@@ -54,6 +54,7 @@ function getChatSettings(chatId) {
     chatId: id,
     aiDisabled: Boolean(existing.aiDisabled),
     managerTakeover: Boolean(existing.managerTakeover),
+    dialogLanguage: existing.dialogLanguage || null,
     updatedAt: existing.updatedAt || null,
   };
 }
@@ -72,6 +73,26 @@ function setAiDisabled(chatId, disabled) {
   return getChatSettings(id);
 }
 
+function getStickyDialogLanguage(chatId) {
+  const lang = getChatSettings(chatId).dialogLanguage;
+  return lang ? String(lang).toLowerCase().slice(0, 2) : null;
+}
+
+function setStickyDialogLanguage(chatId, language) {
+  const lang = String(language || '').toLowerCase().slice(0, 2);
+  if (!lang) return getChatSettings(chatId);
+  const store = loadStore();
+  const id = String(chatId);
+  const existing = store.chats[id] || {};
+  store.chats[id] = {
+    ...existing,
+    dialogLanguage: lang,
+    updatedAt: new Date().toISOString(),
+  };
+  saveStore(store);
+  return getChatSettings(id);
+}
+
 function isAiDisabled(chatId) {
   return getChatSettings(chatId).aiDisabled;
 }
@@ -81,4 +102,6 @@ module.exports = {
   getChatSettings,
   setAiDisabled,
   isAiDisabled,
+  getStickyDialogLanguage,
+  setStickyDialogLanguage,
 };

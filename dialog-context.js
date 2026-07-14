@@ -42,7 +42,7 @@ function analyzeConversation(history, lang = 'ru') {
       lower
     );
   const hasBudget =
-    /€|eur|euro|евро|бюджет|budget|до\s*\d|от\s*\d|\d{2,3}[\s.]?\d{3}|\d+\s*(тыс|k|млн|million)/i.test(
+    /€|eur|euro|евро|бюджет|budget|presupuesto|(?:до|от|up\s*to|around|около|hasta)\s*\d|\d+\s*(?:тыс|k\b|млн|million|mil\b)|\d{2,3}[\s.]?\d{3}\s*(?:€|eur|euro|евро)/i.test(
       lower
     );
   const microAreas = detectMicroAreas(allUserText, salesLang);
@@ -87,16 +87,17 @@ function analyzeConversation(history, lang = 'ru') {
     stage = 'NEED_PROPERTY_TYPE';
   } else if (!hasRegion && !hasLocation) {
     stage = 'NEED_REGION';
+  } else if (needsMicroArea) {
+    // Сначала район/зона — потом бюджет (доверие до цифр)
+    stage = 'NEED_LOCATION';
   } else if (!hasBudget) {
     stage = 'NEED_BUDGET';
-  } else if (needsMicroArea) {
-    stage = 'NEED_LOCATION';
   } else {
     stage = 'REFINE';
   }
 
   if (
-    userTurns >= 5 &&
+    userTurns >= 4 &&
     hasBudget &&
     hasType &&
     hasPurpose &&
@@ -190,11 +191,11 @@ const stageInstructions = {
 
   NEED_REGION: `Один вопрос про регион: Тенерифе, Дубай, Ибица, Марбелья, Малага, Барселона? Можно мягко подсказать: «если не определились — подскажу сильные зоны под вашу цель». Без подборки.`,
 
-  NEED_BUDGET: `Спроси о бюджете мягко — не в лоб «какой у вас бюджет?». Смысл: подобрать подходящие варианты и не показывать заведомо неподходящие. Образец (можно слегка перефразировать, сохраняя смысл и тон): «{budgetQuestionExample}». Ориентиры по €: до 300k / 300–600k / от 600k. Тип: {propertyTypeLabel}, регион: {regionLabel}. Один вопрос в конце. Срок покупки — отдельным сообщением позже, не вместе с бюджетом.`,
+  NEED_LOCATION: `Уточни район в ${'{regionLabel}'} (примеры: ${'{areaOptionsPrompt}'}). Покажи экспертизу: «для [цели] часто смотрят…». Один вопрос. Бюджет пока НЕ спрашивай. Без подборки.`,
 
-  NEED_LOCATION: `Уточни район в ${'{regionLabel}'} (примеры: ${'{areaOptionsPrompt}'}). Покажи экспертизу: «для [цели] часто смотрят…». Один вопрос. Без подборки.`,
+  NEED_BUDGET: `Район уже известен. Спроси о бюджете мягко — не в лоб «какой у вас бюджет?». Смысл: подобрать подходящие варианты и не показывать заведомо неподходящие. Образец (можно слегка перефразировать, сохраняя смысл и тон): «{budgetQuestionExample}». Ориентиры по €: до 300k / 300–600k / от 600k. Тип: {propertyTypeLabel}, регион: {regionLabel}, район: {microAreaLabel}. Один вопрос в конце. Срок покупки — отдельным сообщением позже, не вместе с бюджетом.`,
 
-  SHOW_LISTINGS: `Подборка 3–5 объектов: тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, район ${'{microAreaLabel}'}. Только из блока каталога. Формат:
+  SHOW_LISTINGS: `ОБЯЗАТЕЛЬНО дай подборку 3–5 объектов прямо сейчас (не обещай «пришлю позже» и не ходи кругами с уточнениями): тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, район ${'{microAreaLabel}'}. Только из блока каталога. Весь текст ответа — на языке диалога клиента (названия можно оставить как в каталоге, но описание «почему вам» — на языке клиента). Формат:
 • *Название* — €цена
   Почему вам: [1 фраза под цель клиента, не шаблон]
   ссылка

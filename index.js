@@ -13,8 +13,15 @@ const {
   scheduleReplyBatch,
   REPLY_WAIT_MS,
   REPLY_BATCH_WAIT_MS,
+  isMessageQueuedInBatch,
 } = require('./reply-batch');
-const { detectLanguageFromText, getLanguageName } = require('./language-detector');
+const {
+  detectLanguageFromText,
+  getLanguageName,
+  isAmbiguousShortReply,
+  isStrongLanguageSignal,
+} = require('./language-detector');
+const { getSearchingListingsMessage } = require('./sales-localization');
 const { registerAdminRoutes } = require('./admin-api');
 const { setupAdminPanel, getAdminPanelStatus } = require('./admin-panel');
 const {
@@ -54,7 +61,13 @@ const { analyzeConversation } = require('./dialog-context');
 const { recordHandoff, HANDOFF_PATH, touchHandoffActivity } = require('./handoff-leads');
 const { recordClientMessage, CLIENTS_PATH } = require('./clients-store');
 const { recordMessage: persistMessage } = require('./conversation-store');
-const { isAiDisabled, getChatSettings, setAiDisabled } = require('./chat-settings');
+const {
+  isAiDisabled,
+  getChatSettings,
+  setAiDisabled,
+  getStickyDialogLanguage,
+  setStickyDialogLanguage,
+} = require('./chat-settings');
 const { offerSoftCallViaAi } = require('./index-handoff');
 const { localizeUrlsInText } = require('./property-share');
 const propertyPreviewRouter = require('./property-preview');
@@ -67,6 +80,16 @@ const REPLY_IN_GROUPS =
 const GROUP_ONLY_MENTION =
   process.env.WHATSAPP_GROUP_ONLY_MENTION === '1' ||
   process.env.WHATSAPP_GROUP_ONLY_MENTION === 'true';
+
+const BOT_REPLY_DELAY_MS = Math.max(
+  0,
+  parseInt(process.env.BOT_REPLY_DELAY_MS, 10) || 0
+);
+/** Фиксированная пауза перед сообщением со ссылками (не рандом 90–180 с). Env: LINK_MESSAGE_DELAY_MS */
+const LINK_MESSAGE_DELAY_MS = Math.max(
+  0,
+  parseInt(process.env.LINK_MESSAGE_DELAY_MS, 10) || 15000
+);
 
 setRecordHandoff(recordHandoff);
 console.log(`📋 Лиды handoff (панель «Связь с менеджером»): ${HANDOFF_PATH}`);
@@ -84,7 +107,7 @@ if (REPLY_IN_GROUPS) {
   console.log('💬 WhatsApp группы: ответы выключены (только личные сообщения)');
 }
 console.log(
-  `⏱️ Ответ: пауза ${REPLY_WAIT_MS / 1000} с (1 сообщение) / ${REPLY_BATCH_WAIT_MS / 1000} с (пачка в окне)`
+  `⏱️ Ответ: пауза ${REPLY_WAIT_MS / 1000} с (1 сообщение) / ${REPLY_BATCH_WAIT_MS / 1000} с (пачка в окне); ссылки +${LINK_MESSAGE_DELAY_MS / 1000} с`
 );
 
 
@@ -225,15 +248,6 @@ function isMarkedUnreadError(error) {
 }
 
 // Безопасная отправка сообщений с обработкой ошибок markedUnread
-const BOT_REPLY_DELAY_MS = Math.max(
-  0,
-  parseInt(process.env.BOT_REPLY_DELAY_MS, 10) || 0
-);
-const LINK_MESSAGE_DELAY_MS = Math.max(
-  0,
-  parseInt(process.env.LINK_MESSAGE_DELAY_MS, 10) || 90000
-);
-
 function outboundContainsLink(text) {
   return /(?:https?:\/\/|www\.|housetenerife\.eu)/i.test(String(text || ''));
 }
@@ -401,7 +415,12 @@ function getMessageId(msg) {
 }
 
 function isMessageAlreadyHandled(msgId) {
-  return processedMessageIds.has(msgId) || processingMessageIds.has(msgId) || deferredRetryIds.has(msgId);
+  return (
+    processedMessageIds.has(msgId) ||
+    processingMessageIds.has(msgId) ||
+    deferredRetryIds.has(msgId) ||
+    isMessageQueuedInBatch(msgId)
+  );
 }
 
 // Хранилище для всех активных интервалов и таймеров (для graceful shutdown)
@@ -511,7 +530,13 @@ function startMessagePolling() {
           for (const msg of sorted) {
             if (msg.fromMe) continue;
             const msgId = getMessageId(msg);
-            if (processedMessageIds.has(msgId) || processingMessageIds.has(msgId)) continue;
+            if (
+              processedMessageIds.has(msgId) ||
+              processingMessageIds.has(msgId) ||
+              isMessageQueuedInBatch(msgId)
+            ) {
+              continue;
+            }
 
             const age = Date.now() - normalizeMsgTimestamp(msg.timestamp);
             if (age >= maxAgeMs) {
@@ -596,6 +621,10 @@ function dispatchIncomingMessage(msg, source) {
 async function processIncomingMessage(msg, source = 'unknown', opts = {}) {
   const msgId = getMessageId(msg);
   if (processedMessageIds.has(msgId)) return null;
+  if (isMessageQueuedInBatch(msgId)) {
+    console.log(`⏭️ [DEDUP] Уже в пачке ожидания (${source}): ${msgId.substring(0, 24)}...`);
+    return 'debounced';
+  }
   if (processingMessageIds.has(msgId)) {
     console.log(`⏭️ [DEDUP] Сообщение уже обрабатывается (${source}): ${msgId.substring(0, 24)}...`);
     return null;
@@ -608,15 +637,17 @@ async function processIncomingMessage(msg, source = 'unknown', opts = {}) {
   if (!opts.skipReplyBatch) {
     const debounce = await shouldDebounceForReply(msg);
     if (debounce) {
-      scheduleReplyBatch(
+      const queued = scheduleReplyBatch(
         debounce.chatId,
         debounce.msg,
         source,
-        (chatId, messages, src) => {
-          enqueueForChat(chatId, () => processReplyBatchFlush(chatId, messages, src));
-        },
+        (chatId, messages, src) =>
+          enqueueForChat(chatId, () => processReplyBatchFlush(chatId, messages, src)),
         trackedSetTimeout
       );
+      if (queued === 'duplicate') {
+        console.log(`⏭️ [DEDUP] Уже в пачке ожидания (${source}): ${msgId.substring(0, 24)}...`);
+      }
       return 'debounced';
     }
   }
@@ -659,8 +690,17 @@ async function processReplyBatchFlush(chatId, messages, source) {
 async function processBatchedIncomingMessages(messages, source) {
   if (!messages.length) return;
 
-  const resolved = [];
+  // Уникальные сообщения по id (на случай гонки message / message_create)
+  const byId = new Map();
   for (const m of messages) {
+    const id = getMessageId(m);
+    if (!id || byId.has(id)) continue;
+    byId.set(id, m);
+  }
+  const uniqueMessages = Array.from(byId.values());
+
+  const resolved = [];
+  for (const m of uniqueMessages) {
     const r = await resolveMessageText(m);
     if (r.text) {
       resolved.push({ msg: r.msg, text: r.text, msgId: getMessageId(r.msg) });
@@ -759,23 +799,49 @@ async function sendManagerMessage(chatId, text, { managerId = '', managerName = 
   }
 }
 
-/** Язык ответа — по текущему сообщению (приоритет первым словам внутри детектора); для коротких реплик — из истории или номера. */
+/**
+ * Язык ответа: sticky на чат + сильный сигнал из текста.
+ * Короткие ok/yes/да не переключают язык; пачка сообщений склеивается.
+ */
 function resolveDialogLanguage(chatId, currentMessageText, phoneFallback = 'ru') {
+  const sticky = getStickyDialogLanguage(chatId);
   const trimmed = String(currentMessageText || '').trim();
+
+  const detectFromHistory = () => {
+    const userMsgs = getHistory(chatId).filter((m) => m.sender === 'user');
+    for (let i = userMsgs.length - 1; i >= 0; i--) {
+      const t = String(userMsgs[i].text || '').trim();
+      if (t.length >= 2 && !t.startsWith('[') && !isAmbiguousShortReply(t)) {
+        return detectLanguageFromText(t);
+      }
+    }
+    return null;
+  };
+
+  let resolved = sticky || phoneFallback || 'ru';
+
   if (trimmed.length >= 1) {
     const fromText = detectLanguageFromText(trimmed);
-    if (trimmed.length >= 2 || fromText !== 'ru') {
-      return fromText;
+    if (sticky) {
+      if (isStrongLanguageSignal(trimmed, fromText) && fromText !== sticky) {
+        resolved = fromText;
+        console.log(
+          `🌐 Язык диалога переключён ${sticky} → ${fromText} (${chatId})`
+        );
+      } else {
+        resolved = sticky;
+      }
+    } else if (!isAmbiguousShortReply(trimmed) || trimmed.length >= 8) {
+      resolved = fromText;
+    } else {
+      resolved = detectFromHistory() || phoneFallback || fromText;
     }
+  } else if (!sticky) {
+    resolved = detectFromHistory() || phoneFallback || 'ru';
   }
-  const userMsgs = getHistory(chatId).filter((m) => m.sender === 'user');
-  for (let i = userMsgs.length - 1; i >= 0; i--) {
-    const t = String(userMsgs[i].text || '').trim();
-    if (t.length >= 2 && !t.startsWith('[')) {
-      return detectLanguageFromText(t);
-    }
-  }
-  return phoneFallback;
+
+  setStickyDialogLanguage(chatId, resolved);
+  return resolved;
 }
 
 // Хранилище для обработки команд (теперь с поддержкой языков)
@@ -1705,7 +1771,14 @@ async function handleIncomingMessage(msg, options = {}) {
     const isFirstMessage = !firstMessageUsers.has(chatId);
     
     const phoneLanguage = getLanguageFromPhone(senderId) || 'ru';
-    const dialogLanguage = resolveDialogLanguage(chatId, messageText, phoneLanguage);
+    const batchLangText = [
+      ...prependUserTexts,
+      messageText,
+    ]
+      .map((t) => String(t || '').trim())
+      .filter(Boolean)
+      .join('\n');
+    const dialogLanguage = resolveDialogLanguage(chatId, batchLangText, phoneLanguage);
     const userCountry = getCountryFromPhone(senderId);
 
     if (isFirstMessage) {
@@ -1948,7 +2021,24 @@ async function handleIncomingMessage(msg, options = {}) {
       // Получаем ответ от AI
       console.log(`🤖 Запрос к AI для ${chatId} (язык диалога: ${dialogLanguage})`);
       try {
-        const history = getHistory(chatId);
+        const history = getHistory(chatId).slice();
+        const preDialog = analyzeConversation(history, dialogLanguage);
+        const willShowListings =
+          preDialog.stage === 'SHOW_LISTINGS' ||
+          (preDialog.stage === 'REFINE' &&
+            preDialog.hasBudget &&
+            preDialog.hasType &&
+            preDialog.hasPurpose &&
+            preDialog.hasRegion &&
+            !preDialog.needsMicroArea);
+
+        if (willShowListings) {
+          const bridge = getSearchingListingsMessage(dialogLanguage);
+          console.log(`💬 Промежуточное сообщение перед подборкой: ${chatId}`);
+          await sendMessageSafely(msg, bridge, client);
+          addToHistory(chatId, 'assistant', bridge);
+        }
+
         const aiResponse = await withChatTyping(msg, () => askAI(history, dialogLanguage));
         const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
 

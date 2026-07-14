@@ -9,27 +9,71 @@ const REPLY_BATCH_WAIT_MS = Math.max(
   parseInt(process.env.BOT_REPLY_BATCH_WAIT_MS, 10) || 30000
 );
 
-/** @type {Map<string, { messages: object[], firstAt: number, timer: ReturnType<typeof setTimeout>|null, source: string }>} */
+/**
+ * Окно сбора: 1 сообщение → ждём REPLY_WAIT_MS;
+ * если за это время пришло ещё — один ответ через REPLY_BATCH_WAIT_MS от первого.
+ *
+ * @type {Map<string, { messages: object[], messageIds: Set<string>, firstAt: number, timer: ReturnType<typeof setTimeout>|null, source: string }>}
+ */
 const batches = new Map();
+
+/** msgId → chatId — чтобы message/message_create/polling не дублировали пачку */
+const queuedMessageIds = new Map();
+
+function messageKey(msg) {
+  if (!msg) return '';
+  if (typeof msg.id === 'string') return msg.id;
+  if (msg.id && msg.id._serialized) return String(msg.id._serialized);
+  if (msg.id && msg.id.id) return String(msg.id.id);
+  return '';
+}
+
+function isMessageQueuedInBatch(msgOrId) {
+  const id =
+    typeof msgOrId === 'string' ? msgOrId : messageKey(msgOrId);
+  return Boolean(id && queuedMessageIds.has(id));
+}
 
 /**
  * Откладывает обработку сообщений чата: 20 с на одиночное, 30 с суммарно при пачке.
+ * Несколько сообщений за окно → один flush → один ответ бота.
+ *
  * @param {string} chatId
  * @param {object} msg
  * @param {string} source
  * @param {(chatId: string, messages: object[], source: string) => void|Promise<void>} onFlush
  * @param {(fn: () => void|Promise<void>, delayMs: number) => ReturnType<typeof setTimeout>} [scheduleTimeout]
+ * @returns {'added'|'duplicate'|'empty'}
  */
 function scheduleReplyBatch(chatId, msg, source, onFlush, scheduleTimeout = setTimeout) {
   const key = String(chatId || 'unknown');
+  const msgId = messageKey(msg);
+  if (!msgId) {
+    console.warn('⚠️ reply-batch: сообщение без id, пропускаю дебаунс');
+    return 'empty';
+  }
+
+  if (queuedMessageIds.has(msgId)) {
+    console.log(`⏭️ Пачка: уже в очереди ${msgId.substring(0, 24)}...`);
+    return 'duplicate';
+  }
+
   let batch = batches.get(key);
 
   if (!batch) {
-    batch = { messages: [], firstAt: Date.now(), timer: null, source };
+    batch = {
+      messages: [],
+      messageIds: new Set(),
+      firstAt: Date.now(),
+      timer: null,
+      source,
+    };
     batches.set(key, batch);
   }
 
   batch.messages.push(msg);
+  batch.messageIds.add(msgId);
+  queuedMessageIds.set(msgId, key);
   batch.source = source;
 
   const multi = batch.messages.length > 1;
@@ -44,6 +88,9 @@ function scheduleReplyBatch(chatId, msg, source, onFlush, scheduleTimeout = setT
     batches.delete(key);
     const messages = current.messages.slice();
     const batchSource = current.source;
+    for (const id of current.messageIds) {
+      queuedMessageIds.delete(id);
+    }
     try {
       await onFlush(key, messages, batchSource);
     } catch (err) {
@@ -52,14 +99,20 @@ function scheduleReplyBatch(chatId, msg, source, onFlush, scheduleTimeout = setT
   }, remaining);
 
   console.log(
-    `⏳ Ожидание ответа ${key}: ${batch.messages.length} сообщ., через ${Math.round(remaining / 1000)} с (${multi ? `пачка, всего ${REPLY_BATCH_WAIT_MS / 1000} с` : `${REPLY_WAIT_MS / 1000} с`})`
+    `⏳ Ожидание ответа ${key}: ${batch.messages.length} сообщ., через ${Math.round(remaining / 1000)} с (${multi ? `пачка → один ответ, окно ${REPLY_BATCH_WAIT_MS / 1000} с` : `${REPLY_WAIT_MS / 1000} с`})`
   );
+
+  return 'added';
 }
 
 function cancelReplyBatch(chatId) {
   const key = String(chatId || 'unknown');
   const batch = batches.get(key);
-  if (batch?.timer) clearTimeout(batch.timer);
+  if (!batch) return;
+  if (batch.timer) clearTimeout(batch.timer);
+  for (const id of batch.messageIds) {
+    queuedMessageIds.delete(id);
+  }
   batches.delete(key);
 }
 
@@ -71,6 +124,7 @@ module.exports = {
   scheduleReplyBatch,
   cancelReplyBatch,
   hasPendingReplyBatch,
+  isMessageQueuedInBatch,
   REPLY_WAIT_MS,
   REPLY_BATCH_WAIT_MS,
 };

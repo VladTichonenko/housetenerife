@@ -132,7 +132,8 @@ function scoreStopWords(words) {
 }
 
 function applySpanishMarkers(text, words, scores) {
-  if (/\b(quiero|busco|necesito|quisiera|gustaria|gustaría|apartamento|piso|invertir|inversión|inversion|presupuesto|tenerife|españa|espana|hola|gracias)\b/i.test(text)) {
+  // Не считаем топонимы (Tenerife/Dubai…) — они есть во всех языках и ломают детекцию EN↔ES
+  if (/\b(quiero|busco|necesito|quisiera|gustaria|gustaría|apartamento|piso|invertir|inversión|inversion|presupuesto|hola|gracias|españa|espana)\b/i.test(text)) {
     scores.es += 3;
   }
   if (/\b(el|la|los|las|un|una|del|al|para|por|con|estoy|tengo|encaja|encajan)\b/i.test(text)) {
@@ -144,10 +145,10 @@ function applySpanishMarkers(text, words, scores) {
 }
 
 function applyEnglishMarkers(text, words, scores) {
-  if (/\b(i|i'm|i've|we're|we're|looking|want|need|investment|apartment|property|budget|tenerife)\b/i.test(text)) {
+  if (/\b(i|i'm|i've|we're|looking|want|need|investment|apartment|property|budget|please|thanks|hello)\b/i.test(text)) {
     scores.en += 2;
   }
-  if (/\b(the|and|with|for|from|about|please|thanks|hello|help)\b/i.test(text)) {
+  if (/\b(the|and|with|for|from|about|help)\b/i.test(text)) {
     scores.en += 1;
   }
 }
@@ -176,6 +177,45 @@ function detectByFranc(text) {
  * @param {string} text
  * @returns {string} ru | en | es | de | uk | …
  */
+/**
+ * Короткие реплики вроде ok / yes / да — слишком слабый сигнал, чтобы менять язык диалога.
+ */
+function isAmbiguousShortReply(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return true;
+  const words = tokenize(trimmed);
+  if (words.length === 0) return true;
+  if (words.length === 1) {
+    const w = words[0];
+    if (SHORT_REPLY[w] || SHORT_REPLY[trimmed.toLowerCase()]) return true;
+  }
+  // Цифры, бюджет «300k», эмодзи — без смены языка
+  if (words.length <= 3 && words.every((w) => /^\d+[kкм]?$/i.test(w) || /^[€$]$/.test(w))) {
+    return true;
+  }
+  return trimmed.length < 3;
+}
+
+/**
+ * Достаточно ли сигнала, чтобы переключить sticky-язык диалога.
+ */
+function isStrongLanguageSignal(text, detectedLang) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed || !detectedLang) return false;
+  if (isAmbiguousShortReply(trimmed)) return false;
+
+  const scriptLang = detectByScript(trimmed);
+  if (scriptLang && scriptLang === detectedLang) return true;
+  if (/[а-яёіїєґ]/i.test(trimmed) && (detectedLang === 'ru' || detectedLang === 'uk')) {
+    return true;
+  }
+
+  const words = tokenize(trimmed);
+  if (words.length >= 4 && trimmed.length >= 16) return true;
+  if (words.length >= 3 && trimmed.length >= 12) return true;
+  return false;
+}
+
 function detectLanguageFromText(text) {
   if (!text || typeof text !== 'string') {
     return 'ru';
@@ -242,5 +282,7 @@ function getLanguageName(langCode) {
 module.exports = {
   detectLanguageFromText,
   getLanguageName,
+  isAmbiguousShortReply,
+  isStrongLanguageSignal,
   SUPPORTED_DETECT,
 };

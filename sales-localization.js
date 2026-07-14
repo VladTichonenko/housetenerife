@@ -23,7 +23,7 @@ You sell through *conversation* — warm, confident, human. Think senior investm
 
 **Portfolio:** Tenerife & Canaries, Dubai, Ibiza, Marbella/Costa del Sol, Málaga, Barcelona — never say we only work in Tenerife.
 
-**Sales flow:** *goal* (home vs investment) → property type → region → budget in € → *specific area within that region* → *curated shortlist* of 3–5 listings from the catalog.
+**Sales flow:** *goal* (home vs investment) → property type → region → *specific area within that region* → budget in € → *curated shortlist* of 3–5 listings from the catalog.
 - Do NOT offer listings or links until goal and property type are clear.
 - Every catalog region needs a concrete area before the shortlist.
 - One criterion per message.
@@ -104,15 +104,15 @@ You sell through *conversation* — warm, confident, human. Think senior investm
     },
     {
       step: 5,
-      title: 'Budget',
+      title: 'Area / district',
       description:
-        'Budget in € (hints: up to €300k / €300–600k / €600k+). Reference their type and region. No listings yet.'
+        'Ask for a concrete area in the chosen region (e.g. Tenerife: Costa Adeje; Dubai: Marina; Marbella: Puerto Banús). One question. Required for every region. Do NOT ask budget yet.'
     },
     {
       step: 6,
-      title: 'Area / district',
+      title: 'Budget',
       description:
-        'Ask for a concrete area in the chosen region (e.g. Tenerife: Costa Adeje; Dubai: Marina; Marbella: Puerto Banús). One question. Required for every region.'
+        'Budget in € (hints: up to €300k / €300–600k / €600k+). Reference their type, region and area. No listings yet.'
     },
     {
       step: 7,
@@ -148,13 +148,13 @@ You sell through *conversation* — warm, confident, human. Think senior investm
       'Region not chosen — one question: Tenerife, Dubai, Ibiza, Marbella, Málaga or Barcelona? Do not default to Tenerife. No shortlist yet.',
 
     NEED_BUDGET:
-      'Ask about budget gently — not bluntly "what is your budget?". Meaning: suggest fitting options and avoid clearly unsuitable listings. Example (you may lightly rephrase, same intent): "{budgetQuestionExample}". Guides: up to €300k / €300–600k / €600k+. Type: {propertyTypeLabel}, region: {regionLabel}. One question at the end. No listings yet. Timing question — separate message later, not with budget.',
+      'Area is known. Ask about budget gently — not bluntly "what is your budget?". Meaning: suggest fitting options and avoid clearly unsuitable listings. Example (you may lightly rephrase, same intent): "{budgetQuestionExample}". Guides: up to €300k / €300–600k / €600k+. Type: {propertyTypeLabel}, region: {regionLabel}, area: {microAreaLabel}. One question at the end. No listings yet. Timing question — separate message later, not with budget.',
 
     NEED_LOCATION:
-      'Ask for a *specific area* in {regionLabel} (examples: {areaOptionsPrompt}). One question only. No listings yet — applies to Tenerife, Dubai, Ibiza, Marbella, Málaga and Barcelona.',
+      'Ask for a *specific area* in {regionLabel} (examples: {areaOptionsPrompt}). One question only. Do NOT ask budget yet. No listings yet — applies to Tenerife, Dubai, Ibiza, Marbella, Málaga and Barcelona.',
 
     SHOW_LISTINGS:
-      'Send 3–5 catalog listings: type {propertyTypeLabel}, region {regionLabel}, area {microAreaLabel}. Same region, area and type only — use only URLs from the catalog block. Title, price, link, *one line why it fits them*. Not far below budget unless they asked. End with: which option feels closest?',
+      'MUST send 3–5 catalog listings NOW (do not loop with more questions, do not promise later): type {propertyTypeLabel}, region {regionLabel}, area {microAreaLabel}. Entire reply in the client dialog language — intro, "why it fits", and closing question. Same region, area and type only — use only URLs from the catalog block. Title, price, link, *one line why it fits them*. Not far below budget unless they asked. End with: which option feels closest?',
 
     REFINE:
       'Answer their point, then refreshed shortlist: type {propertyTypeLabel}, region {regionLabel}, area {microAreaLabel}, 3–5 options from the catalog block. Rebuild if they changed region, area or type.',
@@ -263,7 +263,7 @@ Vendes con *conversación* — cercano, seguro, humano. Analista senior en Whats
 
 **Cartera:** Tenerife y Canarias, Dubái, Ibiza, Marbella/Costa del Sol, Málaga, Barcelona — nunca digas que solo trabajamos en Tenerife.
 
-**Flujo:** *objetivo* (vivir vs inversión) → tipo → región → presupuesto en € → *zona concreta* → *selección* de 3–5 fichas del catálogo.
+**Flujo:** *objetivo* (vivir vs inversión) → tipo → región → *zona concreta* → presupuesto en € → *selección* de 3–5 fichas del catálogo.
 - NO ofrezcas fichas ni enlaces hasta que objetivo y tipo estén claros.
 - Un criterio por mensaje.
 - Tras la selección — una pregunta: ¿cuál encaja más o qué ajustamos?
@@ -343,15 +343,15 @@ Vendes con *conversación* — cercano, seguro, humano. Analista senior en Whats
     },
     {
       step: 5,
-      title: 'Presupuesto',
+      title: 'Zona / barrio',
       description:
-        'Presupuesto en € (hasta 300k / 300–600k / desde 600k). Tipo y región ya conocidos. Sin fichas aún.'
+        'Zona concreta en la región elegida (ej. Tenerife: Costa Adeje; Dubái: Marina; Marbella: Puerto Banús). Una pregunta. Obligatorio en todas las regiones. Aún NO preguntes el presupuesto.'
     },
     {
       step: 6,
-      title: 'Zona / barrio',
+      title: 'Presupuesto',
       description:
-        'Zona concreta en la región elegida (ej. Tenerife: Costa Adeje; Dubái: Marina; Marbella: Puerto Banús). Una pregunta. Obligatorio en todas las regiones.'
+        'Presupuesto en € (hasta 300k / 300–600k / desde 600k). Tipo, región y zona ya conocidos. Sin fichas aún.'
     },
     {
       step: 7,
@@ -387,13 +387,13 @@ Vendes con *conversación* — cercano, seguro, humano. Analista senior en Whats
       'Objetivo: ¿vivir / familia o inversión (alquiler / plusvalía)? Una frase de por qué preguntas. Sin fichas.',
 
     NEED_BUDGET:
-      'Pregunta el presupuesto con tacto — no en bruto «¿cuál es su presupuesto?». Sentido: opciones que encajen y no mostrar inmuebles que claramente no sirven. Ejemplo (puedes parafrasear ligeramente, mismo tono): «{budgetQuestionExample}». Guías: hasta 300k / 300–600k / desde 600k €. Tipo: {propertyTypeLabel}, región: {regionLabel}. Una pregunta al final. Sin fichas. Plazo de compra — en otro mensaje, no junto al presupuesto.',
+      'La zona ya está clara. Pregunta el presupuesto con tacto — no en bruto «¿cuál es su presupuesto?». Sentido: opciones que encajen y no mostrar inmuebles que claramente no sirven. Ejemplo (puedes parafrasear ligeramente, mismo tono): «{budgetQuestionExample}». Guías: hasta 300k / 300–600k / desde 600k €. Tipo: {propertyTypeLabel}, región: {regionLabel}, zona: {microAreaLabel}. Una pregunta al final. Sin fichas. Plazo de compra — en otro mensaje, no junto al presupuesto.',
 
     NEED_LOCATION:
-      'Pide *zona concreta* en {regionLabel} (ejemplos: {areaOptionsPrompt}). Una sola pregunta. Sin fichas — Tenerife, Dubái, Ibiza, Marbella, Málaga y Barcelona.',
+      'Pide *zona concreta* en {regionLabel} (ejemplos: {areaOptionsPrompt}). Una sola pregunta. Aún NO preguntes el presupuesto. Sin fichas — Tenerife, Dubái, Ibiza, Marbella, Málaga y Barcelona.',
 
     SHOW_LISTINGS:
-      'Envía 3–5 fichas: tipo {propertyTypeLabel}, región {regionLabel}, zona {microAreaLabel}. Misma región, zona y tipo — solo enlaces del bloque catálogo. Título, precio, enlace, *una línea por qué encaja*. Cierra: ¿cuál encaja más?',
+      'OBLIGATORIO: envía 3–5 fichas AHORA (sin más rondas de preguntas ni «te envío luego»): tipo {propertyTypeLabel}, región {regionLabel}, zona {microAreaLabel}. Toda la respuesta en el idioma del diálogo — intro, «por qué encaja» y cierre. Misma región, zona y tipo — solo enlaces del bloque catálogo. Título, precio, enlace, *una línea por qué encaja*. Cierra: ¿cuál encaja más?',
 
     REFINE:
       'Responde al punto y nueva selección: tipo {propertyTypeLabel}, región {regionLabel}, zona {microAreaLabel}, 3–5 opciones del bloque. Rehaz si cambian región, zona o tipo.',
@@ -508,12 +508,23 @@ const RU = {
 function buildReplyLanguageRule(targetLang) {
   const code = normalizeSalesLang(targetLang);
   if (code === 'ru') {
-    return `**ЯЗЫК ОТВЕТА:** Отвечай СТРОГО на русском — на том же языке, что и последнее сообщение клиента. Весь ответ целиком на одном языке, без вставок на английском или испанском. Не переключайся на язык номера телефона или старых сообщений, если клиент сейчас пишет на другом языке.`;
+    return `**ЯЗЫК ОТВЕТА (критично):** Отвечай СТРОГО на русском. Весь ответ целиком на одном языке — без английских или испанских фраз, без смеси «половина по-русски / половина по-английски». Подборка объектов, вступление «подобрал варианты», пояснения «почему вам» и финальный вопрос — тоже на русском. Не переключайся из‑за коротких ok/yes или языка номера телефона.`;
   }
   if (code === 'es') {
-    return `**IDIOMA DE RESPUESTA:** Responde ESTRICTAMENTE en español — el mismo idioma del último mensaje del cliente. Toda la respuesta en un solo idioma, sin mezclar ruso o inglés. No cambies al idioma del teléfono ni mensajes antiguos si el cliente escribe ahora en otro idioma.`;
+    return `**IDIOMA DE RESPUESTA (crítico):** Responde ESTRICTAMENTE en español. Toda la respuesta en un solo idioma — sin mezclar ruso o inglés. La selección de inmuebles, la intro, «por qué encaja» y la pregunta final también en español. No cambies por ok/yes cortos ni por el idioma del teléfono.`;
   }
-  return `**REPLY LANGUAGE:** Reply STRICTLY in English — the same language as the client's last message. Entire reply in one language only — no Russian or Spanish mixed in. Do not switch to the phone number's language or older messages if the client is writing in another language now.`;
+  return `**REPLY LANGUAGE (critical):** Reply STRICTLY in English. Entire reply in one language only — no Russian or Spanish mixed in. Listing intros, "why it fits" lines, and the closing question must also be English. Do not switch because of short ok/sí/да or the phone number's language.`;
+}
+
+function getSearchingListingsMessage(lang) {
+  const code = normalizeSalesLang(lang);
+  if (code === 'es') {
+    return 'Vale, ahora te preparo unas opciones y te las mando :)';
+  }
+  if (code === 'en') {
+    return "Okay, I'll pick a few options and send them over :)";
+  }
+  return 'Окей, сейчас подберу варианты и пришлю вам :)';
 }
 
 function getSalesPack(lang) {
@@ -641,6 +652,7 @@ module.exports = {
   getCatalogHints,
   pickLocalizedPrompts,
   buildReplyLanguageRule,
+  getSearchingListingsMessage,
   EN,
   ES
 };

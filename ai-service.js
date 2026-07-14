@@ -450,10 +450,29 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
           {
             role: 'user',
             content:
-              'Перепиши последний ответ. Нельзя обещать отправить варианты позже, через пару минут или через 90 секунд. Если критерии достаточны — дай подборку объектов прямо сейчас из доступного каталога. Если критериев недостаточно — задай один следующий вопрос. Кратко, WhatsApp-стиль.'
+              'Перепиши последний ответ. Нельзя обещать отправить варианты позже, через пару минут или через 90 секунд. Если критерии достаточны — дай подборку объектов прямо сейчас из доступного каталога. Если критериев недостаточно — задай один следующий вопрос. Кратко, WhatsApp-стиль. Весь ответ строго на языке диалога (без смеси языков).'
           }
         ],
         'chat-no-delay-rewrite'
+      );
+    }
+    const needsListingLinks =
+      (dialog.stage === 'SHOW_LISTINGS' ||
+        (dialog.stage === 'REFINE' && dialog.wantsListings)) &&
+      !/(?:https?:\/\/|www\.|housetenerife\.eu)/i.test(reply);
+    if (needsListingLinks) {
+      console.warn('⚠️ AI на этапе подборки не дал ссылок — переписываю с объектами из каталога');
+      reply = await callAI(
+        [
+          ...messages,
+          { role: 'assistant', content: reply },
+          {
+            role: 'user',
+            content:
+              'Rewrite: you must include 3–5 property options with housetenerife.eu links from the catalog block NOW. Do not ask more qualifying questions. Keep the entire reply in the dialog language only (no language mixing). WhatsApp style.'
+          }
+        ],
+        'chat-force-listings'
       );
     }
     reply = maybeAddWarmSmiley(sanitizeDelayedListingPromise(reply), salesLang, dialog.stage);
