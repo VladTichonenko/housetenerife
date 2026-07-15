@@ -155,6 +155,50 @@ function getMessageSenderId(msg, chat) {
   return msg.from;
 }
 
+/**
+ * Когда Store не отдаёт чат (@lid / «r: r» / No LID) — минимальный объект, чтобы не зациклить retry.
+ */
+function buildFallbackChatFromMessage(msg) {
+  const from = String(msg?.from || '');
+  const isGroup = from.endsWith('@g.us');
+  const [user, server] = from.split('@');
+  return {
+    id: {
+      _serialized: from,
+      user: user || from,
+      server: server || 'c.us',
+    },
+    isGroup,
+    isChannel: false,
+    name: '',
+    _fallback: true,
+  };
+}
+
+function isTransientChatLookupError(err) {
+  const msg = String(err?.message || err || '');
+  return (
+    msg === 'r' ||
+    msg.includes('No LID') ||
+    msg.includes('Lid is missing') ||
+    msg.includes('getChat') ||
+    msg.includes('Evaluation failed') ||
+    isChatLoadError(err)
+  );
+}
+
+async function resolveIncomingChat(msg) {
+  try {
+    const chat = await msg.getChat();
+    if (chat) return chat;
+  } catch (err) {
+    console.warn(
+      `⚠️ getChat недоступен (${err.message || err}) — fallback для ${msg.from}`
+    );
+  }
+  return buildFallbackChatFromMessage(msg);
+}
+
 function isBotMentioned(msg) {
   const mentions = msg.mentionedIds;
   if (!mentions?.length) return false;
@@ -207,9 +251,13 @@ function isSafePollingChat(chat) {
 function isChatLoadError(err) {
   const msg = String(err?.message || err);
   return (
+    msg === 'r' ||
     msg.includes('waitForChatLoading') ||
     msg.includes("reading 'waitForChatLoading'") ||
-    msg.includes('Cannot read properties of undefined')
+    msg.includes('Cannot read properties of undefined') ||
+    msg.includes('No LID') ||
+    msg.includes('Lid is missing') ||
+    msg.includes('Evaluation failed')
   );
 }
 
@@ -262,6 +310,7 @@ function getOutboundDelayMs(text) {
 
 async function sendMessageSafely(msg, text, client) {
   const chatId = msg.from;
+  const isLid = String(chatId || '').includes('@lid');
 
   const delayMs = getOutboundDelayMs(text);
   if (delayMs > 0) {
@@ -272,62 +321,59 @@ async function sendMessageSafely(msg, text, client) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
-  // Метод 1: Пробуем отправить через chat.sendMessage (не вызывает sendSeen автоматически)
-  try {
-    const chat = await msg.getChat();
-    await chat.sendMessage(text);
-    return; // Успешно отправлено
-  } catch (chatError) {
-    if (!isMarkedUnreadError(chatError)) {
-      console.error('❌ Ошибка отправки через chat.sendMessage:', chatError.message);
+  // Для @lid сначала reply — getChatById часто падает после миграции WhatsApp на LID
+  const attempts = isLid
+    ? [
+        ['reply', async () => msg.reply(text)],
+        ['sendMessage', async () => client.sendMessage(chatId, text, { sendSeen: false })],
+        [
+          'chat.sendMessage',
+          async () => {
+            const chat = await msg.getChat();
+            await chat.sendMessage(text);
+          },
+        ],
+      ]
+    : [
+        [
+          'chat.sendMessage',
+          async () => {
+            const chat = await msg.getChat();
+            await chat.sendMessage(text);
+          },
+        ],
+        ['sendMessage', async () => client.sendMessage(chatId, text, { sendSeen: false })],
+        ['reply', async () => msg.reply(text)],
+      ];
+
+  let lastError = null;
+  for (const [label, fn] of attempts) {
+    try {
+      await fn();
+      return;
+    } catch (err) {
+      lastError = err;
+      if (isMarkedUnreadError(err)) {
+        console.log(`⚠️ markedUnread при ${label} — сообщение могло уйти`);
+        return;
+      }
+      console.error(`❌ Ошибка отправки через ${label}:`, err.message || err);
     }
   }
-  
-  // Метод 2: Пробуем прямой sendMessage с отключенной отметкой как прочитанное
-  try {
-    await client.sendMessage(chatId, text, { sendSeen: false });
-    return; // Успешно отправлено
-  } catch (sendError) {
-    if (isMarkedUnreadError(sendError)) {
-      console.log('⚠️ Обнаружена ошибка markedUnread при sendMessage, пробую альтернативный метод...');
-    } else {
-      console.error('❌ Ошибка отправки через sendMessage:', sendError.message);
-    }
-  }
-  
-  // Метод 3: Пробуем reply (может работать, если markedUnread уже обработан)
-  try {
-    await msg.reply(text);
-    return; // Успешно отправлено
-  } catch (replyError) {
-    if (isMarkedUnreadError(replyError)) {
-      console.log('⚠️ Обнаружена ошибка markedUnread при reply, пробую последний метод...');
-    } else {
-      console.error('❌ Ошибка отправки через reply:', replyError.message);
-    }
-  }
-  
-  // Метод 4: Последняя попытка - отправка с задержкой (иногда помогает)
+
   try {
     console.log('⏳ Последняя попытка отправки с задержкой...');
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Ждем 2 секунды
-    
-    // Пробуем через chat.sendMessage еще раз
-    const chat = await msg.getChat();
-    await chat.sendMessage(text);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await client.sendMessage(chatId, text, { sendSeen: false });
     console.log('✅ Сообщение отправлено после задержки');
     return;
   } catch (finalError) {
-    // Если все методы не сработали, но ошибка связана с markedUnread - сообщение может быть отправлено
     if (isMarkedUnreadError(finalError)) {
       console.log('⚠️ Ошибка markedUnread, но сообщение может быть отправлено');
-      console.log('💡 Это известный баг whatsapp-web.js, сообщение обычно доставляется');
-      // Не бросаем ошибку, так как сообщение может быть отправлено
       return;
-    } else {
-      console.error('❌ Все методы отправки не сработали:', finalError.message);
-      throw finalError;
     }
+    console.error('❌ Все методы отправки не сработали:', finalError.message || lastError?.message);
+    throw finalError;
   }
 }
 
@@ -568,15 +614,35 @@ function startMessagePolling() {
     } catch (pollError) {
       lastPollingError = pollError;
       consecutivePollingErrors++;
-      console.error('❌ [POLLING]:', pollError.message);
-
-      if (consecutivePollingErrors >= reconnectThreshold) {
-        console.warn(`⚠️ [POLLING] ${consecutivePollingErrors} ошибок подряд → переподключение`);
+      const soft = isChatLoadError(pollError) || isTransientChatLookupError(pollError);
+      if (soft) {
+        // Ошибки Store/@lid не считаем смертью сессии — иначе шторм reconnect
+        console.warn(`⚠️ [POLLING] мягкая ошибка Store (${pollError.message}), без reconnect`);
         consecutivePollingErrors = 0;
-        botReady = false;
-        reconnectClient().catch((err) =>
-          console.error('❌ переподключение после polling:', err.message)
-        );
+      } else {
+        console.error('❌ [POLLING]:', pollError.message);
+      }
+
+      if (!soft && consecutivePollingErrors >= reconnectThreshold) {
+        let stillConnected = false;
+        try {
+          stillConnected = (await client.getState()) === 'CONNECTED';
+        } catch {
+          /* ignore */
+        }
+        if (stillConnected) {
+          console.warn(
+            `⚠️ [POLLING] ${consecutivePollingErrors} ошибок подряд, но сессия CONNECTED — reconnect пропускаем`
+          );
+          consecutivePollingErrors = 0;
+        } else {
+          console.warn(`⚠️ [POLLING] ${consecutivePollingErrors} ошибок подряд → переподключение`);
+          consecutivePollingErrors = 0;
+          botReady = false;
+          reconnectClient().catch((err) =>
+            console.error('❌ переподключение после polling:', err.message)
+          );
+        }
       }
     }
 
@@ -912,9 +978,9 @@ async function shouldDebounceForReply(msg) {
 
   let chat;
   try {
-    chat = await msg.getChat();
+    chat = await resolveIncomingChat(msg);
   } catch {
-    return null;
+    chat = buildFallbackChatFromMessage(msg);
   }
 
   if (chat.isChannel) return null;
@@ -1652,23 +1718,20 @@ async function handleIncomingMessage(msg, options = {}) {
       return 'skip';
     }
 
-    // Получаем информацию о чате для проверки типа
+    // Получаем информацию о чате (для @lid getChatById часто падает — работаем с fallback)
     let chat;
     try {
-      chat = await msg.getChat();
+      chat = await resolveIncomingChat(msg);
       console.log('💬 [DEBUG] Информация о чате:', {
-        id: chat.id._serialized || chat.id,
+        id: chat.id?._serialized || chat.id,
         isGroup: chat.isGroup,
         isChannel: chat.isChannel,
-        name: chat.name || '(без имени)'
+        name: chat.name || '(без имени)',
+        fallback: Boolean(chat._fallback),
       });
     } catch (chatError) {
       console.error('❌ Ошибка получения информации о чате:', chatError);
-      console.error('❌ [DEBUG] Детали ошибки:', {
-        message: chatError.message,
-        stack: chatError.stack
-      });
-      return 'retry';
+      chat = buildFallbackChatFromMessage(msg);
     }
 
     const senderId = getMessageSenderId(msg, chat);
