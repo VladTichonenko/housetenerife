@@ -10,6 +10,10 @@ function catalog() {
 const PROPERTY_URL_RE =
   /https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en))?\/property\/[^\s<>\])"'}]+/gi;
 
+/** Любая ссылка на housetenerife.eu (в т.ч. выдуманные /objekt/123). */
+const ANY_HT_URL_RE =
+  /https?:\/\/(?:www\.)?housetenerife\.eu\/[^\s<>\])"'{}]+/gi;
+
 let urlIndex = null;
 let slugIndex = null;
 
@@ -88,7 +92,11 @@ function repairKnownUrlSpacing(text) {
     .replace(/www\s*\.\s*/gi, 'www.')
     .replace(/housetenerife\s*\.\s*eu/gi, 'housetenerife.eu')
     .replace(/(housetenerife\.eu)\s*\/\s*/gi, '$1/')
-    .replace(/(https?:\/\/(?:www\.)?housetenerife\.eu\/[^\s\n]*)\s+([a-z0-9-]+\/?)/gi, '$1$2');
+    // Только доклейка кусков slug у /property/…, не «objekt/123 closest»
+    .replace(
+      /(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en))?\/property\/[a-z0-9-]*)\s+([a-z0-9-]+\/?)/gi,
+      '$1$2'
+    );
 }
 
 function hasEnglishCatalogCopy(item) {
@@ -114,15 +122,154 @@ function getShareUrl(item, lang) {
 }
 
 /**
+ * Обрезает хвост, который модель приклеила к URL (…/slugWhichonefeels).
+ */
+function splitGluedUrlTail(rawUrl) {
+  const url = String(rawUrl || '').replace(/[.,;:!?)]+$/g, '');
+
+  // …/objekt/11223Whichone → …/objekt/11223 + Whichone
+  const gluedDigits = url.match(
+    /^(https?:\/\/(?:www\.)?housetenerife\.eu\/(?:(?:ru|es|en)\/)?[a-z]+\/\d{2,})([A-Za-zА-Яа-яЁё].*)$/i
+  );
+  if (gluedDigits) {
+    return { url: gluedDigits[1], tail: gluedDigits[2] };
+  }
+
+  // …/property/some-slug + ExtraWord (только если хвост с заглавной — иначе ломает villa-391)
+  const prop = url.match(
+    /^(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en))?\/property\/[a-z0-9-]+\/?)([A-ZА-ЯЁ][A-Za-zА-Яа-яЁё].*)$/
+  );
+  if (prop) {
+    return { url: prop[1], tail: prop[2] };
+  }
+
+  return { url, tail: '' };
+}
+
+function formatUrlTail(tail) {
+  if (!tail) return '';
+  let t = String(tail).trim();
+  t = t
+    .replace(/^Whichonefeels\b/i, 'Which one feels')
+    .replace(/^Whichone\b/i, 'Which one')
+    .replace(/^Какойвариант\b/i, 'Какой вариант');
+  return /^[A-ZА-ЯЁ]/.test(t) ? `\n${t}` : ` ${t}`;
+}
+
+function isRealPropertyPath(pathname) {
+  const p = String(pathname || '').replace(/\/+$/, '');
+  return /^\/(?:(?:ru|es)\/)?property\/[a-z0-9][a-z0-9-]{2,}$/i.test(p);
+}
+
+function isCatalogPropertyUrl(url) {
+  ensureIndex();
+  const item = findItemByUrl(url);
+  if (item) return true;
+  try {
+    const pathname = new URL(url).pathname.replace(/\/+$/, '');
+    if (!/\/property\//i.test(pathname)) return false;
+    // /en/property/… на сайте нет — но slug может быть валидным
+    const normalized = pathname.replace(/^\/en\/property\//i, '/property/');
+    return Boolean(findItemByUrl(`https://housetenerife.eu${normalized}/`));
+  } catch {
+    return false;
+  }
+}
+
+function hasValidCatalogPropertyLinks(text) {
+  if (!text) return false;
+  ensureIndex();
+  const re = new RegExp(PROPERTY_URL_RE.source, 'gi');
+  const matches = String(text).match(re) || [];
+  return matches.some((u) => isCatalogPropertyUrl(splitGluedUrlTail(u).url));
+}
+
+function hasInventedHtLinks(text) {
+  if (!text) return false;
+  ensureIndex();
+  const re = new RegExp(ANY_HT_URL_RE.source, 'gi');
+  const matches = String(text).match(re) || [];
+  if (!matches.length) return false;
+  return matches.some((raw) => {
+    const { url } = splitGluedUrlTail(raw);
+    if (/\/objekt\b|\/object\b|\/listing\b|\/id\/\d+/i.test(url)) return true;
+    if (/\/property\//i.test(url)) return !isCatalogPropertyUrl(url);
+    try {
+      const path = new URL(url).pathname.replace(/\/+$/, '') || '/';
+      if (path === '/' || path === '/ru' || path === '/es' || path === '/en') return false;
+      return !/\/property\//i.test(path);
+    } catch {
+      return true;
+    }
+  });
+}
+
+/**
+ * Подменяет выдуманные / битые ссылки на реальные из каталога (preferredUrls).
+ * Также локализует валидные /property/… ссылки.
+ */
+function repairPropertyUrlsInText(text, lang, preferredUrls = []) {
+  if (!text || typeof text !== 'string') return text;
+  ensureIndex();
+
+  const pool = [];
+  const seen = new Set();
+  for (const u of preferredUrls || []) {
+    const cleaned = stripInvalidEnPrefix(String(u || '').trim());
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    pool.push(cleaned);
+  }
+  let poolIdx = 0;
+  const nextPreferred = () => {
+    if (poolIdx >= pool.length) return null;
+    return pool[poolIdx++];
+  };
+
+  let out = repairKnownUrlSpacing(text);
+  out = out.replace(new RegExp(ANY_HT_URL_RE.source, 'gi'), (raw) => {
+    const { url: sliced, tail } = splitGluedUrlTail(raw);
+    const item = findItemByUrl(sliced);
+    const suffix = formatUrlTail(tail);
+    if (item) {
+      return `${getShareUrl(item, lang)}${suffix}`;
+    }
+
+    try {
+      const pathname = new URL(sliced).pathname;
+      const normalizedPath = pathname.replace(/^\/en\/property\//i, '/property/');
+      if (/\/property\//i.test(pathname) && isRealPropertyPath(normalizedPath)) {
+        const fixed = stripInvalidEnPrefix(sliced);
+        if (!isCatalogPropertyUrl(fixed)) {
+          const pref = nextPreferred();
+          if (pref) return `${pref}${suffix}`;
+        }
+        return `${fixed}${suffix}`;
+      }
+    } catch {
+      /* fall through */
+    }
+
+    const pref = nextPreferred();
+    if (pref) return `${pref}${suffix}`;
+    return tail || '';
+  });
+
+  return out.replace(/[ \t]{2,}/g, ' ').replace(/ \n/g, '\n').trim();
+}
+
+/**
  * Заменяет все ссылки housetenerife.eu/property/... на язык пользователя.
  */
 function localizeUrlsInText(text, lang) {
   if (!text || typeof text !== 'string') return text;
   ensureIndex();
-  return repairKnownUrlSpacing(text).replace(PROPERTY_URL_RE, (match) => {
-    const item = findItemByUrl(match);
-    if (item) return getShareUrl(item, lang);
-    return stripInvalidEnPrefix(match);
+  return repairKnownUrlSpacing(text).replace(new RegExp(PROPERTY_URL_RE.source, 'gi'), (match) => {
+    const { url, tail } = splitGluedUrlTail(match);
+    const item = findItemByUrl(url);
+    const suffix = formatUrlTail(tail);
+    if (item) return `${getShareUrl(item, lang)}${suffix}`;
+    return `${stripInvalidEnPrefix(url)}${suffix}`;
   });
 }
 
@@ -135,6 +282,9 @@ module.exports = {
   getPublicBase,
   getShareUrl,
   localizeUrlsInText,
+  repairPropertyUrlsInText,
+  hasValidCatalogPropertyLinks,
+  hasInventedHtLinks,
   findItemByUrl,
   findItemByPropertyId,
   rebuildUrlIndex,

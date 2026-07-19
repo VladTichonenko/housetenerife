@@ -20,6 +20,11 @@ const {
   derivePriceTarget
 } = require('./dialog-context');
 const { maybeAddWarmSmiley, getWarmTonePromptBlock } = require('./reply-warmth');
+const {
+  repairPropertyUrlsInText,
+  hasValidCatalogPropertyLinks,
+  hasInventedHtLinks
+} = require('./property-share');
 
 function truncateKnowledge(knowledge, maxChars) {
   const raw = JSON.stringify(knowledge, null, 2);
@@ -64,7 +69,7 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
           ? 18
           : 8;
 
-  let catalog = { found: false, text: '', totalInDb: 0 };
+  let catalog = { found: false, text: '', totalInDb: 0, urls: [] };
   if (maySearchCatalog) {
     catalog = searchForContext(catalogQuery, catalogLimit, {
       minPrice: budget.minPrice,
@@ -205,6 +210,7 @@ ${blocks.conversation}`;
 Поиск идёт по всей базе (${catalog.totalInDb || 'все'} объектов на сайте); в блоке ниже — лучшие совпадения по критериям переписки. Не утверждай, что «других нет» — предложи уточнить бюджет/район или каталог на сайте.
 На этапах SHOW_LISTINGS / REFINE — покажи 3–5 РАЗНЫХ объектов из блока ниже (название, цена, ссылка, одна фраза почему подходит). Только тот регион${dialog.microAreaLabel ? ` и район (${dialog.microAreaLabel})` : ''}, что выбрал клиент — не подмешивай Adeje, если просили Los Cristianos, и наоборот.
 **Цена:** не предлагай варианты сильно дешевле бюджета клиента — только около названной суммы или чуть дороже (премиум/больше метраж), если клиент не просил именно дешевле.
+**Ссылки:** копируй URL из блока каталога БУКВАЛЬНО (формат https://housetenerife.eu/…/property/slug/). Запрещено выдумывать /objekt/123, /object/ID и любые другие пути.
 На этапах FIRST_CONTACT / NEED_* — объекты не вываливай. Регионы каталога: ${dialog.regionOptions} (housetenerife.eu).
 Подборка только когда ясны *цель*, тип, бюджет, регион и конкретная зона/район; ссылки только из блока ниже.
 Никогда не пиши клиенту, что отправишь подборку позже. Системная задержка ссылок уже есть: твоя задача — сформировать подборку сразу в текущем ответе.
@@ -215,6 +221,7 @@ ${blocks.conversation}`;
       : `**PROPERTY CATALOG (${catalog.totalInDb || 'full'} listings on site; block below = best matches):**
 ${blocks.catalog}
 **Pricing:** stay around budget or slightly above — not much cheaper unless they asked.
+**Links:** copy URLs from the catalog block EXACTLY (https://housetenerife.eu/…/property/slug/). Never invent /objekt/123, /object/ID, or any other path.
 ${blocks.mortgage}
 ${blocks.propertyFinance}
 ${blocks.managerHandoff}`;
@@ -275,7 +282,11 @@ ${fileDocBlock ? `\n${fileDocBlock}\n` : ''}${webBlock}
     }))
   ];
 
-  return { messages };
+  return {
+    messages,
+    catalogUrls: Array.isArray(catalog.urls) ? catalog.urls : [],
+    catalogFound: Boolean(catalog.found)
+  };
 }
 
 function apiErrorDetailFromResponse(error) {
@@ -439,7 +450,11 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
   try {
     const dialog = analyzeConversation(conversationHistory, userLanguage);
     const salesLang = normalizeSalesLang(userLanguage);
-    const { messages } = await buildPromptParts(conversationHistory, userLanguage, 'full');
+    const { messages, catalogUrls } = await buildPromptParts(
+      conversationHistory,
+      userLanguage,
+      'full'
+    );
     let reply = await callAI(messages, 'chat');
     if (hasUnsupportedDelayedListingPromise(reply)) {
       console.warn('⚠️ AI обещал отправить подборку позже — переписываю ответ без отложенного обещания');
@@ -450,18 +465,23 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
           {
             role: 'user',
             content:
-              'Перепиши последний ответ. Нельзя обещать отправить варианты позже, через пару минут или через 90 секунд. Если критерии достаточны — дай подборку объектов прямо сейчас из доступного каталога. Если критериев недостаточно — задай один следующий вопрос. Кратко, WhatsApp-стиль. Весь ответ строго на языке диалога (без смеси языков).'
+              'Перепиши последний ответ. Нельзя обещать отправить варианты позже, через пару минут или через 90 секунд. Если критерии достаточны — дай подборку объектов прямо сейчас из доступного каталога. Если критериев недостаточно — задай один следующий вопрос. Кратко, WhatsApp-стиль. Весь ответ строго на языке диалога (без смеси языков). Копируй URL только из блока каталога (формат /property/slug/), никогда не выдумывай /objekt/ID.'
           }
         ],
         'chat-no-delay-rewrite'
       );
     }
+    const listingStage =
+      dialog.stage === 'SHOW_LISTINGS' ||
+      (dialog.stage === 'REFINE' && dialog.wantsListings);
     const needsListingLinks =
-      (dialog.stage === 'SHOW_LISTINGS' ||
-        (dialog.stage === 'REFINE' && dialog.wantsListings)) &&
-      !/(?:https?:\/\/|www\.|housetenerife\.eu)/i.test(reply);
+      listingStage &&
+      (!hasValidCatalogPropertyLinks(reply) || hasInventedHtLinks(reply));
     if (needsListingLinks) {
-      console.warn('⚠️ AI на этапе подборки не дал ссылок — переписываю с объектами из каталога');
+      console.warn(
+        '⚠️ AI на этапе подборки без валидных ссылок каталога — переписываю с объектами из каталога'
+      );
+      const urlList = (catalogUrls || []).slice(0, 5).join('\n');
       reply = await callAI(
         [
           ...messages,
@@ -469,13 +489,17 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
           {
             role: 'user',
             content:
-              'Rewrite: you must include 3–5 property options with housetenerife.eu links from the catalog block NOW. Do not ask more qualifying questions. Keep the entire reply in the dialog language only (no language mixing). WhatsApp style.'
+              `Rewrite: include 3–5 property options NOW. Copy ONLY these exact housetenerife.eu /property/… URLs from the catalog (never invent /objekt/123 or other paths):\n${urlList || '(use URLs from the catalog block in the system message)'}\nKeep the entire reply in the dialog language only (no language mixing). WhatsApp style.`
           }
         ],
         'chat-force-listings'
       );
     }
-    reply = maybeAddWarmSmiley(sanitizeDelayedListingPromise(reply), salesLang, dialog.stage);
+    reply = repairPropertyUrlsInText(
+      maybeAddWarmSmiley(sanitizeDelayedListingPromise(reply), salesLang, dialog.stage),
+      userLanguage,
+      catalogUrls
+    );
     return reply;
   } catch (error) {
     const status = error.response?.status;
@@ -505,12 +529,20 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
       msg.includes('timeout')
     ) {
       try {
-        const { messages } = await buildPromptParts(conversationHistory, userLanguage, 'compact');
+        const { messages, catalogUrls } = await buildPromptParts(
+          conversationHistory,
+          userLanguage,
+          'compact'
+        );
         const retryReply = await callAI(messages, 'chat-retry');
-        return maybeAddWarmSmiley(
-          sanitizeDelayedListingPromise(retryReply),
-          normalizeSalesLang(userLanguage),
-          analyzeConversation(conversationHistory, userLanguage).stage
+        return repairPropertyUrlsInText(
+          maybeAddWarmSmiley(
+            sanitizeDelayedListingPromise(retryReply),
+            normalizeSalesLang(userLanguage),
+            analyzeConversation(conversationHistory, userLanguage).stage
+          ),
+          userLanguage,
+          catalogUrls
         );
       } catch (retryErr) {
         console.error('ai-service retry:', retryErr.message);

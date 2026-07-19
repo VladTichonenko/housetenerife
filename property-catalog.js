@@ -327,7 +327,12 @@ function searchForContext(query, limit = 8, options = {}) {
   const data = load();
   const totalInDb = data.items.length;
   if (!totalInDb) {
-    return { found: false, text: EMPTY_CATALOG_MSG[lang] || EMPTY_CATALOG_MSG.ru, totalInDb: 0 };
+    return {
+      found: false,
+      text: EMPTY_CATALOG_MSG[lang] || EMPTY_CATALOG_MSG.ru,
+      totalInDb: 0,
+      urls: []
+    };
   }
   const tokens = tokenize(query);
   const priceTarget =
@@ -404,9 +409,10 @@ function searchForContext(query, limit = 8, options = {}) {
   }
 
   if (!ranked.length) {
-    return { found: false, text: NO_MATCH_MSG[lang] || NO_MATCH_MSG.ru, totalInDb };
+    return { found: false, text: NO_MATCH_MSG[lang] || NO_MATCH_MSG.ru, totalInDb, urls: [] };
   }
   let lines;
+  const shareUrls = [];
   const { getShareUrl } = require('./property-share');
   try {
     lines = ranked.map((r, i) => {
@@ -415,6 +421,7 @@ function searchForContext(query, limit = 8, options = {}) {
       const short = desc.length > 240 ? `${desc.slice(0, 240)}…` : desc;
       const priceLabel = loc.price || PRICE_FALLBACK[lang] || PRICE_FALLBACK.ru;
       const shareUrl = getShareUrl(r.item, lang);
+      if (shareUrl) shareUrls.push(shareUrl);
       const typeCats = getItemPropertyCategories(r.item);
       const typeNote = typeCats.length ? ` [${formatDetectedTypes(typeCats, lang)}]` : '';
       const regionId = getPrimaryMacroRegion(r.item);
@@ -423,7 +430,7 @@ function searchForContext(query, limit = 8, options = {}) {
     });
   } catch (e) {
     console.warn('⚠️ searchForContext format:', e.message);
-    return { found: false, text: NO_MATCH_MSG[lang] || NO_MATCH_MSG.ru, totalInDb };
+    return { found: false, text: NO_MATCH_MSG[lang] || NO_MATCH_MSG.ru, totalInDb, urls: [] };
   }
   const priceHint =
     priceTarget && lang === 'en'
@@ -445,7 +452,8 @@ function searchForContext(query, limit = 8, options = {}) {
     found: true,
     text: `${header}\n\n${lines.join('\n\n')}`,
     syncedAt: data.syncedAt || null,
-    totalInDb
+    totalInDb,
+    urls: shareUrls
   };
 }
 
