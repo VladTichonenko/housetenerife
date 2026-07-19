@@ -45,6 +45,7 @@ const {
   setRecordHandoff,
   detectAffirmativeResponse,
   detectNegativeResponse,
+  isBareCallAcceptance,
   shouldTrackCallOfferAfterReply,
   startHandoffFromCallAcceptance,
   formatCustomerPhone,
@@ -1003,7 +1004,7 @@ async function shouldDebounceForReply(msg) {
   const pendingCallOffer = getPendingCallOffer(chatId);
   if (pendingCallOffer && !commandHandlers[trimmed]) {
     if (
-      detectAffirmativeResponse(messageText) ||
+      isBareCallAcceptance(messageText) ||
       detectNegativeResponse(messageText) ||
       wantsManagerHandoff(messageText)
     ) {
@@ -1956,10 +1957,7 @@ async function handleIncomingMessage(msg, options = {}) {
         return 'processed';
       }
 
-      if (
-        detectAffirmativeResponse(messageText) ||
-        wantsManagerHandoff(messageText)
-      ) {
+      if (isBareCallAcceptance(messageText) || wantsManagerHandoff(messageText)) {
         addToHistory(chatId, 'user', messageText);
         clearPendingCallOffer(chatId);
         console.log(`📞 Клиент согласился на созвон: ${chatId}`);

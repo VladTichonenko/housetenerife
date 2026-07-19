@@ -72,6 +72,7 @@ function isCatalogSiteText(text) {
 
 /**
  * Запрос связи с живым менеджером (не только одно слово «менеджер»).
+ * «Посмотреть Ибицу / варианты» — это подбор, НЕ просмотр с менеджером.
  */
 function wantsManagerHandoff(text) {
   const t = String(text || '').trim();
@@ -102,23 +103,46 @@ function wantsManagerHandoff(text) {
     return true;
   }
 
+  // Просмотр/созвон как запись к человеку — не «посмотреть район/объекты в каталоге»
   if (
-    /(?:просмотр|посмотреть|запиш|записать|организуй.*просмотр|созвон|созвониться|перезвон|позвоните|позвони)/i.test(
+    /(?:запис(?:ать|аться|ывайте)?\s+на\s+просмотр|на\s+просмотр|организуй(?:те)?\s+просмотр|хочу\s+на\s+просмотр|просмотр\s+объекта|просмотр\s+на\s+месте)/i.test(
+      lower
+    ) ||
+    /(?:созвон(?:имся|иться)?|перезвон(?:ите|и)|позвоните|позвони\s+мне|давай(?:те)?\s+созвон)/i.test(
       lower
     )
   ) {
     return true;
   }
 
-  if (/(?:viewing|schedule\s+a\s+call|call\s+me|book\s+a\s+view|arrange\s+a\s+visit)/i.test(lower)) {
+  if (/(?:schedule\s+a\s+call|call\s+me|book\s+a\s+view|arrange\s+a\s+visit|book\s+a\s+viewing)/i.test(lower)) {
     return true;
   }
 
-  if (/(?:visita|agendar\s+(?:una\s+)?visita|llamar|llamada|crear\s+una\s+llamada)/i.test(lower)) {
+  if (
+    /(?:agendar\s+(?:una\s+)?visita|quiero\s+(?:una\s+)?visita|llamar(?:me)?|crear\s+una\s+llamada)/i.test(
+      lower
+    )
+  ) {
     return true;
   }
 
   return false;
+}
+
+/**
+ * Согласие на созвон — только короткое «да/ок/давай», без уточнения района/бюджета.
+ */
+function isBareCallAcceptance(text) {
+  const t = String(text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  if (!t || t.length > 24) return false;
+  if (detectNegativeResponse(text)) return false;
+  return /^(?:да|ага|угу|ок|okay|ok|yes|yeah|yep|yup|sure|please|pls|go\s+ahead|of\s+course|why\s+not|давай|конечно|хочу|please\s+do|sounds\s+good|perfect|great|si|sí|claro|vale|por\s+favor|de\s+acuerdo|perfecto|genial|👍|✅)(?:\s*[,.!]*)?$/i.test(
+    t
+  );
 }
 
 function detectAffirmativeResponse(text) {
@@ -382,6 +406,7 @@ module.exports = {
   containsLink,
   isCatalogSiteText,
   wantsManagerHandoff,
+  isBareCallAcceptance,
   detectAffirmativeResponse,
   detectNegativeResponse,
   detectCallOfferInAssistantText,

@@ -368,11 +368,31 @@ function sanitizeDelayedListingPromise(text) {
   if (!hasUnsupportedDelayedListingPromise(text)) return text;
   return polishReply(
     String(text)
-      .replace(/[^.!?\n]*(?:через|в течение|спустя|за)\s+(?:пару|несколько|1-2|2|3|5|10|90)\s*(?:минут|мин|секунд|сек)[^.!?\n]*(?:пришлю|отправлю|скину|подберу|подборк|вариант|объект)[^.!?\n]*[.!?]?/gi, '')
-      .replace(/[^.!?\n]*(?:пришлю|отправлю|скину)[^.!?\n]*(?:позже|через|в течение|пару минут|вариант|подборк)[^.!?\n]*[.!?]?/gi, '')
-      .replace(/[^.!?\n]*(?:i(?:'ll| will)|will)\s+(?:send|share)[^.!?\n]*(?:in|within|later|shortly|a few minutes|couple of minutes)[^.!?\n]*[.!?]?/gi, '')
-      .replace(/[^.!?\n]*(?:te\s+(?:envío|mando|paso)|enviaré|mandaré)[^.!?\n]*(?:en|dentro de|luego|unos minutos)[^.!?\n]*[.!?]?/gi, '')
+      .replace(
+        /(?:через|в течение|спустя|за)\s+(?:пару|несколько|1-2|2|3|5|10|90)\s*(?:минут|мин|секунд|сек)[^.!?\n]*/gi,
+        ''
+      )
+      .replace(
+        /(?:i(?:'ll| will)|will)\s+(?:send|share)[^.!?\n]*(?:in|within|later|shortly|a few minutes|couple of minutes)[^.!?\n]*/gi,
+        ''
+      )
+      .replace(
+        /(?:te\s+(?:envío|mando|paso)|enviaré|mandaré)[^.!?\n]*(?:en|dentro de|luego|unos minutos)[^.!?\n]*/gi,
+        ''
+      )
   );
+}
+
+/** Убирает шаблонный ярлык «Почему вам:» / Why for you / Por qué encaja из подборок. */
+function sanitizeListingWhyLabels(text) {
+  if (!text || typeof text !== 'string') return text;
+  return String(text)
+    .replace(
+      /^[ \t]*(?:\*+)?\s*(?:почему\s+вам|why\s+(?:for\s+you|it\s+fits(?:\s+you)?)|por\s+qu[eé]\s+encaja(?:\s+contigo)?)\s*[:：\-–—]?\s*/gim,
+      ''
+    )
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function getWritingQualityBlock(salesLang) {
@@ -496,7 +516,9 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
       );
     }
     reply = repairPropertyUrlsInText(
-      maybeAddWarmSmiley(sanitizeDelayedListingPromise(reply), salesLang, dialog.stage),
+      sanitizeListingWhyLabels(
+        maybeAddWarmSmiley(sanitizeDelayedListingPromise(reply), salesLang, dialog.stage)
+      ),
       userLanguage,
       catalogUrls
     );
@@ -536,10 +558,12 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
         );
         const retryReply = await callAI(messages, 'chat-retry');
         return repairPropertyUrlsInText(
-          maybeAddWarmSmiley(
-            sanitizeDelayedListingPromise(retryReply),
-            normalizeSalesLang(userLanguage),
-            analyzeConversation(conversationHistory, userLanguage).stage
+          sanitizeListingWhyLabels(
+            maybeAddWarmSmiley(
+              sanitizeDelayedListingPromise(retryReply),
+              normalizeSalesLang(userLanguage),
+              analyzeConversation(conversationHistory, userLanguage).stage
+            )
           ),
           userLanguage,
           catalogUrls

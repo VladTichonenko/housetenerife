@@ -144,7 +144,20 @@ const SPECIFIC_AREA_GROUPS = [
   {
     id: 'ibiza_santa_eulalia',
     macro: 'ibiza',
-    keywords: ['santa eulalia', 'santa eulària', 'sant antoni', 'sant josep', 'sant josep de sa talaia'],
+    keywords: ['santa eulalia', 'santa eulària', 'санта еулалия', 'санта эулалия'],
+  },
+  {
+    id: 'ibiza_sant_antoni',
+    macro: 'ibiza',
+    keywords: [
+      'sant antoni',
+      'san antonio',
+      'san antoni',
+      'сан антонио',
+      'сан антони',
+      'сант антони',
+      'port de sant antoni',
+    ],
   },
   {
     id: 'ibiza_town',
@@ -154,7 +167,15 @@ const SPECIFIC_AREA_GROUPS = [
   {
     id: 'ibiza_es_cubells',
     macro: 'ibiza',
-    keywords: ['es cubells', 'es cavallet', 'cala jondal', 'cala conta', 'cap martinet'],
+    keywords: [
+      'es cubells',
+      'es cavallet',
+      'cala jondal',
+      'cala conta',
+      'cap martinet',
+      'sant josep',
+      'sant josep de sa talaia',
+    ],
   },
   {
     id: 'malaga_city',
@@ -288,7 +309,8 @@ function formatMicroAreaLabel(groupIds, broadIds, lang = 'ru') {
     marbella_puerto_banus: { ru: 'Puerto Banús', en: 'Puerto Banús', es: 'Puerto Banús' },
     marbella_golden_mile: { ru: 'Golden Mile / Nueva Andalucía', en: 'Golden Mile / Nueva Andalucía', es: 'Golden Mile / Nueva Andalucía' },
     marbella_estepona: { ru: 'Estepona / Sotogrande', en: 'Estepona / Sotogrande', es: 'Estepona / Sotogrande' },
-    ibiza_santa_eulalia: { ru: 'Santa Eulalia / Sant Antoni', en: 'Santa Eulalia / Sant Antoni', es: 'Santa Eulalia / Sant Antoni' },
+    ibiza_santa_eulalia: { ru: 'Santa Eulalia', en: 'Santa Eulalia', es: 'Santa Eulalia' },
+    ibiza_sant_antoni: { ru: 'Sant Antoni / San Antonio', en: 'Sant Antoni / San Antonio', es: 'Sant Antoni / San Antonio' },
     ibiza_town: { ru: 'Ibiza Town', en: 'Ibiza Town', es: 'Ibiza ciudad' },
     ibiza_es_cubells: { ru: 'Es Cubells / Cala', en: 'Es Cubells / Cala', es: 'Es Cubells / Cala' },
     malaga_city: { ru: 'Малага центр', en: 'Málaga city', es: 'Málaga ciudad' },

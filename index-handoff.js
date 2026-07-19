@@ -33,7 +33,8 @@ async function offerSoftCallViaAi(ctx) {
   await sendMessageSafely(msg, outgoing, client);
 
   const dialog = analyzeConversation(getHistory(chatId), dialogLanguage);
-  if (shouldTrackCallOfferAfterReply(dialog, outgoing) || reasonKey) {
+  // Ставим pending только если AI реально предложил созвон — не из‑за одного reasonKey
+  if (shouldTrackCallOfferAfterReply(dialog, outgoing)) {
     setPendingCallOffer(chatId, {
       reasonKey: reasonKey || 'handoff',
       preview: preview || messageText || userLine || '',

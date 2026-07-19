@@ -118,7 +118,7 @@ You sell through *conversation* — warm, confident, human. Think senior investm
       step: 7,
       title: 'Shortlist',
       description:
-        '3–5 different catalog matches. Format: • *Title* — price\\n  why it fits you\\n  link. End: "Which one feels closest?" or "Shall we adjust area or budget?"'
+        '3–5 different catalog matches. Format: • *Title* — price\\n  one natural benefit line (no "Why for you:" label)\\n  link. End: "Which one feels closest?" or "Shall we adjust area or budget?"'
     },
     {
       step: 8,
@@ -154,7 +154,7 @@ You sell through *conversation* — warm, confident, human. Think senior investm
       'Ask for a *specific area* in {regionLabel} (examples: {areaOptionsPrompt}). One question only. Do NOT ask budget yet. No listings yet — applies to Tenerife, Dubai, Ibiza, Marbella, Málaga and Barcelona.',
 
     SHOW_LISTINGS:
-      'MUST send 3–5 catalog listings NOW (do not loop with more questions, do not promise later): type {propertyTypeLabel}, region {regionLabel}, area {microAreaLabel}. Entire reply in the client dialog language — intro, "why it fits", and closing question. Same region, area and type only — use only URLs from the catalog block. Title, price, link, *one line why it fits them*. Not far below budget unless they asked. End with: which option feels closest?',
+      'MUST send 3–5 catalog listings NOW (do not loop with more questions, do not promise later): type {propertyTypeLabel}, region {regionLabel}, area {microAreaLabel}. Entire reply in the client dialog language. Same region, area and type only — use only URLs from the catalog block. Format: title, price, one natural benefit line (NEVER write "Why for you:" / "Почему вам:" / "Por qué encaja:"), link. Not far below budget unless they asked. End with: which option feels closest?',
 
     REFINE:
       'Answer their point, then refreshed shortlist: type {propertyTypeLabel}, region {regionLabel}, area {microAreaLabel}, 3–5 options from the catalog block. Rebuild if they changed region, area or type.',
@@ -357,7 +357,7 @@ Vendes con *conversación* — cercano, seguro, humano. Analista senior en Whats
       step: 7,
       title: 'Selección',
       description:
-        '3–5 fichas del catálogo. Formato: • *Título* — precio\\n  por qué encaja contigo\\n  enlace. Cierra: "¿Cuál te encaja más?"'
+        '3–5 fichas del catálogo. Formato: • *Título* — precio\\n  una línea de beneficio (sin «Por qué encaja contigo»)\\n  enlace. Cierra: "¿Cuál te encaja más?"'
     },
     {
       step: 8,
@@ -393,7 +393,7 @@ Vendes con *conversación* — cercano, seguro, humano. Analista senior en Whats
       'Pide *zona concreta* en {regionLabel} (ejemplos: {areaOptionsPrompt}). Una sola pregunta. Aún NO preguntes el presupuesto. Sin fichas — Tenerife, Dubái, Ibiza, Marbella, Málaga y Barcelona.',
 
     SHOW_LISTINGS:
-      'OBLIGATORIO: envía 3–5 fichas AHORA (sin más rondas de preguntas ni «te envío luego»): tipo {propertyTypeLabel}, región {regionLabel}, zona {microAreaLabel}. Toda la respuesta en el idioma del diálogo — intro, «por qué encaja» y cierre. Misma región, zona y tipo — solo enlaces del bloque catálogo. Título, precio, enlace, *una línea por qué encaja*. Cierra: ¿cuál encaja más?',
+      'OBLIGATORIO: envía 3–5 fichas AHORA (sin más rondas de preguntas ni «te envío luego»): tipo {propertyTypeLabel}, región {regionLabel}, zona {microAreaLabel}. Toda la respuesta en el idioma del diálogo. Misma región, zona y tipo — solo enlaces del bloque catálogo. Título, precio, *una línea de beneficio sin rótulo «Por qué encaja»*, enlace. Cierra: ¿cuál encaja más?',
 
     REFINE:
       'Responde al punto y nueva selección: tipo {propertyTypeLabel}, región {regionLabel}, zona {microAreaLabel}, 3–5 opciones del bloque. Rehaz si cambian región, zona o tipo.',
@@ -508,12 +508,12 @@ const RU = {
 function buildReplyLanguageRule(targetLang) {
   const code = normalizeSalesLang(targetLang);
   if (code === 'ru') {
-    return `**ЯЗЫК ОТВЕТА (критично):** Отвечай СТРОГО на русском. Весь ответ целиком на одном языке — без английских или испанских фраз, без смеси «половина по-русски / половина по-английски». Подборка объектов, вступление «подобрал варианты», пояснения «почему вам» и финальный вопрос — тоже на русском. Не переключайся из‑за коротких ok/yes или языка номера телефона.`;
+    return `**ЯЗЫК ОТВЕТА (критично):** Отвечай СТРОГО на русском. Весь ответ целиком на одном языке — без английских или испанских фраз, без смеси «половина по-русски / половина по-английски». Подборка объектов, вступление и финальный вопрос — тоже на русском. Не пиши ярлык «Почему вам:». Не переключайся из‑за коротких ok/yes или языка номера телефона.`;
   }
   if (code === 'es') {
-    return `**IDIOMA DE RESPUESTA (crítico):** Responde ESTRICTAMENTE en español. Toda la respuesta en un solo idioma — sin mezclar ruso o inglés. La selección de inmuebles, la intro, «por qué encaja» y la pregunta final también en español. No cambies por ok/yes cortos ni por el idioma del teléfono.`;
+    return `**IDIOMA DE RESPUESTA (crítico):** Responde ESTRICTAMENTE en español. Toda la respuesta en un solo idioma — sin mezclar ruso o inglés. La selección de inmuebles, la intro y la pregunta final también en español. No uses el rótulo «Por qué encaja:». No cambies por ok/yes cortos ni por el idioma del teléfono.`;
   }
-  return `**REPLY LANGUAGE (critical):** Reply STRICTLY in English. Entire reply in one language only — no Russian or Spanish mixed in. Listing intros, "why it fits" lines, and the closing question must also be English. Do not switch because of short ok/sí/да or the phone number's language.`;
+  return `**REPLY LANGUAGE (critical):** Reply STRICTLY in English. Entire reply in one language only — no Russian or Spanish mixed in. Listing intros and the closing question must also be English. Never write the label "Why for you:" / "Why it fits:". Do not switch because of short ok/sí/да or the phone number's language.`;
 }
 
 function getSearchingListingsMessage(lang) {
