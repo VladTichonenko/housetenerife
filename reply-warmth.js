@@ -25,6 +25,8 @@ const OPENER_PATTERNS = {
   ru: /^(Привет|Здравствуйте|Отлично|Понял|Поняла|Хорошо|Прекрасно|Замечательно|Супер|Окей|Ок)([!,.]?\s+)/i,
   en: /^(Hi|Hello|Hey|Great|Got it|Perfect|Sounds good|Nice|Lovely|Okay|Ok)([!,.]?\s+)/i,
   es: /^(Hola|Perfecto|Genial|Vale|Claro|Entendido|De acuerdo|Estupendo|Ok)([!,.]?\s+)/i,
+  de: /^(Hallo|Guten Tag|Perfekt|Verstanden|Alles klar|Super|Okay|Ok|Prima)([!,.]?\s+)/i,
+  fr: /^(Bonjour|Salut|Parfait|Compris|D.accord|Super|Okay|Ok|Génial)([!,.]?\s+)/i,
 };
 
 function hasWarmMarker(text) {
@@ -90,12 +92,18 @@ function maybeAddWarmSmiley(text, salesLang, stage) {
 function getWarmTonePromptBlock(salesLang) {
   const lang = normalizeSalesLang(salesLang);
   if (lang === 'es') {
-    return `**TONO CÁLIDO (WhatsApp):** En etapas de conversación (saludo, objetivo, tipo, región, zona, presupuesto) incluye de vez en cuando *un* emoji suave 🙂 o :) — no en cada mensaje, sí en saludo y en ~cada segunda respuesta cálida. Ejemplo: «Perfecto :) ¿qué tipo de inmueble…?» o «Hola, soy Maksim 🙂». No en fichas con enlaces, hipoteca ni documentos.`;
+    return `**TONO CÁLIDO (WhatsApp):** En etapas de conversación (saludo, objetivo, tipo, región, zona, presupuesto) incluye de vez en cuando *un* emoji suave 🙂 o :) — no en cada mensaje, sí en saludo y en ~cada segunda respuesta cálida. Ejemplo: «Perfecto :) ¿qué tipo de inmueble…?» o «Hola, soy Maksim 🙂». Si el cliente envía un emoji — duplícalo. No en fichas con enlaces, hipoteca ni documentos.`;
   }
   if (lang === 'en') {
-    return `**WARM TONE (WhatsApp):** On conversation stages (greeting, goal, type, region, area, budget) occasionally include *one* subtle 🙂 or :) — not every message, yes on greetings and roughly every other warm reply. Example: «Got it :) What property type…?» or «Hi, I'm Maxim 🙂». Not in listing blocks, mortgage or documents.`;
+    return `**WARM TONE (WhatsApp):** On conversation stages (greeting, goal, type, region, area, budget) occasionally include *one* subtle 🙂 or :) — not every message, yes on greetings and roughly every other warm reply. Example: «Got it :) What property type…?» or «Hi, I'm Maxim 🙂». If the client sends an emoji — mirror it. Not in listing blocks, mortgage or documents.`;
   }
-  return `**ТЁПЛЫЙ ТОН (WhatsApp):** На этапах диалога (приветствие, цель, тип, регион, район, бюджет) иногда добавляй *один* мягкий смайлик 🙂 или скобочки :) — не в каждом сообщении, обязательно в приветствии и примерно в каждом втором тёплом ответе. Пример: «Отлично :) Какой тип объекта…?» или «Привет, я Максим 🙂». Не в подборке со ссылками, не на ипотеке/документах.`;
+  if (lang === 'de') {
+    return `**WARMER TON (WhatsApp):** In Gesprächsphasen (Begrüßung, Ziel, Typ, Region, Zone, Budget) gelegentlich *ein* dezentes 🙂 oder :) — nicht in jeder Nachricht, ja bei Begrüßung und etwa jeder zweiten warmen Antwort. Beispiel: «Perfekt :) Welcher Objekttyp…?» oder «Hallo, ich bin Maxim 🙂». Wenn der Kunde ein Emoji schickt — dasselbe spiegeln. Nicht bei Objektlisten, Hypothek oder Dokumenten.`;
+  }
+  if (lang === 'fr') {
+    return `**TON CHALEUREUX (WhatsApp):** Aux étapes de conversation (accueil, objectif, type, région, zone, budget) inclure parfois *un* emoji doux 🙂 ou :) — pas à chaque message, oui à l’accueil et environ une réponse chaleureuse sur deux. Exemple: « Parfait :) Quel type de bien… ? » ou « Bonjour, je suis Maxim 🙂 ». Si le client envoie un emoji — le dupliquer. Pas sur les fiches, l’hypothèque ni les documents.`;
+  }
+  return `**ТЁПЛЫЙ ТОН (WhatsApp):** На этапах диалога (приветствие, цель, тип, регион, район, бюджет) иногда добавляй *один* мягкий смайлик 🙂 или скобочки :) — не в каждом сообщении, обязательно в приветствии и примерно в каждом втором тёплом ответе. Если клиент прислал смайлик — *обязательно дублируй его же* в ответе. Пример: «Отлично :) Какой тип объекта…?» или «Привет, я Максим 🙂». Не в подборке со ссылками, не на ипотеке/документах.`;
 }
 
 module.exports = {

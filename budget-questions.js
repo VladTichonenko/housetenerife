@@ -25,11 +25,27 @@ const BUDGET_QUESTIONS = {
     'Quiero acotar la búsqueda a opciones que de verdad encajen — ¿qué rango de precio le sirve de referencia?',
     'Para evitar opciones irrelevantes, ¿en qué rango de precio prefiere que nos movamos?',
   ],
+  de: [
+    'Damit ich wirklich passende Optionen vorschlage und klar ungeeignete Objekte vermeide: an welchem Preisrahmen sollen wir uns orientieren?',
+    'Ich möchte nur relevante Optionen zeigen — in welchem Budgetrahmen fühlen Sie sich wohl?',
+    'Damit wir keine Zeit mit unpassenden Objekten verlieren: welche Preisspanne sollen wir anschauen?',
+    'Damit die Auswahl Sinn ergibt — welcher Preisrahmen ist für Sie komfortabel?',
+    'Ich möchte die Suche auf wirklich passende Objekte eingrenzen — welcher Preisrahmen gilt als Orientierung?',
+    'Um irrelevante Angebote zu vermeiden: welchen Preisrahmen sollen wir anstreben?',
+  ],
+  fr: [
+    'Pour proposer des options vraiment adaptées et éviter les biens clairement inadaptés, sur quelle fourchette de prix souhaitez-vous vous orienter ?',
+    'Je voudrais ne montrer que des options pertinentes — quelle fourchette budgétaire vous convient ?',
+    'Pour ne pas perdre de temps avec des biens inadaptés, quelle tranche de prix regardons-nous ?',
+    'Pour que la sélection ait du sens, quelle fourchette de coût vous est confortable ?',
+    'Je veux restreindre la recherche à des options pertinentes — quelle fourchette de prix servir de référence ?',
+    'Pour éviter les options hors sujet, dans quelle fourchette de prix préférez-vous nous situer ?',
+  ],
 };
 
 function normalizeBudgetLang(lang) {
   const code = String(lang || 'ru').toLowerCase().slice(0, 2);
-  if (code === 'ru' || code === 'en' || code === 'es') return code;
+  if (code === 'ru' || code === 'en' || code === 'es' || code === 'de' || code === 'fr') return code;
   return 'en';
 }
 

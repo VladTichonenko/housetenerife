@@ -10,7 +10,8 @@ const {
   getItemPropertyCategories,
   itemMatchesPropertyTypes,
   scorePropertyTypeFit,
-  formatDetectedTypes
+  formatDetectedTypes,
+  expandSoftPropertyTypes
 } = require('./property-types');
 const {
   getPrimaryMacroRegion,
@@ -25,7 +26,7 @@ function resolveCatalogPath() {
 }
 
 const DATA = resolveCatalogPath();
-const SUPPORTED_LANGS = ['ru', 'en', 'es'];
+const SUPPORTED_LANGS = ['ru', 'en', 'es', 'de', 'fr'];
 
 let cache = null;
 let cacheMtimeMs = 0;
@@ -88,8 +89,12 @@ function normalizeLang(lang) {
 
 const FALLBACK_CHAIN = {
   ru: ['ru'],
-  es: ['es', 'ru'],
-  en: ['en', 'es', 'ru']
+  // У части объектов нет /es/ страницы на сайте — лучше EN, чем RU
+  es: ['es', 'en', 'ru'],
+  en: ['en', 'es', 'ru'],
+  // DE/FR страницы есть на сайте; если в JSON ещё нет — fallback на EN
+  de: ['de', 'en', 'es', 'ru'],
+  fr: ['fr', 'en', 'es', 'ru']
 };
 
 function pickLocalized(map, langChain) {
@@ -237,6 +242,22 @@ function filterByPropertyTypes(ranked, propertyTypes) {
   return ranked.filter((r) => itemMatchesPropertyTypes(r.item, propertyTypes));
 }
 
+/**
+ * Жёсткий тип → при пустоте мягкий fallback только внутри «семьи» типов.
+ * Никогда не подмешивает бизнес к апартаментам/виллам и наоборот.
+ */
+function applyPropertyTypeFilter(ranked, propertyTypes) {
+  if (!propertyTypes?.length) return { ranked, usedSoftFallback: false };
+  const exact = filterByPropertyTypes(ranked, propertyTypes);
+  if (exact.length) return { ranked: exact, usedSoftFallback: false };
+
+  const softTypes = expandSoftPropertyTypes(propertyTypes);
+  if (!softTypes.length) return { ranked: [], usedSoftFallback: false };
+  const soft = filterByPropertyTypes(ranked, softTypes);
+  if (soft.length) return { ranked: soft, usedSoftFallback: true };
+  return { ranked: [], usedSoftFallback: false };
+}
+
 function locationBucketForItem(item) {
   const region = getPrimaryMacroRegion(item) || 'unknown';
   const micro = detectMicroAreas(itemSearchBlob(item));
@@ -294,20 +315,26 @@ function filterByPriceTarget(ranked, priceTarget) {
 
 const EMPTY_CATALOG_MSG = {
   ru: 'Локальный каталог пуст. Администратору: npm run sync-db. Пока направляй на https://housetenerife.eu/ru/',
-  en: 'Local catalog is empty. Admin: run npm run sync-db. For now direct clients to https://housetenerife.eu/es/',
-  es: 'Catálogo local vacío. Admin: ejecute npm run sync-db. Mientras tanto: https://housetenerife.eu/es/'
+  en: 'Local catalog is empty. Admin: run npm run sync-db. For now direct clients to https://housetenerife.eu/',
+  es: 'Catálogo local vacío. Admin: ejecute npm run sync-db. Mientras tanto: https://housetenerife.eu/es/',
+  de: 'Lokaler Katalog ist leer. Admin: npm run sync-db. Vorerst: https://housetenerife.eu/de/',
+  fr: 'Catalogue local vide. Admin: npm run sync-db. En attendant: https://housetenerife.eu/fr/'
 };
 
 const NO_MATCH_MSG = {
   ru: 'По этому запросу совпадений нет. Уточни бюджет и район; каталог: https://housetenerife.eu/ru/',
-  en: 'No matches for this query. Ask for budget and area; catalog: https://housetenerife.eu/es/',
-  es: 'Sin coincidencias. Pida presupuesto y zona; catálogo: https://housetenerife.eu/es/'
+  en: 'No matches for this query. Ask for budget and area; catalog: https://housetenerife.eu/',
+  es: 'Sin coincidencias. Pida presupuesto y zona; catálogo: https://housetenerife.eu/es/',
+  de: 'Keine Treffer für diese Anfrage. Budget und Zone klären; Katalog: https://housetenerife.eu/de/',
+  fr: 'Aucune correspondance. Précisez budget et zone; catalogue: https://housetenerife.eu/fr/'
 };
 
 const PRICE_FALLBACK = {
   ru: 'цена уточняется',
   en: 'price on request',
-  es: 'precio a consultar'
+  es: 'precio a consultar',
+  de: 'Preis auf Anfrage',
+  fr: 'prix sur demande'
 };
 
 /**
@@ -378,16 +405,30 @@ function searchForContext(query, limit = 8, options = {}) {
 
   ranked = ranked.sort((a, b) => b.s - a.s);
 
-  if (propertyTypes.length) {
-    ranked = filterByPropertyTypes(ranked, propertyTypes);
+  // Сначала регион, потом тип: точное совпадение типа обязательно, если есть;
+  // пустой тип в регионе → мягкий fallback только внутри семьи (жильё↔жильё).
+  if (macroRegions.length) {
+    const regional = filterByMacroRegions(ranked, macroRegions);
+    if (regional.length) ranked = regional;
   }
 
-  if (macroRegions.length) {
-    ranked = filterByMacroRegions(ranked, macroRegions);
+  let usedSoftTypeFallback = false;
+  if (propertyTypes.length) {
+    const typed = applyPropertyTypeFilter(ranked, propertyTypes);
+    ranked = typed.ranked;
+    usedSoftTypeFallback = typed.usedSoftFallback;
   }
 
   if (microAreaGroupIds.length) {
     ranked = filterByMicroAreas(ranked, microAreaGroupIds);
+    // После района тип мог «размыться» через soft micro fallback — снова зафиксировать тип
+    if (propertyTypes.length && ranked.length) {
+      const typedAgain = applyPropertyTypeFilter(ranked, propertyTypes);
+      if (typedAgain.ranked.length) {
+        ranked = typedAgain.ranked;
+        usedSoftTypeFallback = usedSoftTypeFallback || typedAgain.usedSoftFallback;
+      }
+    }
   }
 
   if (priceTarget) {
@@ -401,10 +442,24 @@ function searchForContext(query, limit = 8, options = {}) {
     ranked = data.items
       .map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }))
       .sort((a, b) => b.s - a.s);
-    if (propertyTypes.length) ranked = filterByPropertyTypes(ranked, propertyTypes);
-    if (macroRegions.length) ranked = filterByMacroRegions(ranked, macroRegions);
+    if (macroRegions.length) {
+      const regional = filterByMacroRegions(ranked, macroRegions);
+      if (regional.length) ranked = regional;
+    }
+    if (propertyTypes.length) {
+      const typed = applyPropertyTypeFilter(ranked, propertyTypes);
+      ranked = typed.ranked;
+      usedSoftTypeFallback = typed.usedSoftFallback;
+    }
     if (microAreaGroupIds.length) ranked = filterByMicroAreas(ranked, microAreaGroupIds);
-    if (priceTarget) ranked = filterByPriceTarget(ranked, priceTarget);
+    if (propertyTypes.length && ranked.length) {
+      const typedAgain = applyPropertyTypeFilter(ranked, propertyTypes);
+      if (typedAgain.ranked.length) ranked = typedAgain.ranked;
+    }
+    if (priceTarget) {
+      const priceFiltered = filterByPriceTarget(ranked, priceTarget);
+      if (priceFiltered.length) ranked = priceFiltered;
+    }
     ranked = ranked.slice(0, Math.max(limit, 1));
   }
 
@@ -437,16 +492,37 @@ function searchForContext(query, limit = 8, options = {}) {
       ? ` Price band ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (do not suggest much cheaper).`
       : priceTarget && lang === 'es'
         ? ` Rango ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (no ofrezcas mucho más barato).`
-        : priceTarget
-          ? ` Коридор цены ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (не предлагай сильно дешевле).`
-          : '';
+        : priceTarget && lang === 'de'
+          ? ` Preiskorridor ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (nicht deutlich günstiger vorschlagen).`
+          : priceTarget && lang === 'fr'
+            ? ` Fourchette ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (ne pas proposer nettement moins cher).`
+            : priceTarget
+              ? ` Коридор цены ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (не предлагай сильно дешевле).`
+              : '';
+
+  const typeHint =
+    usedSoftTypeFallback && lang === 'en'
+      ? ' NOTE: exact type scarce here — close residential alternatives only (never mix business into homes). Tell the client briefly.'
+      : usedSoftTypeFallback && lang === 'es'
+        ? ' NOTA: poco stock del tipo exacto — solo alternativas residenciales cercanas (nunca mezclar negocio con vivienda). Dilo brevemente.'
+        : usedSoftTypeFallback && lang === 'de'
+          ? ' HINWEIS: wenig exakter Typ — nur nahe Wohn-Alternativen (nie Business unter Wohnungen mischen). Kurz erwähnen.'
+          : usedSoftTypeFallback && lang === 'fr'
+            ? ' NOTE: peu de stock du type exact — seulement alternatives résidentielles proches (jamais mélanger business et logement). À dire brièvement.'
+            : usedSoftTypeFallback
+              ? ' ВАЖНО: точного типа в зоне мало — только близкие жилые альтернативы (никогда не подмешивай бизнес к апартаментам/виллам). Кратко скажи клиенту.'
+              : '';
 
   const header =
     lang === 'en'
-      ? `[Full catalog: ${totalInDb} listings; search picked ${lines.length} diverse matches below — use only these URLs.${priceHint}]`
+      ? `[Full catalog: ${totalInDb} listings; search picked ${lines.length} diverse matches below — use only these URLs.${priceHint}${typeHint}]`
       : lang === 'es'
-        ? `[Catálogo completo: ${totalInDb} anuncios; abajo ${lines.length} opciones variadas — solo estos enlaces.${priceHint}]`
-        : `[Полный каталог: ${totalInDb} объектов; ниже ${lines.length} разных вариантов по запросу — другие ссылки не выдумывай.${priceHint}]`;
+        ? `[Catálogo completo: ${totalInDb} anuncios; abajo ${lines.length} opciones variadas — solo estos enlaces.${priceHint}${typeHint}]`
+        : lang === 'de'
+          ? `[Vollständiger Katalog: ${totalInDb} Objekte; unten ${lines.length} passende Varianten — nur diese URLs verwenden.${priceHint}${typeHint}]`
+          : lang === 'fr'
+            ? `[Catalogue complet: ${totalInDb} annonces; ci-dessous ${lines.length} options — utiliser uniquement ces liens.${priceHint}${typeHint}]`
+            : `[Полный каталог: ${totalInDb} объектов; ниже ${lines.length} разных вариантов по запросу — другие ссылки не выдумывай.${priceHint}${typeHint}]`;
 
   return {
     found: true,
@@ -531,6 +607,8 @@ function getCatalogSiteUrl(lang) {
   const l = normalizeLang(lang);
   if (l === 'es') return 'https://housetenerife.eu/es/';
   if (l === 'en') return 'https://housetenerife.eu/';
+  if (l === 'de') return 'https://housetenerife.eu/de/';
+  if (l === 'fr') return 'https://housetenerife.eu/fr/';
   return 'https://housetenerife.eu/ru/';
 }
 

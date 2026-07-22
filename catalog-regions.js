@@ -6,9 +6,10 @@
 const MACRO_REGIONS = {
   tenerife: {
     id: 'tenerife',
-    labels: { ru: 'Тенерифе / Канары', en: 'Tenerife / Canary Islands', es: 'Tenerife / Canarias' },
+    labels: { ru: 'Тенерифе / Канары', en: 'Tenerife / Canary Islands', es: 'Tenerife / Canarias', de: 'Teneriffa / Kanaren', fr: 'Tenerife / Canaries' },
     keywords: [
       'tenerife',
+      'teneriffa',
       'тенериф',
       'канар',
       'canary',
@@ -27,6 +28,9 @@ const MACRO_REGIONS = {
       'puerto de la cruz',
       'puerto colon',
       'golf del sur',
+      'гольфреда',
+      'golfreda',
+      'amarilla golf',
       'el medano',
       'medano',
       'santa cruz',
@@ -47,12 +51,17 @@ const MACRO_REGIONS = {
       'san miguel',
       'caldera del rey',
       'roque del conde',
-      'abama'
+      'abama',
+      'el duque',
+      'la orotava',
+      'las galletas',
+      'amarilla',
+      'chayofa'
     ]
   },
   dubai: {
     id: 'dubai',
-    labels: { ru: 'Дубай', en: 'Dubai', es: 'Dubái' },
+    labels: { ru: 'Дубай', en: 'Dubai', es: 'Dubái', de: 'Dubai', fr: 'Dubaï' },
     keywords: [
       'dubai',
       'dubaj',
@@ -68,31 +77,48 @@ const MACRO_REGIONS = {
       'эмират',
       'dubai marina',
       'business bay',
-      'palm jumeirah'
+      'palm jumeirah',
+      'dubai hills',
+      'дубай хиллс'
     ]
   },
   ibiza: {
     id: 'ibiza',
-    labels: { ru: 'Ибица', en: 'Ibiza', es: 'Ibiza' },
+    labels: { ru: 'Ибица', en: 'Ibiza', es: 'Ibiza', de: 'Ibiza', fr: 'Ibiza' },
     keywords: [
       'ibiza',
       'ибиц',
+      'ибиза',
+      'ивица',
       'eivissa',
+      'эйвисса',
       'santa eulalia',
       'santa eulària',
+      'санта еулалия',
+      'санта эулалия',
       'sant antoni',
+      'san antonio',
+      'san antoni',
+      'сан антонио',
+      'сан антони',
+      'сант антони',
+      'portmany',
+      'портмани',
       'sant josep',
       'cala jondal',
       'cala conta',
       'es cubells',
       'es cavallet',
       'cap martinet',
-      'can furnet'
+      'can furnet',
+      'jesus',
+      'jesús',
+      'хесус'
     ]
   },
   marbella: {
     id: 'marbella',
-    labels: { ru: 'Марбелья / Costa del Sol', en: 'Marbella / Costa del Sol', es: 'Marbella / Costa del Sol' },
+    labels: { ru: 'Марбелья / Costa del Sol', en: 'Marbella / Costa del Sol', es: 'Marbella / Costa del Sol', de: 'Marbella / Costa del Sol', fr: 'Marbella / Costa del Sol' },
     keywords: [
       'marbella',
       'марбел',
@@ -114,7 +140,7 @@ const MACRO_REGIONS = {
   },
   malaga: {
     id: 'malaga',
-    labels: { ru: 'Малага', en: 'Málaga / Malaga', es: 'Málaga' },
+    labels: { ru: 'Малага', en: 'Málaga / Malaga', es: 'Málaga', de: 'Málaga', fr: 'Málaga' },
     keywords: [
       'malaga',
       'málaga',
@@ -128,7 +154,7 @@ const MACRO_REGIONS = {
   },
   barcelona: {
     id: 'barcelona',
-    labels: { ru: 'Барселона', en: 'Barcelona', es: 'Barcelona' },
+    labels: { ru: 'Барселона', en: 'Barcelona', es: 'Barcelona', de: 'Barcelona', fr: 'Barcelone' },
     keywords: [
       'barcelona',
       'барселон',
@@ -146,7 +172,9 @@ const MACRO_REGIONS = {
 const REGION_OPTIONS_PROMPT = {
   ru: 'Тенерифе, Дубай, Ибица, Марбелья, Малага, Барселона',
   en: 'Tenerife, Dubai, Ibiza, Marbella, Malaga, Barcelona',
-  es: 'Tenerife, Dubái, Ibiza, Marbella, Málaga, Barcelona'
+  es: 'Tenerife, Dubái, Ibiza, Marbella, Málaga, Barcelona',
+  de: 'Teneriffa, Dubai, Ibiza, Marbella, Málaga, Barcelona',
+  fr: 'Tenerife, Dubaï, Ibiza, Marbella, Málaga, Barcelone'
 };
 
 function itemSearchBlob(item) {
@@ -157,7 +185,7 @@ function itemSearchBlob(item) {
     item?.url,
     item?.id
   ];
-  for (const lang of ['ru', 'es', 'en']) {
+  for (const lang of ['ru', 'es', 'en', 'de', 'fr']) {
     parts.push(item?.titles?.[lang], item?.descriptions?.[lang], item?.overviews?.[lang], item?.urls?.[lang]);
   }
   return parts.filter(Boolean).join(' ');
@@ -225,23 +253,44 @@ function getPrimaryMacroRegion(item) {
  * @returns {{ regions: string[], hasRegion: boolean, label: string }}
  */
 function keywordMatchesText(keyword, text) {
-  const k = keyword.toLowerCase();
-  if (text.includes(k)) return true;
-  if (k === 'дубай' && /дуба[йею]/.test(text)) return true;
-  if (k === 'ibiza' && /ибиц/.test(text)) return true;
-  if (k === 'marbella' && /марбел/.test(text)) return true;
-  if (k === 'malaga' && /малаг/.test(text)) return true;
-  if (k === 'barcelona' && /барселон/.test(text)) return true;
-  if (k === 'tenerife' && /тенериф/.test(text)) return true;
+  const { textIncludesPhrase, textMatchesLocationPhrase, normalizeText } = require('./location-matching');
+  const t = normalizeText(text);
+  const k = normalizeText(keyword);
+  if (!k) return false;
+  if (textIncludesPhrase(t, k)) return true;
+  // Опечатки для топонимов длиной ≥5 (Tenerife/Adeje/Marbella…)
+  if (k.length >= 5 && textMatchesLocationPhrase(t, k)) return true;
+  // Короткие стемы для макрорегионов (ибиц → ибица / ибицы)
+  if (k === 'дубай' && /дуба[йиеюя]/.test(t)) return true;
+  if (k === 'ибиц' && /ибиц|ибиза|ивица|eivissa|эйвисс/.test(t)) return true;
+  if (k === 'ibiza' && /ибиц|ибиза|ивица|eivissa|эйвисс/.test(t)) return true;
+  if (k === 'marbella' && /марбел|марбея/.test(t)) return true;
+  if (k === 'марбел' && /марбел|марбея|marbella/.test(t)) return true;
+  if ((k === 'malaga' || k === 'málaga') && /малаг/.test(t)) return true;
+  if (k === 'малаг' && /малаг|malaga/.test(t)) return true;
+  if (k === 'barcelona' && /барселон|барса\b/.test(t)) return true;
+  if (k === 'барселон' && /барселон|barcelona|барса\b/.test(t)) return true;
+  if (k === 'tenerife' && /тенериф/.test(t)) return true;
+  if (k === 'тенериф' && /тенериф|tenerife/.test(t)) return true;
+  if (k === 'dubai' && /дуба[йиеюя]|dubaj/.test(t)) return true;
+  if (k === 'dubaj' && /дуба[йиеюя]|dubai|dubaj/.test(t)) return true;
   return false;
 }
 
 function detectRegionPreference(text, lang = 'ru') {
-  const lower = String(text || '').toLowerCase();
+  const lower = String(text || '');
   const regions = new Set();
 
   for (const [id, def] of Object.entries(MACRO_REGIONS)) {
     if (def.keywords.some((k) => keywordMatchesText(k, lower))) regions.add(id);
+  }
+
+  // Район без названия острова (напр. «Сан-Антонио») → макрорегион
+  const { detectMicroAreas, SPECIFIC_AREA_GROUPS } = require('./location-matching');
+  const micro = detectMicroAreas(lower, lang);
+  for (const gid of micro.groupIds || []) {
+    const g = SPECIFIC_AREA_GROUPS.find((x) => x.id === gid);
+    if (g?.macro) regions.add(g.macro);
   }
 
   if (/испани|spain|канар/i.test(lower) && !regions.size) regions.add('tenerife');

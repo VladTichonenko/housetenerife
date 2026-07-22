@@ -98,6 +98,23 @@ function isLikelyDecrypting(msg) {
   return false;
 }
 
+function extractReactionEmoji(msg) {
+  if (!msg) return '';
+  const data = msg._data || msg.rawData || {};
+  const candidates = [
+    msg.reaction,
+    data.reaction,
+    data.reactionText,
+    data.body,
+    typeof msg.body === 'string' ? msg.body : '',
+  ];
+  for (const c of candidates) {
+    const s = String(c || '').trim();
+    if (s && s !== 'null' && s !== 'undefined') return s;
+  }
+  return '';
+}
+
 function isPermanentNonText(msg) {
   const type = msg?.type;
   if (!type) return false;
@@ -172,6 +189,7 @@ function exceededEmptyBodyRetries(msgId) {
 
 module.exports = {
   extractMessageText,
+  extractReactionEmoji,
   resolveMessageText,
   isLikelyDecrypting,
   isPermanentNonText,

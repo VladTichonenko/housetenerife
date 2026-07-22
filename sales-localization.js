@@ -1,6 +1,8 @@
 'use strict';
 
-const SUPPORTED = ['ru', 'en', 'es'];
+const { DE, FR } = require('./sales-packs-de-fr');
+
+const SUPPORTED = ['ru', 'en', 'es', 'de', 'fr'];
 
 function normalizeSalesLang(lang) {
   const l = String(lang || 'ru').toLowerCase().slice(0, 2);
@@ -151,13 +153,13 @@ You sell through *conversation* — warm, confident, human. Think senior investm
       'Area is known. Ask about budget gently — not bluntly "what is your budget?". Meaning: suggest fitting options and avoid clearly unsuitable listings. Example (you may lightly rephrase, same intent): "{budgetQuestionExample}". Guides: up to €300k / €300–600k / €600k+. Type: {propertyTypeLabel}, region: {regionLabel}, area: {microAreaLabel}. One question at the end. No listings yet. Timing question — separate message later, not with budget.',
 
     NEED_LOCATION:
-      'Ask for a *specific area* in {regionLabel} (examples: {areaOptionsPrompt}). One question only. Do NOT ask budget yet. No listings yet — applies to Tenerife, Dubai, Ibiza, Marbella, Málaga and Barcelona.',
+      'Ask for a *specific area* in {regionLabel}. Offer ONLY these real areas from the catalog: {areaOptionsPrompt}. Never invent district names. One question only. Do NOT ask budget yet. No listings yet.',
 
     SHOW_LISTINGS:
-      'MUST send 3–5 catalog listings NOW (do not loop with more questions, do not promise later): type {propertyTypeLabel}, region {regionLabel}, area {microAreaLabel}. Entire reply in the client dialog language. Same region, area and type only — use only URLs from the catalog block. Format: title, price, one natural benefit line (NEVER write "Why for you:" / "Почему вам:" / "Por qué encaja:"), link. Not far below budget unless they asked. End with: which option feels closest?',
+      'MUST send 3–5 catalog listings NOW (do not loop with more questions, do not promise later): type {propertyTypeLabel}, region {regionLabel}, area {microAreaLabel}. Entire reply in the client dialog language. Same region, area and type only — use only URLs from the catalog block. Format: title, price, one natural benefit line (NEVER write "Why for you:" / "Почему вам:" / "Por qué encaja:"), link. Not far below budget unless they asked. End with: which option feels closest? Never re-ask criteria already in dialog memory.',
 
     REFINE:
-      'Answer their point, then refreshed shortlist: type {propertyTypeLabel}, region {regionLabel}, area {microAreaLabel}, 3–5 options from the catalog block. Rebuild if they changed region, area or type.',
+      'Answer their point. If they want more/similar options — new 3–5 listings NOW using already-known criteria (do NOT re-ask budget/area/type). Format: title, price, one benefit line without "Why for you:" label, link. One question at the end.',
 
     OFFER_MANAGER_CALL:
       'Client is ready for a live contact (asked for manager/call/viewing — or finances on a property are clear). Do not repeat the whole request. Do NOT say "request passed" or "thank you for contacting" or paste manager phone. Warmly offer a 10–15 min call to discuss details and off-market options. End with one yes/no question. 2–4 lines.'
@@ -211,7 +213,7 @@ You sell through *conversation* — warm, confident, human. Think senior investm
 
   systemRules: {
     conversation:
-      'Conversation rules: question → answer → understand them, then shortlist. One clear question per message. Answer their latest message. No corporate filler. 2–4 lines + listings when due. Never promise to send listings later; if criteria are ready, send them in the current reply.',
+      'Conversation rules: question → answer → understand them, then shortlist. One clear question per message. Answer their latest message. No corporate filler. 2–4 lines + listings when due. Never promise to send listings later; if criteria are ready, send them in the current reply. Copy place names exactly as in dialog criteria/catalog (Los Cristianos, Costa Adeje, Sant Antoni) — never invent spellings.',
     criteriaLabels: {
       purpose: 'Goal (home/investment)',
       budget: 'Budget mentioned',
@@ -390,13 +392,13 @@ Vendes con *conversación* — cercano, seguro, humano. Analista senior en Whats
       'La zona ya está clara. Pregunta el presupuesto con tacto — no en bruto «¿cuál es su presupuesto?». Sentido: opciones que encajen y no mostrar inmuebles que claramente no sirven. Ejemplo (puedes parafrasear ligeramente, mismo tono): «{budgetQuestionExample}». Guías: hasta 300k / 300–600k / desde 600k €. Tipo: {propertyTypeLabel}, región: {regionLabel}, zona: {microAreaLabel}. Una pregunta al final. Sin fichas. Plazo de compra — en otro mensaje, no junto al presupuesto.',
 
     NEED_LOCATION:
-      'Pide *zona concreta* en {regionLabel} (ejemplos: {areaOptionsPrompt}). Una sola pregunta. Aún NO preguntes el presupuesto. Sin fichas — Tenerife, Dubái, Ibiza, Marbella, Málaga y Barcelona.',
+      'Pide *zona concreta* en {regionLabel}. Ofrece SOLO estas zonas reales del catálogo: {areaOptionsPrompt}. No inventes nombres de distritos. Una sola pregunta. Aún NO preguntes el presupuesto. Sin fichas.',
 
     SHOW_LISTINGS:
-      'OBLIGATORIO: envía 3–5 fichas AHORA (sin más rondas de preguntas ni «te envío luego»): tipo {propertyTypeLabel}, región {regionLabel}, zona {microAreaLabel}. Toda la respuesta en el idioma del diálogo. Misma región, zona y tipo — solo enlaces del bloque catálogo. Título, precio, *una línea de beneficio sin rótulo «Por qué encaja»*, enlace. Cierra: ¿cuál encaja más?',
+      'OBLIGATORIO: envía 3–5 fichas AHORA (sin más rondas de preguntas ni «te envío luego»): tipo {propertyTypeLabel}, región {regionLabel}, zona {microAreaLabel}. Toda la respuesta en el idioma del diálogo. Misma región, zona y tipo — solo enlaces del bloque catálogo. Título, precio, *una línea de beneficio sin rótulo «Por qué encaja»*, enlace. Cierra: ¿cuál encaja más? No vuelvas a preguntar criterios ya conocidos en la memoria del diálogo.',
 
     REFINE:
-      'Responde al punto y nueva selección: tipo {propertyTypeLabel}, región {regionLabel}, zona {microAreaLabel}, 3–5 opciones del bloque. Rehaz si cambian región, zona o tipo.',
+      'Responde al punto. Si pide más/parecidas — nueva selección 3–5 YA con criterios ya conocidos (NO preguntes de nuevo presupuesto/zona/tipo). Título, precio, beneficio sin rótulo, enlace. Una pregunta al final.',
 
     OFFER_MANAGER_CALL:
       'Cliente listo para contacto humano (pidió manager/llamada/visita — o finanzas del inmueble claras). No repitas todo el pedido. Ofrece una llamada con nuestro manager para hablar de los detalles. Cierra con una pregunta sí/no. NO pidas escribir una palabra clave ni pegues teléfono. 2–4 líneas.'
@@ -426,7 +428,7 @@ Vendes con *conversación* — cercano, seguro, humano. Analista senior en Whats
 
   systemRules: {
     conversation:
-      'Reglas: pregunta → respuesta → entender, luego selección. Una pregunta clara por mensaje. Responde al último mensaje. Sin relleno corporativo. 2–4 líneas + fichas cuando toque. Nunca prometas enviar fichas más tarde; si los criterios están listos, envíalas en esta respuesta.',
+      'Reglas: pregunta → respuesta → entender, luego selección. Una pregunta clara por mensaje. Responde al último mensaje. Sin relleno corporativo. 2–4 líneas + fichas cuando toque. Nunca prometas enviar fichas más tarde; si los criterios están listos, envíalas en esta respuesta. Copia los nombres de zonas exactamente (Los Cristianos, Costa Adeje, Sant Antoni) — sin inventar ortografía.',
     criteriaLabels: {
       purpose: 'Objetivo (vivir/inversión)',
       budget: 'Presupuesto',
@@ -508,10 +510,18 @@ const RU = {
 function buildReplyLanguageRule(targetLang) {
   const code = normalizeSalesLang(targetLang);
   if (code === 'ru') {
-    return `**ЯЗЫК ОТВЕТА (критично):** Отвечай СТРОГО на русском. Весь ответ целиком на одном языке — без английских или испанских фраз, без смеси «половина по-русски / половина по-английски». Подборка объектов, вступление и финальный вопрос — тоже на русском. Не пиши ярлык «Почему вам:». Не переключайся из‑за коротких ok/yes или языка номера телефона.`;
+    return `**ЯЗЫК ОТВЕТА (критично):** Отвечай СТРОГО на русском. Весь ответ целиком на одном языке — без английских или испанских фраз, без смеси «половина по-русски / половина по-английски». Подборка объектов, вступление и финальный вопрос — тоже на русском.
+**Анти-транслит:** никогда не пиши английские слова русскими буквами («Арор»≠Error, «баджет»≠budget). Только нормальная русская лексика («ошибка», «бюджет»).
+Не пиши ярлык «Почему вам:». Не переключайся из‑за коротких ok/yes или языка номера телефона.`;
   }
   if (code === 'es') {
     return `**IDIOMA DE RESPUESTA (crítico):** Responde ESTRICTAMENTE en español. Toda la respuesta en un solo idioma — sin mezclar ruso o inglés. La selección de inmuebles, la intro y la pregunta final también en español. No uses el rótulo «Por qué encaja:». No cambies por ok/yes cortos ni por el idioma del teléfono.`;
+  }
+  if (code === 'de') {
+    return `**ANTWORTSPRACHE (kritisch):** Antworte STRENG auf Deutsch. Die gesamte Antwort in einer Sprache — kein Russisch oder Englisch gemischt. Objektauswahl, Intro und Abschlussfrage ebenfalls auf Deutsch. Nie das Label „Warum für Sie:“ / „Why for you:“. Nicht wegen kurzem ok/yes oder Telefon-Sprache wechseln. Ortsnamen lateinisch genau wie im Katalog.`;
+  }
+  if (code === 'fr') {
+    return `**LANGUE DE RÉPONSE (critique):** Réponds STRICTEMENT en français. Toute la réponse dans une seule langue — sans mélanger russe ou anglais. Sélection, intro et question finale aussi en français. Jamais le rótulo « Pourquoi pour vous: » / « Why for you: ». Ne change pas pour ok/yes courts ni pour la langue du téléphone. Toponymes en latin exacts comme au catalogue.`;
   }
   return `**REPLY LANGUAGE (critical):** Reply STRICTLY in English. Entire reply in one language only — no Russian or Spanish mixed in. Listing intros and the closing question must also be English. Never write the label "Why for you:" / "Why it fits:". Do not switch because of short ok/sí/да or the phone number's language.`;
 }
@@ -524,6 +534,12 @@ function getSearchingListingsMessage(lang) {
   if (code === 'en') {
     return "Okay, I'll pick a few options and send them over :)";
   }
+  if (code === 'de') {
+    return 'Alles klar, ich suche passende Optionen und schicke sie dir :)';
+  }
+  if (code === 'fr') {
+    return 'Parfait, je prépare quelques options et je vous les envoie :)';
+  }
   return 'Окей, сейчас подберу варианты и пришлю вам :)';
 }
 
@@ -531,6 +547,8 @@ function getSalesPack(lang) {
   const code = normalizeSalesLang(lang);
   if (code === 'en') return EN;
   if (code === 'es') return ES;
+  if (code === 'de') return DE;
+  if (code === 'fr') return FR;
   return RU;
 }
 
@@ -553,17 +571,44 @@ function getStageInstruction(lang, stage, dialog) {
   const map = pack.stageInstructions;
   if (!map) return null;
   let text = map[stage] || map.REFINE;
-  const typeLabel = dialog.propertyTypeLabel || (lang === 'es' ? 'por aclarar' : lang === 'en' ? 'TBC' : 'уточняется');
-  const regionLabel = dialog.regionLabel || (lang === 'es' ? 'por aclarar' : lang === 'en' ? 'TBC' : 'уточняется');
+  const code = normalizeSalesLang(lang);
+  const pending =
+    code === 'es'
+      ? 'por aclarar'
+      : code === 'en'
+        ? 'TBC'
+        : code === 'de'
+          ? 'noch offen'
+          : code === 'fr'
+            ? 'à préciser'
+            : 'уточняется';
+  const askClient =
+    code === 'es'
+      ? 'pregunte al cliente'
+      : code === 'en'
+        ? 'ask the client'
+        : code === 'de'
+          ? 'beim Kunden nachfragen'
+          : code === 'fr'
+            ? 'demander au client'
+            : 'уточните у клиента';
+  const theirRequest =
+    code === 'es'
+      ? 'su consulta'
+      : code === 'en'
+        ? 'their request'
+        : code === 'de'
+          ? 'ihre Anfrage'
+          : code === 'fr'
+            ? 'leur demande'
+            : 'их запрос';
+  const typeLabel = dialog.propertyTypeLabel || pending;
+  const regionLabel = dialog.regionLabel || pending;
   const microAreaLabel =
     dialog.microAreaLabel ||
-    (lang === 'es' ? 'por aclarar' : lang === 'en' ? 'TBC' : dialog.hasLocation ? 'уточняется' : '—');
-  const areaOptionsPrompt =
-    dialog.areaOptionsPrompt ||
-    (lang === 'es' ? 'pregunte al cliente' : lang === 'en' ? 'ask the client' : 'уточните у клиента');
-  const callOfferContext =
-    dialog.callOfferContext ||
-    (lang === 'es' ? 'su consulta' : lang === 'en' ? 'their request' : 'их запрос');
+    (dialog.hasLocation ? pending : code === 'ru' ? '—' : pending);
+  const areaOptionsPrompt = dialog.areaOptionsPrompt || askClient;
+  const callOfferContext = dialog.callOfferContext || theirRequest;
   let budgetQuestionExample = dialog.budgetQuestionExample || '';
   if (!budgetQuestionExample && stage === 'NEED_BUDGET') {
     ({ pickBudgetQuestionExample } = require('./budget-questions'));
@@ -601,12 +646,17 @@ function buildSystemPromptBlocks(lang, dialog, budget) {
   const L = pack.systemRules.criteriaLabels;
   return {
     conversation: pack.systemRules.conversation,
-    criteria: `**COLLECTED CRITERIA (do not re-ask if already known):**
+    criteria: `**COLLECTED CRITERIA (from the FULL chat — do not re-ask what is already known):**
 - ${L.purpose}: ${dialog.hasPurpose ? L.yes : L.no}
-- ${L.budget}: ${dialog.hasBudget ? L.yes : 'not yet'}${budget.maxPrice ? ` (up to ~€${budget.maxPrice.toLocaleString('en-US')})` : ''}${budget.minPrice && !budget.maxPrice ? ` (from ~€${budget.minPrice.toLocaleString('en-US')})` : ''}
+- ${L.budget}: ${
+      dialog.hasBudget
+        ? `${L.yes}${dialog.budgetLabel ? ` — ${dialog.budgetLabel}` : budget.maxPrice ? ` — up to €${budget.maxPrice.toLocaleString('en-US')}` : budget.minPrice ? ` — from €${budget.minPrice.toLocaleString('en-US')}` : ''}`
+        : 'not yet'
+    }
 - ${L.region}: ${dialog.hasRegion ? `${L.yes} (${dialog.regionLabel})` : L.regionPending}
 - ${L.tenerifeArea}: ${dialog.hasLocation ? `${L.yes} (${dialog.microAreaLabel || ''})` : dialog.needsMicroArea ? L.no : 'n/a'}
-- ${L.propertyType}: ${dialog.hasType ? `${L.yes} (${dialog.propertyTypeLabel})` : L.typePending}`,
+- ${L.propertyType}: ${dialog.hasType ? `${L.yes} (${dialog.propertyTypeLabel})` : L.typePending}
+${dialog.hasBudget ? `- Do NOT ask for budget again.${dialog.wantsMoreLikeThese ? ' Client wants more/similar — send shortlist now.' : ''}\n` : ''}`,
     catalog: pack.systemRules.catalog,
     mortgage: pack.systemRules.mortgage,
     propertyFinance: pack.systemRules.propertyFinance,

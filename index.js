@@ -27,6 +27,7 @@ const { setupAdminPanel, getAdminPanelStatus } = require('./admin-panel');
 const {
   resolveMessageText,
   isPermanentNonText,
+  extractReactionEmoji,
   trackEmptyBodyRetry,
   clearEmptyBodyRetry,
   exceededEmptyBodyRetries,
@@ -927,7 +928,14 @@ const commandHandlers = {
     try {
       const info = await msg.getChat();
       const statusText = getTranslation(language, 'status');
-      await sendMessageSafely(msg, `${statusText}\n\nЧат: ${info.name || info.id.user || msg.from}`, client);
+      const salesLang = String(language || '').toLowerCase().slice(0, 2);
+      const label =
+        salesLang === 'ru' || salesLang === 'uk' || salesLang === 'be' ? 'Чат' : 'Chat';
+      await sendMessageSafely(
+        msg,
+        `${statusText}\n\n${label}: ${info.name || info.id.user || msg.from}`,
+        client
+      );
     } catch (error) {
       console.error('Ошибка проверки статуса:', error);
       const statusText = getTranslation(language, 'status');
@@ -942,7 +950,17 @@ const commandHandlers = {
       const country = getCountryFromPhone(msg.from);
       const timeZone = getTimeZoneByCountry(country);
       
-      const timeString = now.toLocaleString(language === 'ru' ? 'ru-RU' : language === 'es' ? 'es-ES' : 'en-US', { 
+      const timeString = now.toLocaleString(
+        language === 'ru'
+          ? 'ru-RU'
+          : language === 'es'
+            ? 'es-ES'
+            : language === 'de'
+              ? 'de-DE'
+              : language === 'fr'
+                ? 'fr-FR'
+                : 'en-US',
+        {
         timeZone: timeZone,
         dateStyle: 'full',
         timeStyle: 'long'
@@ -961,12 +979,22 @@ const commandHandlers = {
   
   '/site': async (msg, language, client) => {
     const siteText = getTranslation(language, 'site');
-    const siteUrl = 'https://housetenerife.eu/ru/';
+    const { getCatalogSiteUrl } = require('./property-catalog');
+    const siteUrl = getCatalogSiteUrl(language);
     const response = `${siteText}\n\n${siteUrl}`;
     await sendMessageSafely(msg, response, client);
   },
   '/ping': async (msg, language, client) => {
-    const pong = language === 'ru' ? 'Понг! Бот вас видит.' : 'Pong! Bot sees you.';
+    const pong =
+      language === 'ru'
+        ? 'Понг! Бот вас видит.'
+        : language === 'de'
+          ? 'Pong! Der Bot sieht dich.'
+          : language === 'fr'
+            ? 'Pong! Le bot vous voit.'
+            : language === 'es'
+              ? '¡Pong! El bot te ve.'
+              : 'Pong! Bot sees you.';
     await sendMessageSafely(msg, pong, client);
   },
 
@@ -1805,6 +1833,20 @@ async function handleIncomingMessage(msg, options = {}) {
     }
 
     if (!messageText) {
+      if (msg.type === 'reaction') {
+        const reactionEmoji = extractReactionEmoji(msg);
+        if (reactionEmoji) {
+          clearEmptyBodyRetry(msgId);
+          const chatId = getConversationChatId(msg, chat);
+          if (!isAiDisabled(chatId)) {
+            await sendMessageSafely(msg, reactionEmoji, client);
+            addToHistory(chatId, 'user', reactionEmoji);
+            addToHistory(chatId, 'assistant', reactionEmoji);
+            console.log(`😊 Реакция-сообщение — дублируем смайлик: ${reactionEmoji}`);
+          }
+          return 'processed';
+        }
+      }
       if (isPermanentNonText(msg)) {
         clearEmptyBodyRetry(msgId);
         try {
@@ -2142,6 +2184,42 @@ console.log('📝 Регистрация обработчиков входящи
 client.on('message', (msg) => dispatchIncomingMessage(msg, 'message'));
 client.on('message_create', (msg) => dispatchIncomingMessage(msg, 'message_create'));
 console.log('✅ События message + message_create (дедуп по ID, очередь по чату)');
+
+/** Реакция WhatsApp (тап по смайлику на сообщении) — дублируем тот же эмодзи. */
+client.on('message_reaction', (reaction) => {
+  enqueueForChat(`reaction:${reaction?.senderId || 'unknown'}`, () =>
+    handleMessageReaction(reaction)
+  ).catch((err) => console.warn('⚠️ message_reaction queue:', err.message));
+});
+
+async function handleMessageReaction(reaction) {
+  try {
+    if (!botReady || !reaction) return;
+    const emoji = String(reaction.reaction || '').trim();
+    if (!emoji) return; // сняли реакцию
+
+    const myId = client.info?.wid?._serialized || '';
+    const senderId = String(reaction.senderId || '');
+    if (myId && senderId && (senderId === myId || senderId.startsWith(myId.split('@')[0]))) {
+      return;
+    }
+
+    const parent = reaction.msgId || {};
+    const chatId =
+      parent.remote ||
+      parent._serialized?.split('_').find((p) => /@(c\.us|g\.us|lid)$/.test(p)) ||
+      senderId;
+    if (!chatId) return;
+    if (isAiDisabled(chatId)) return;
+
+    await client.sendMessage(chatId, emoji, { sendSeen: false });
+    addToHistory(chatId, 'user', emoji);
+    addToHistory(chatId, 'assistant', emoji);
+    console.log(`😊 Реакция WhatsApp — дублируем: ${emoji} → ${chatId}`);
+  } catch (err) {
+    console.warn('⚠️ handleMessageReaction:', err.message || err);
+  }
+}
 
 // Обработка ошибок
 client.on('error', (error) => {

@@ -133,38 +133,68 @@ Just write me any message and I will reply!`,
       'Please tell us how to address you (your name).'
   },
   de: {
-    start: 'Hallo! Ich bin dein WhatsApp-Bot. Tippe /help für eine Liste der Befehle.',
+    start:
+      'Hallo! Ich bin Maxim, Investment-Analyst bei House Tenerife. Tippe /help für die Befehle — oder schreib einfach, wofür du Immobilien suchst.',
     help: `Verfügbare Befehle:
-/start - Mit dem Bot arbeiten beginnen
+/start - Gespräch starten
 /help - Hilfe anzeigen
-/status - Bot-Status überprüfen
+/status - Bot-Status
 /time - Aktuelle Zeit
 /site - Katalog housetenerife.eu
 
-Schreibe mir einfach eine Nachricht und ich werde antworten!`,
-    status: 'Bot funktioniert! Status: bereit zum Arbeiten',
+Schreib mir einfach eine Nachricht — ich antworte auf Deutsch.`,
+    status: 'Bot funktioniert! Status: bereit',
     time: 'Aktuelle Zeit:',
     site: 'House Tenerife — Immobilienkatalog:',
     echo: 'Du hast geschrieben:',
-    useHelp: 'Verwende /help für eine Liste der Befehle.',
-    error: 'Beim Verarbeiten der Nachricht ist ein Fehler aufgetreten. Bitte versuche es erneut.'
+    useHelp: 'Verwende /help für die Liste der Befehle.',
+    error: 'Beim Verarbeiten der Nachricht ist ein Fehler aufgetreten. Bitte versuche es erneut.',
+    ciphertext_reply:
+      'Nachricht erhalten, aber ich kann den Text nicht lesen (verschlüsselt/einmalig). Bitte als normalen Text senden.',
+    voice_reply:
+      'Danke für die Sprachnachricht — ich arbeite mit Text. Schreib kurz dein Ziel (wohnen/investieren) oder tippe /help.',
+    manager_handoff:
+      'Perfekt — unser Manager meldet sich bei dir. Du kannst hier weiter schreiben.',
+    manager_handoff_image:
+      'Foto erhalten — unser Manager schaut es sich an und meldet sich.',
+    manager_handoff_link:
+      'Link erhalten — unser Manager prüft ihn und meldet sich.',
+    handoff_ask_name:
+      'Gerne — lass uns einen kurzen Anruf vereinbaren.\n\n*Wie dürfen wir dich ansprechen?*',
+    handoff_name_invalid:
+      'Sag uns bitte, wie wir dich ansprechen sollen (dein Name).'
   },
   fr: {
-    start: 'Bonjour! Je suis votre bot WhatsApp. Tapez /help pour voir la liste des commandes.',
+    start:
+      'Bonjour! Je suis Maxim, analyste d’investissement chez House Tenerife. Tapez /help pour les commandes — ou écrivez simplement ce que vous cherchez.',
     help: `Commandes disponibles:
-/start - Commencer à travailler avec le bot
-/help - Afficher l'aide
-/status - Vérifier l'état du bot
+/start - Démarrer la conversation
+/help - Afficher l’aide
+/status - État du bot
 /time - Heure actuelle
 /site - Catalogue housetenerife.eu
 
-Écrivez-moi simplement un message et je répondrai!`,
-    status: 'Le bot fonctionne! Statut: prêt à travailler',
+Écrivez-moi simplement — je répondrai en français.`,
+    status: 'Le bot fonctionne! Statut: prêt',
     time: 'Heure actuelle:',
-    site: 'Catalogue House Tenerife:',
+    site: 'House Tenerife — catalogue immobilier:',
     echo: 'Vous avez écrit:',
-    useHelp: 'Utilisez /help pour voir la liste des commandes.',
-    error: 'Une erreur s\'est produite lors du traitement du message. Veuillez réessayer.'
+    useHelp: 'Utilisez /help pour la liste des commandes.',
+    error: 'Une erreur s’est produite lors du traitement du message. Veuillez réessayer.',
+    ciphertext_reply:
+      'Message reçu, mais je ne peux pas lire le texte (chiffré/éphémère). Envoyez un message texte normal.',
+    voice_reply:
+      'Merci pour le message vocal — je travaille en texte. Écrivez brièvement votre objectif (habiter/investir) ou /help.',
+    manager_handoff:
+      'Parfait — notre manager vous recontactera. Vous pouvez continuer à écrire ici.',
+    manager_handoff_image:
+      'Photo reçue — notre manager la regardera et vous répondra.',
+    manager_handoff_link:
+      'Lien reçu — notre manager le vérifiera et vous répondra.',
+    handoff_ask_name:
+      'Avec plaisir — organisons un court appel.\n\n*Comment devons-nous vous appeler?*',
+    handoff_name_invalid:
+      'Indiquez-nous comment vous appeler (votre prénom).'
   },
   it: {
     start: 'Ciao! Sono il tuo bot WhatsApp. Digita /help per vedere l\'elenco dei comandi.',
@@ -328,8 +358,10 @@ function getLanguageFromPhone(phoneNumber) {
  * @returns {string} - Переведенный текст
  */
 function getTranslation(language, key) {
-  const lang = translations[language] || translations.en;
-  return lang[key] || translations.en[key] || key;
+  const raw = String(language || 'en').toLowerCase().slice(0, 2);
+  const mapped = raw === 'uk' || raw === 'be' ? 'ru' : raw;
+  const langPack = translations[mapped] || translations.en;
+  return langPack[key] || translations.en[key] || translations.ru[key] || key;
 }
 
 /**

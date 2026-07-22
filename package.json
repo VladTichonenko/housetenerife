@@ -11,6 +11,7 @@
     "build:web": "npm run build",
     "sync-db": "node scripts/sync-properties.js",
     "enrich-i18n": "node scripts/enrich-properties-i18n.js",
+    "validate-urls": "node scripts/validate-catalog-urls.js",
     "test-ai-key": "node scripts/test-ai-key.js",
     "ingest-file-doc": "node scripts/ingest-file-doc.js"
   },

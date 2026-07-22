@@ -29,6 +29,24 @@ const TYPE_LABELS = {
     commercial: 'inmuebles comerciales',
     business: 'negocio en venta',
     investment: 'proyectos de inversión'
+  },
+  de: {
+    apartments: 'Apartments / Wohnungen',
+    villas: 'Villen',
+    houses: 'Häuser / Reihenhäuser',
+    land: 'Grundstücke',
+    commercial: 'Gewerbeimmobilien',
+    business: 'Business zum Verkauf',
+    investment: 'Investment- / Entwicklungsprojekte'
+  },
+  fr: {
+    apartments: 'appartements',
+    villas: 'villas',
+    houses: 'maisons / townhouses',
+    land: 'terrains',
+    commercial: 'immobilier commercial',
+    business: 'business à vendre',
+    investment: 'projets d’investissement'
   }
 };
 
@@ -36,7 +54,20 @@ const TYPE_LABELS = {
 const TYPE_OPTIONS_PROMPT = {
   ru: 'апартаменты, вилла, дом, земля, коммерция, готовый бизнес, инвест-проект',
   en: 'apartments, villa, house, land, commercial, business, investment project',
-  es: 'apartamentos, villa, casa, terreno, comercial, negocio, proyecto de inversión'
+  es: 'apartamentos, villa, casa, terreno, comercial, negocio, proyecto de inversión',
+  de: 'Apartment, Villa, Haus, Grundstück, Gewerbe, Business, Investitionsprojekt',
+  fr: 'appartement, villa, maison, terrain, commercial, business, projet d’investissement'
+};
+
+/** Если точного типа нет в зоне — мягкий fallback только внутри «семьи» (не бизнес↔жильё). */
+const SOFT_TYPE_FALLBACK = {
+  apartments: ['houses'],
+  houses: ['apartments', 'villas'],
+  villas: ['houses'],
+  land: ['investment'],
+  commercial: ['business'],
+  business: ['commercial'],
+  investment: ['land']
 };
 
 function extractPropertyTypeFromOverview(overview) {
@@ -45,32 +76,121 @@ function extractPropertyTypeFromOverview(overview) {
 }
 
 /**
- * Категории объекта из поля overview каталога.
+ * Разбор одной метки «Property type | …» → категории.
+ * Порядок важен: первая метка = primary.
+ */
+function categoriesFromTypeLabel(label) {
+  const lower = String(label || '').toLowerCase();
+  if (!lower.trim()) return [];
+  const cats = [];
+  const add = (id) => {
+    if (!cats.includes(id)) cats.push(id);
+  };
+
+  // Явные составные / каталожные формулировки
+  if (/апартамент|apartments?|apartamentos?|appartement|wohnung|pisos?|flats?|пентхаус|penthouse|студи|studio/i.test(lower)) {
+    add('apartments');
+  }
+  if (/вилл|villas?|villen?/i.test(lower)) add('villas');
+  if (
+    /таунхаус|townhouse|reihenhaus|коттедж|дома\b|\bhouses?\b|\bcasas?\b|\bhäuser\b|\bhauser\b|\bmaisons?\b/i.test(
+      lower
+    )
+  ) {
+    add('houses');
+  }
+  if (/земл|\bland\b|terreno|grundstück|grundstuck|terrain|участк/i.test(lower)) add('land');
+  if (
+    /коммерческ|commercial\s+propert|inmuebles?\s+comercial|gewerbeimmobil|immobilier\s+commercial|local\s+comercial/i.test(
+      lower
+    )
+  ) {
+    add('commercial');
+  }
+  if (
+    /бизнес\s+на\s+продаж|business\s+for\s+sale|negocio\s+en\s+venta|ресторан|бар(?:ы|а|ов)?|кафе|\bотел|\bhotel|car\s+rental|аренд[аы]\s+авто|fonds\s+de\s+commerce|geschäft\s+zu\s+verkaufen/i.test(
+      lower
+    )
+  ) {
+    add('business');
+  }
+  if (/инвест|девелоп|investment|development|anlageprojekt|projet\s+d.?investissement/i.test(lower)) {
+    add('investment');
+  }
+
+  return cats;
+}
+
+function collectOverviews(item) {
+  const parts = [item?.overview];
+  for (const lang of ['ru', 'es', 'en', 'de', 'fr']) {
+    parts.push(item?.overviews?.[lang]);
+  }
+  return parts.filter(Boolean);
+}
+
+/**
+ * Категории объекта: сначала поле Property type (надёжно), иначе эвристика по тексту.
  * @returns {string[]}
  */
 function getItemPropertyCategories(item) {
-  const parts = [item?.overview];
-  for (const lang of ['ru', 'es', 'en']) {
-    parts.push(item?.overviews?.[lang]);
+  const overviews = collectOverviews(item);
+  const fromLabels = [];
+  for (const ov of overviews) {
+    const label = extractPropertyTypeFromOverview(ov);
+    if (!label) continue;
+    for (const c of categoriesFromTypeLabel(label)) {
+      if (!fromLabels.includes(c)) fromLabels.push(c);
+    }
   }
-  const raw = parts.filter(Boolean).join(' | ');
-  const lower = raw.toLowerCase();
-  const cats = new Set();
-
-  if (/апартамент|apartment/i.test(lower)) cats.add('apartments');
-  if (/вилл|\bvillas?\b/i.test(lower)) cats.add('villas');
-  if (/\bдом|\bhouses?\b|\bcasas?\b/i.test(lower) && !/апартамент/i.test(lower)) cats.add('houses');
-  if (/земл|\bland\b|terreno/i.test(lower)) cats.add('land');
-  if (/коммерческ|commercial/i.test(lower)) cats.add('commercial');
-  if (/бизнес|business|ресторан|бар|кафе|negocio/i.test(lower)) cats.add('business');
-  if (/инвест|девелоп|investment|development/i.test(lower)) cats.add('investment');
-
-  if (!cats.size && raw) {
-    if (/вилл/i.test(lower)) cats.add('villas');
-    else if (/апартамент/i.test(lower)) cats.add('apartments');
+  if (fromLabels.length) {
+    // Houzez иногда помечает таунхаусы как «Апартаменты»
+    const titleBlob = [item?.title, item?.titles?.ru, item?.titles?.en, item?.titles?.es]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    if (/таунхаус|townhouses?|reihenhaus/i.test(titleBlob)) {
+      const corrected = fromLabels.filter((c) => c !== 'apartments');
+      if (!corrected.includes('houses')) corrected.unshift('houses');
+      return corrected.length ? corrected : ['houses'];
+    }
+    return fromLabels;
   }
 
-  return [...cats];
+  // Fallback: заголовок + описание (без слова business/commerce в свободном тексте — слишком шумно)
+  const blob = [
+    item?.title,
+    item?.titles?.ru,
+    item?.titles?.en,
+    item?.titles?.es,
+    item?.description,
+    item?.descriptions?.ru,
+    ...overviews
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  const cats = [];
+  const add = (id) => {
+    if (!cats.includes(id)) cats.push(id);
+  };
+
+  if (/апартамент|\bapartments?\b|apartamentos?|appartement|\bwohnung|\bpisos?\b|\bflats?\b|пентхаус|penthouse/i.test(blob)) {
+    add('apartments');
+  }
+  if (/\bвилл|\bvillas?\b|\bvillen?\b/i.test(blob)) add('villas');
+  if (/таунхаус|townhouse|reihenhaus|коттедж|(?:^|[^а-яё])дом(?:а|у|ом|е)?(?:[^а-яё]|$)/i.test(blob)) {
+    add('houses');
+  }
+  if (/участ[ое]к|\bземл|\bplot\b|\bland\b|terreno|grundstück/i.test(blob)) add('land');
+  if (/ресторан|бар\b|кафе|готовый\s+бизнес|бизнес\s+на\s+продаж|negocio\s+en\s+venta|business\s+for\s+sale/i.test(blob)) {
+    add('business');
+  }
+  if (/коммерческ|commercial\s+propert|local\s+comercial/i.test(blob)) add('commercial');
+  if (/инвест(?:иционн|ировать)|девелоп|development\s+project/i.test(blob)) add('investment');
+
+  return cats;
 }
 
 /**
@@ -82,32 +202,65 @@ function detectPropertyTypePreference(text, lang = 'ru') {
   const types = new Set();
 
   const lifePurposeOnly =
-    /(?:для\s+)?(?:жизни|себя|семьи|проживания)|переезд|relocate|live\s+in/i.test(lower) &&
-    !/апартамент|вилл|земл|коммерч|бизнес|участок|квартир/i.test(lower);
+    /(?:для\s+)?(?:жизни|себя|семьи|проживания)|переезд|relocate|live\s+in|para\s+vivir|wohnen|habiter/i.test(
+      lower
+    ) &&
+    !/апартамент|\bapartments?\b|apartament|квартир|\bpisos?\b|вилл|\bvillas?\b|земл|коммерч|бизнес|участок|\bcasas?\b|wohnung|appartement/i.test(
+      lower
+    );
 
-  if (/земл|участок|terreno|\bplot\b|\bland\b/i.test(lower)) types.add('land');
-  if (/коммерческ|commercial\s+property|офис|магазин|склад|торгов|помещени|local\s+comercial/i.test(lower)) {
+  if (/земл|участок|terreno|\bplot\b|\bland\b|grundstück|grundstuck|terrain/i.test(lower)) {
+    types.add('land');
+  }
+  if (
+    /коммерческ|commercial\s+property|офис|магазин|склад|торгов|помещени|local\s+comercial|gewerbeimmobil/i.test(
+      lower
+    )
+  ) {
     types.add('commercial');
   }
   if (
-    /бизнес\s+на\s+продаж|готовый\s+бизнес|ресторан|бар|кафе|\bотель\b|\bhotel\b|car\s+rental|аренд[аы]\s+авто|negocio/i.test(
+    /бизнес\s+на\s+продаж|готовый\s+бизнес|ресторан|бар|кафе|\bотель\b|\bhotel\b|car\s+rental|аренд[аы]\s+авто|negocio\s+en\s+venta|business\s+for\s+sale|geschäft\s+zu\s+verkaufen|fonds\s+de\s+commerce/i.test(
       lower
     )
   ) {
     types.add('business');
   }
-  if (/девелоп|инвестиционн|development\s+project|investment\s+project/i.test(lower)) {
+  if (
+    /девелоп|инвестиционн(?:ый|ые|ых)?\s+проект|development\s+project|investment\s+project|anlageprojekt|projet\s+d.?investissement/i.test(
+      lower
+    )
+  ) {
     types.add('investment');
   }
-  if (/апартамент|квартир|apartment|\bflat\b|студи|studio|пентхаус|penthouse/i.test(lower)) {
+
+  // EN apartment(s) ≠ ES apartamento — оба варианта
+  if (
+    /апартамент|квартир|\bapartments?\b|apartamentos?|apartament|appartement|\bwohnung|\bpisos?\b|\bflats?\b|студи|studio|пентхаус|penthouse/i.test(
+      lower
+    )
+  ) {
     types.add('apartments');
   }
-  if (/dubai|дубай|dubaj/i.test(lower) && /апартамент|apartment|вилл|villa/i.test(lower)) {
-    types.add('apartments');
+  if (/вилл|\bvillas?\b|\bvillen?\b/i.test(lower)) types.add('villas');
+  if (
+    /таунхаус|townhouse|коттедж|частный\s+дом|\bcasas?\b|\bhäuser\b|\bhauser\b|\bmaisons?\b|reihenhaus/i.test(
+      lower
+    )
+  ) {
+    types.add('houses');
   }
-  if (/вилл|\bvilla\b/i.test(lower)) types.add('villas');
-  if (/таунхаус|townhouse|коттедж|частный\s+дом/i.test(lower)) types.add('houses');
-  if (!lifePurposeOnly && /\bдом\b/.test(lower) && !types.has('apartments')) types.add('houses');
+  if (!lifePurposeOnly && /\bдом\b/.test(lower) && !types.has('apartments')) {
+    types.add('houses');
+  }
+
+  // Не смешивать жильё и бизнес в одном запросе без явного «и»
+  if (types.has('apartments') || types.has('villas') || types.has('houses')) {
+    if (!/и\s+(бизнес|ресторан)|plus\s+business|and\s+business|und\s+business/i.test(lower)) {
+      types.delete('business');
+      types.delete('commercial');
+    }
+  }
 
   const list = [...types];
   const chain = TYPE_LABELS[lang] ? lang : 'ru';
@@ -117,24 +270,10 @@ function detectPropertyTypePreference(text, lang = 'ru') {
 }
 
 function getPrimaryPropertyCategory(item) {
-  const parts = [item?.overview, item?.overviews?.ru, item?.overviews?.es, item?.overviews?.en];
-  for (const ov of parts) {
-    const raw = extractPropertyTypeFromOverview(ov);
-    if (!raw) continue;
-    const first = raw.split(',')[0].trim();
-    const cats = new Set();
-    const lower = first.toLowerCase();
-    if (/апартамент|apartment|dubai/i.test(lower)) cats.add('apartments');
-    if (/вилл|\bvillas?\b/i.test(lower)) cats.add('villas');
-    if (/\bдом|\bhouses?\b|\bcasas?\b/i.test(lower)) cats.add('houses');
-    if (/земл|\bland\b|terreno/i.test(lower)) cats.add('land');
-    if (/коммерческ|commercial/i.test(lower)) cats.add('commercial');
-    if (/бизнес|business|ресторан|бар|кафе|negocio/i.test(lower)) cats.add('business');
-    if (/инвест|девелоп|investment|development/i.test(lower)) cats.add('investment');
-    if (cats.size) return [...cats][0];
-  }
+  // Единый путь с getItemPropertyCategories (в т.ч. коррекция таунхаусов)
   const all = getItemPropertyCategories(item);
-  return all[0] || null;
+  if (all.length) return all[0];
+  return null;
 }
 
 function itemMatchesPropertyTypes(item, wantedTypes) {
@@ -146,7 +285,10 @@ function itemMatchesPropertyTypes(item, wantedTypes) {
     const want = wantedTypes[0];
     if (!itemCats.includes(want)) return false;
     const primary = getPrimaryPropertyCategory(item);
-    return !primary || primary === want;
+    // Primary должен совпадать; исключает «Апартаменты, Виллы» когда primary=апартаменты — ок,
+    // но если primary=вилла при запросе апартаментов — отсекаем.
+    if (primary && primary !== want) return false;
+    return true;
   }
 
   return wantedTypes.every((t) => itemCats.includes(t));
@@ -156,9 +298,26 @@ function scorePropertyTypeFit(item, wantedTypes) {
   if (!wantedTypes?.length) return 0;
   const itemCats = getItemPropertyCategories(item);
   if (!itemCats.length) return -8;
-  const match = wantedTypes.some((t) => itemCats.includes(t));
-  if (match) return 28;
-  return -40;
+  const primary = getPrimaryPropertyCategory(item);
+  if (wantedTypes.includes(primary)) return 36;
+  if (wantedTypes.some((t) => itemCats.includes(t))) return 18;
+  // Чужой тип (вилла при запросе апартаментов / бизнес при жилье) — сильный штраф
+  return -55;
+}
+
+/**
+ * Мягкие типы-замены, если точных совпадений в выборке нет.
+ * Жильё никогда не подменяется бизнесом и наоборот.
+ */
+function expandSoftPropertyTypes(wantedTypes) {
+  if (!wantedTypes?.length) return [];
+  const out = new Set();
+  for (const t of wantedTypes) {
+    for (const s of SOFT_TYPE_FALLBACK[t] || []) out.add(s);
+  }
+  // Убрать пересечение с уже запрошенным
+  for (const t of wantedTypes) out.delete(t);
+  return [...out];
 }
 
 function formatPropertyTypeOptions(lang = 'ru') {
@@ -174,12 +333,14 @@ function formatDetectedTypes(types, lang = 'ru') {
 module.exports = {
   TYPE_LABELS,
   TYPE_OPTIONS_PROMPT,
+  SOFT_TYPE_FALLBACK,
   extractPropertyTypeFromOverview,
   getItemPropertyCategories,
   getPrimaryPropertyCategory,
   detectPropertyTypePreference,
   itemMatchesPropertyTypes,
   scorePropertyTypeFit,
+  expandSoftPropertyTypes,
   formatPropertyTypeOptions,
   formatDetectedTypes
 };

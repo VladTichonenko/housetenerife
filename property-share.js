@@ -8,7 +8,7 @@ function catalog() {
 
 // RU/ES: /ru/property/… /es/property/… — EN: /property/… (без /en/, такого пути на сайте нет)
 const PROPERTY_URL_RE =
-  /https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en))?\/property\/[^\s<>\])"'}]+/gi;
+  /https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr))?\/property\/[^\s<>\])"'}]+/gi;
 
 /** Любая ссылка на housetenerife.eu (в т.ч. выдуманные /objekt/123). */
 const ANY_HT_URL_RE =
@@ -94,7 +94,7 @@ function repairKnownUrlSpacing(text) {
     .replace(/(housetenerife\.eu)\s*\/\s*/gi, '$1/')
     // Только доклейка кусков slug у /property/…, не «objekt/123 closest»
     .replace(
-      /(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en))?\/property\/[a-z0-9-]*)\s+([a-z0-9-]+\/?)/gi,
+      /(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr))?\/property\/[a-z0-9-]*)\s+([a-z0-9-]+\/?)/gi,
       '$1$2'
     );
 }
@@ -129,7 +129,7 @@ function splitGluedUrlTail(rawUrl) {
 
   // …/objekt/11223Whichone → …/objekt/11223 + Whichone
   const gluedDigits = url.match(
-    /^(https?:\/\/(?:www\.)?housetenerife\.eu\/(?:(?:ru|es|en)\/)?[a-z]+\/\d{2,})([A-Za-zА-Яа-яЁё].*)$/i
+    /^(https?:\/\/(?:www\.)?housetenerife\.eu\/(?:(?:ru|es|en|de|fr)\/)?[a-z]+\/\d{2,})([A-Za-zА-Яа-яЁё].*)$/i
   );
   if (gluedDigits) {
     return { url: gluedDigits[1], tail: gluedDigits[2] };
@@ -137,7 +137,7 @@ function splitGluedUrlTail(rawUrl) {
 
   // …/property/some-slug + ExtraWord (только если хвост с заглавной — иначе ломает villa-391)
   const prop = url.match(
-    /^(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en))?\/property\/[a-z0-9-]+\/?)([A-ZА-ЯЁ][A-Za-zА-Яа-яЁё].*)$/
+    /^(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr))?\/property\/[a-z0-9-]+\/?)([A-ZА-ЯЁ][A-Za-zА-Яа-яЁё].*)$/
   );
   if (prop) {
     return { url: prop[1], tail: prop[2] };
@@ -154,11 +154,6 @@ function formatUrlTail(tail) {
     .replace(/^Whichone\b/i, 'Which one')
     .replace(/^Какойвариант\b/i, 'Какой вариант');
   return /^[A-ZА-ЯЁ]/.test(t) ? `\n${t}` : ` ${t}`;
-}
-
-function isRealPropertyPath(pathname) {
-  const p = String(pathname || '').replace(/\/+$/, '');
-  return /^\/(?:(?:ru|es)\/)?property\/[a-z0-9][a-z0-9-]{2,}$/i.test(p);
 }
 
 function isCatalogPropertyUrl(url) {
@@ -235,24 +230,11 @@ function repairPropertyUrlsInText(text, lang, preferredUrls = []) {
       return `${getShareUrl(item, lang)}${suffix}`;
     }
 
-    try {
-      const pathname = new URL(sliced).pathname;
-      const normalizedPath = pathname.replace(/^\/en\/property\//i, '/property/');
-      if (/\/property\//i.test(pathname) && isRealPropertyPath(normalizedPath)) {
-        const fixed = stripInvalidEnPrefix(sliced);
-        if (!isCatalogPropertyUrl(fixed)) {
-          const pref = nextPreferred();
-          if (pref) return `${pref}${suffix}`;
-        }
-        return `${fixed}${suffix}`;
-      }
-    } catch {
-      /* fall through */
-    }
-
+    // Любой housetenerife.eu URL вне каталога — подмена из preferred или удаление.
+    // Раньше «правдоподобные» /property/slug оставлялись → 404 у клиента.
     const pref = nextPreferred();
     if (pref) return `${pref}${suffix}`;
-    return tail || '';
+    return suffix.trimStart();
   });
 
   return out.replace(/[ \t]{2,}/g, ' ').replace(/ \n/g, '\n').trim();
@@ -269,7 +251,8 @@ function localizeUrlsInText(text, lang) {
     const item = findItemByUrl(url);
     const suffix = formatUrlTail(tail);
     if (item) return `${getShareUrl(item, lang)}${suffix}`;
-    return `${stripInvalidEnPrefix(url)}${suffix}`;
+    // Не оставляем битые /property/… slug'и
+    return suffix.trimStart();
   });
 }
 

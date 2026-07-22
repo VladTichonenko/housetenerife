@@ -79,27 +79,29 @@ function wantsManagerHandoff(text) {
   if (!t) return false;
   const lower = t.toLowerCase().replace(/\s+/g, ' ');
 
-  if (/^(менеджер|manager|mánager|менеджера|hablar con (el )?manager|contact manager)$/i.test(lower)) {
+  if (/^(менеджер|manager|mánager|менеджера|hablar con (el )?manager|contact manager|anruf|appel)$/i.test(lower)) {
     return true;
   }
 
   const managerWord = /(?:менеджер|manager|mánager|максим|maxim|kulikov|куликов)/i;
   const intent =
-    /(?:хочу|хотел|нужен|нужна|можно|связ|соедин|подключ|переда|передай|позов|напиш|напишите|поговор|говор|позвон|звон|живой|человек|человека|свяжите|свяжитесь|call|speak|talk|contact|connect|human|agent|realtor|asesor|gestor)/i;
+    /(?:хочу|хотел|нужен|нужна|можно|связ|соедин|подключ|переда|передай|позов|напиш|напишите|поговор|говор|позвон|звон|живой|человек|человека|свяжите|свяжитесь|call|speak|talk|contact|connect|human|agent|realtor|asesor|gestor|anruf|anrufen|gespräch|appel|appeler|parler)/i;
 
   if (managerWord.test(lower) && intent.test(lower)) return true;
 
   if (
-    /(?:связь|contacto|contact)\s+(?:с\s+)?(?:менеджер|manager|максим|maxim)/i.test(lower)
+    /(?:связь|contacto|contact|anruf|appel)\s+(?:с\s+|mit\s+|avec\s+)?(?:менеджер|manager|максим|maxim)/i.test(
+      lower
+    )
   ) {
     return true;
   }
 
-  if (/(?:передай|передайте|forward).{0,40}(?:менеджер|manager|максим)/i.test(lower)) {
+  if (/(?:передай|передайте|forward|weiterleiten).{0,40}(?:менеджер|manager|максим)/i.test(lower)) {
     return true;
   }
 
-  if (/(?:want|need|get).{0,25}(?:manager|human|agent)/i.test(lower)) {
+  if (/(?:want|need|get|möchte|brauche|voudrais|besoin).{0,25}(?:manager|human|agent|anruf|appel)/i.test(lower)) {
     return true;
   }
 
@@ -199,27 +201,32 @@ function detectCallOfferInAssistantText(text) {
  * Краткий контекст для предложения созвона (текущий шаг диалога).
  */
 function buildCallOfferContext(dialog, lang = 'ru') {
-  const l = ['ru', 'en', 'es'].includes(lang) ? lang : 'en';
+  const l = ['ru', 'en', 'es', 'de', 'fr'].includes(lang) ? lang : 'en';
   const type = dialog?.propertyTypeLabel;
   const region = dialog?.regionLabel;
   const area = dialog?.microAreaLabel;
   const stage = dialog?.stage;
+  const pendingRe = /уточняется|TBC|por aclarar|noch offen|à préciser/i;
 
   if (dialog?.hasPropertyInterest) {
     if (l === 'en') return 'the property you liked and next steps';
     if (l === 'es') return 'la propiedad que te interesa y los siguientes pasos';
+    if (l === 'de') return 'die Immobilie, die Sie interessiert, und die nächsten Schritte';
+    if (l === 'fr') return 'le bien qui vous intéresse et les prochaines étapes';
     return 'понравившийся объект и следующие шаги';
   }
 
   const parts = [];
-  if (type && !/уточняется|TBC|por aclarar/i.test(type)) parts.push(type);
-  if (region && !/уточняется|TBC|por aclarar/i.test(region)) parts.push(region);
-  if (area && area !== '—' && !/уточняется|TBC|por aclarar/i.test(area)) parts.push(area);
+  if (type && !pendingRe.test(type)) parts.push(type);
+  if (region && !pendingRe.test(region)) parts.push(region);
+  if (area && area !== '—' && !pendingRe.test(area)) parts.push(area);
 
   if (parts.length) {
-    const joined = parts.join(l === 'ru' ? ', ' : ', ');
+    const joined = parts.join(', ');
     if (l === 'en') return `your search (${joined})`;
     if (l === 'es') return `tu búsqueda (${joined})`;
+    if (l === 'de') return `Ihre Suche (${joined})`;
+    if (l === 'fr') return `votre recherche (${joined})`;
     return `ваш запрос (${joined})`;
   }
 
@@ -228,36 +235,50 @@ function buildCallOfferContext(dialog, lang = 'ru') {
       ru: 'подбор недвижимости — с чего начать',
       en: 'finding the right property',
       es: 'encontrar la propiedad adecuada',
+      de: 'die passende Immobilie finden',
+      fr: 'trouver le bon bien',
     },
     NEED_REGION: {
       ru: 'выбор региона и возможностей',
       en: 'choosing the right region',
       es: 'elegir la región adecuada',
+      de: 'die passende Region wählen',
+      fr: 'choisir la bonne région',
     },
     NEED_PURPOSE: {
       ru: 'цель покупки и стратегию',
       en: 'your goals and strategy',
       es: 'tus objetivos y estrategia',
+      de: 'Ihr Kaufziel und die Strategie',
+      fr: 'votre objectif et stratégie',
     },
     NEED_BUDGET: {
       ru: 'бюджет и реальные варианты',
       en: 'budget and realistic options',
       es: 'presupuesto y opciones realistas',
+      de: 'Budget und realistische Optionen',
+      fr: 'budget et options réalistes',
     },
     NEED_LOCATION: {
       ru: 'район и локацию',
       en: 'area and location',
       es: 'zona y ubicación',
+      de: 'Zone und Lage',
+      fr: 'zone et emplacement',
     },
     SHOW_LISTINGS: {
       ru: 'подборку объектов',
       en: 'the shortlist and your options',
       es: 'la selección de propiedades',
+      de: 'die Objektauswahl',
+      fr: 'la sélection de biens',
     },
     REFINE: {
       ru: 'ваши пожелания и подборку',
       en: 'your criteria and options',
       es: 'tus criterios y opciones',
+      de: 'Ihre Wünsche und die Auswahl',
+      fr: 'vos critères et la sélection',
     },
   };
 

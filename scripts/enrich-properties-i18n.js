@@ -32,14 +32,36 @@ function isTransientNetError(err) {
 
 function extractAlternatePropertyUrls(html) {
   const out = {};
-  const re = /housetenerife\.eu\/([a-z]{2})\/property\/[^"'#\s]+/gi;
+  const push = (lang, raw) => {
+    if (!lang || !raw) return;
+    let url = String(raw).trim();
+    if (!url.includes('housetenerife.eu') || !/\/property\//i.test(url)) return;
+    if (!url.startsWith('http')) url = url.startsWith('//') ? `https:${url}` : `https://${url}`;
+    url = url.split('#')[0].split('?')[0];
+    out[lang.toLowerCase().slice(0, 2)] = url.endsWith('/') ? url : `${url}/`;
+  };
+
+  // hreflang (EN часто без /en/: /property/slug/)
+  const hreflangRe =
+    /hreflang=["']([a-z]{2}(?:-[a-z]+)?)["'][^>]*href=["']([^"']+)["']|href=["']([^"']+)["'][^>]*hreflang=["']([a-z]{2}(?:-[a-z]+)?)["']/gi;
   let m;
-  while ((m = re.exec(html)) !== null) {
-    const lang = m[1].toLowerCase();
-    let url = m[0];
-    if (!url.startsWith('http')) url = `https://${url}`;
-    out[lang] = url.endsWith('/') ? url : `${url}/`;
+  while ((m = hreflangRe.exec(html)) !== null) {
+    if (m[1] && m[2]) push(m[1], m[2]);
+    else if (m[4] && m[3]) push(m[4], m[3]);
   }
+
+  // /ru|es|fr|…/property/…
+  const pathRe = /housetenerife\.eu\/([a-z]{2})\/property\/[^"'#\s>]+/gi;
+  while ((m = pathRe.exec(html)) !== null) {
+    push(m[1], m[0]);
+  }
+
+  // EN без языкового префикса: housetenerife.eu/property/slug/
+  const enRe = /housetenerife\.eu\/property\/[a-z0-9-]+\/?/gi;
+  while ((m = enRe.exec(html)) !== null) {
+    if (!out.en) push('en', m[0]);
+  }
+
   return out;
 }
 
@@ -88,7 +110,8 @@ async function fetchHtml(url) {
 function missingLangs(item) {
   return LANGS.filter((lang) => {
     const d = item.descriptions?.[lang];
-    return !d || d.length < 40;
+    const u = item.urls?.[lang];
+    return !u || !d || d.length < 40;
   });
 }
 

@@ -17,7 +17,8 @@ const {
   analyzeConversation,
   buildCatalogSearchQuery,
   extractBudgetRange,
-  derivePriceTarget
+  derivePriceTarget,
+  formatBudgetLabel
 } = require('./dialog-context');
 const { maybeAddWarmSmiley, getWarmTonePromptBlock } = require('./reply-warmth');
 const {
@@ -25,6 +26,17 @@ const {
   hasValidCatalogPropertyLinks,
   hasInventedHtLinks
 } = require('./property-share');
+const {
+  fixPhoneticTransliterations,
+  replyMismatchesLanguage,
+  languageRewriteInstruction
+} = require('./reply-language');
+const {
+  mirrorUserEmojiInReply,
+  isEmojiOnlyMessage,
+  pickUserEmoji,
+  limitEmojis
+} = require('./emoji-react');
 
 function truncateKnowledge(knowledge, maxChars) {
   const raw = JSON.stringify(knowledge, null, 2);
@@ -53,7 +65,7 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
 
   const dialog = analyzeConversation(limitedHistory, salesLang);
   const catalogQuery = buildCatalogSearchQuery(limitedHistory) || userQuery;
-  const budget = extractBudgetRange(dialog.allUserText);
+  const budget = dialog.budget || extractBudgetRange(dialog.allUserText);
   const priceTarget = derivePriceTarget(budget);
   const showingListings =
     dialog.stage === 'SHOW_LISTINGS' || dialog.stage === 'REFINE' || dialog.wantsListings;
@@ -121,7 +133,11 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
         ? 'compra inmueble España Canarias'
         : salesLang === 'en'
           ? 'property purchase Spain Canary Islands'
-          : 'покупка недвижимости Испания Канары';
+          : salesLang === 'de'
+            ? 'Immobilienkauf Spanien Kanaren'
+            : salesLang === 'fr'
+              ? 'achat immobilier Espagne Canaries'
+              : 'покупка недвижимости Испания Канары';
     const extra = await webSearchSnippets(`${userQuery} ${webSuffix}`);
     if (extra) {
       webBlock = `\n\n**КРАТКАЯ ВЫДЕРЖКА ИЗ ВЕБ-ПОИСКА:**\n${extra}\n`;
@@ -180,12 +196,13 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
 
   const criteriaBlock =
     salesLang === 'ru'
-      ? `**СОБРАННЫЕ КРИТЕРИИ (не спрашивай повторно, если уже есть):**
+      ? `**СОБРАННЫЕ КРИТЕРИИ (из ВСЕЙ переписки — не спрашивай повторно то, что уже есть):**
 - Цель (жизнь/инвестиция): ${dialog.hasPurpose ? 'да' : 'ещё нет'}
-- Бюджет в переписке: ${dialog.hasBudget ? 'да' : 'ещё нет'}${budget.maxPrice ? ` (ориентир до ~€${budget.maxPrice.toLocaleString('en-US')})` : ''}${budget.minPrice && !budget.maxPrice ? ` (от ~€${budget.minPrice.toLocaleString('en-US')})` : ''}
+- Бюджет: ${dialog.hasBudget ? `да${dialog.budgetLabel || formatBudgetLabel(budget, 'ru') ? ` — ${dialog.budgetLabel || formatBudgetLabel(budget, 'ru')}` : ''}` : 'ещё нет'}
 - Регион: ${dialog.hasRegion ? `да (${dialog.regionLabel})` : `ещё нет — ${dialog.regionOptions}`}
 - Район / зона: ${dialog.hasLocation ? `да (${dialog.microAreaLabel || 'уточнено'})` : dialog.needsMicroArea ? `ещё нет (примеры: ${dialog.areaOptionsPrompt || 'уточнить у клиента'})` : 'не требуется'}
-- Тип объекта: ${dialog.hasType ? `да (${dialog.propertyTypeLabel})` : 'ещё нет — обязательно уточни до подборки'}`
+- Тип объекта: ${dialog.hasType ? `да (${dialog.propertyTypeLabel})` : 'ещё нет — обязательно уточни до подборки'}
+${dialog.hasBudget ? '- ⛔ Бюджет уже назван — НЕ переспрашивай его. Если просят «ещё/похожие» — сразу новая подборка.\n' : ''}${dialog.hasType && dialog.hasRegion && dialog.hasLocation ? '- ⛔ Тип, регион и район известны — не переспрашивай.\n' : ''}`
       : blocks.criteria;
 
   const conversationRules =
@@ -195,7 +212,9 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
 - Не повторяй выбор клиента после каждого сообщения. Отражай его словами только если это снимает сомнение или помогает продать; чаще сразу переходи к следующему точному вопросу.
 - Один понятный вопрос в конце (не три сразу).
 - Не предлагай объекты, пока не ясны цель и тип.
+- Никогда не переспрашивай то, что клиент уже сказал (бюджет, район, тип, цель) — смотри блок «ПАМЯТЬ ДИАЛОГА» / собранные критерии.
 - Никогда не обещай «пришлю через пару минут / позже / через 90 секунд». Если пора показывать объекты — показывай их в этом же ответе. Если рано — задай следующий вопрос.
+- Названия районов и городов копируй БУКВАЛЬНО из блока критериев / каталога (латиница: Costa Adeje, Los Cristianos, Las Américas, Golf del Sur, El Médano, Sant Antoni). Не транслитерируй («Лос Кристианос», «Коста Адеже») и не искажай орфографию.
 - Запрещено: «благодарим за обращение», «запрос передан», «уважаемый клиент», «чем могу помочь» без продолжения.
 - 2–5 коротких строк + список объектов, когда пора.`
       : `**CONVERSATION RULES (mandatory):**
@@ -207,8 +226,9 @@ ${blocks.conversation}`;
   const catalogRules =
     salesLang === 'ru'
       ? `**КАТАЛОГ ОБЪЕКТОВ:**
-Поиск идёт по всей базе (${catalog.totalInDb || 'все'} объектов на сайте); в блоке ниже — лучшие совпадения по критериям переписки. Не утверждай, что «других нет» — предложи уточнить бюджет/район или каталог на сайте.
+Поиск идёт по всей базе (${catalog.totalInDb || 'все'} объектов на сайте); в блоке ниже — лучшие совпадения по критериям переписки. Если блок каталога не пустой — ЗАПРЕЩЕНО писать «нет объектов / ничего нет / в этом районе нет». Показывай то, что есть; если мало — предложи соседний бюджет/зону или сайт. Не утверждай, что «других нет» — предложи уточнить бюджет/район или каталог на сайте.
 На этапах SHOW_LISTINGS / REFINE — покажи 3–5 РАЗНЫХ объектов из блока ниже (название, цена, ссылка, одна фраза почему подходит). Только тот регион${dialog.microAreaLabel ? ` и район (${dialog.microAreaLabel})` : ''}, что выбрал клиент — не подмешивай Adeje, если просили Los Cristianos, и наоборот.
+**Тип объекта:** строго соблюдай запрошенный тип (${dialog.propertyTypeLabel || 'из критериев'}). Если просили апартаменты — не давай виллы и тем более бизнес/рестораны. Если в блоке каталога другой тип — не показывай его клиенту.
 **Цена:** не предлагай варианты сильно дешевле бюджета клиента — только около названной суммы или чуть дороже (премиум/больше метраж), если клиент не просил именно дешевле.
 **Ссылки:** копируй URL из блока каталога БУКВАЛЬНО (формат https://housetenerife.eu/…/property/slug/). Запрещено выдумывать /objekt/123, /object/ID и любые другие пути.
 На этапах FIRST_CONTACT / NEED_* — объекты не вываливай. Регионы каталога: ${dialog.regionOptions} (housetenerife.eu).
@@ -237,6 +257,16 @@ ${blocks.managerHandoff}`;
   const fileDocBlock =
     tier === 'full' ? getFileDocKnowledgeForPrompt(userQuery || dialog.allUserText) : '';
 
+  const lastUserText = lastUserMessage?.text || '';
+  const userEmoji = pickUserEmoji(lastUserText);
+  const emojiReactBlock = userEmoji
+    ? salesLang === 'es'
+      ? `\n**EMOJI DEL CLIENTE:** El cliente usó «${userEmoji}». Incluye el MISMO emoji en tu respuesta (duplícalo). Si el mensaje es solo emoji — responde con ese emoji + una frase corta y la siguiente pregunta del diálogo.\n`
+      : salesLang === 'en'
+        ? `\n**CLIENT EMOJI:** The client used «${userEmoji}». Include the SAME emoji in your reply (mirror it). If the message is emoji-only — reply with that emoji + one short line and the next dialog question.\n`
+        : `\n**СМАЙЛИК КЛИЕНТА:** Клиент прислал «${userEmoji}». Обязательно дублируй ЭТОТ же смайлик в ответе. Если сообщение только из смайлика — ответь им же + одна короткая фраза и следующий вопрос по этапу диалога.\n`
+    : '';
+
   const systemPrompt = `${mainPrompt}
 
 ${siteLabel} ${siteUrl}
@@ -258,7 +288,7 @@ ${salesPlaybookBlock}
 ${getWritingQualityBlock(salesLang)}
 
 ${getWarmTonePromptBlock(salesLang)}
-
+${emojiReactBlock}
 ${langRule}
 
 ${disclaimerLabel}
@@ -271,7 +301,7 @@ ${catalogRules}
 ${catalogBlock}
 ${fileDocBlock ? `\n${fileDocBlock}\n` : ''}${webBlock}
 
-**WHATSAPP:** *bold*, bullets • or 1. One warm 🙂 or :) on conversation stages (see WARM TONE block).`;
+**WHATSAPP:** *bold*, bullets • or 1. One warm 🙂 or :) on conversation stages (see WARM TONE block). If the client sent an emoji — mirror that same emoji.`;
 
 
   const messages = [
@@ -293,13 +323,6 @@ function apiErrorDetailFromResponse(error) {
   const data = error.response?.data;
   if (!data) return '';
   return data.error?.message || data.message || data.detail || '';
-}
-
-function stripEmojis(text) {
-  return text.replace(
-    /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}]/gu,
-    ''
-  );
 }
 
 const URL_PLACEHOLDER_PREFIX = '__HT_URL_';
@@ -334,15 +357,23 @@ function repairKnownUrlSpacing(text) {
     .replace(/(https?:\/\/(?:www\.)?housetenerife\.eu\/[^\s\n]*)\s+([a-z0-9-]+\/?)/gi, '$1$2');
 }
 
+function stripBrokenEmojiArtifacts(text) {
+  // Убираем только «осиротевшие» ZWJ без пиктограммы — сами эмодзи не трогаем
+  return String(text || '').replace(/\u200D(?!\p{Extended_Pictographic})/gu, '');
+}
+
 function polishReply(text) {
   if (!text || typeof text !== 'string') return text;
-  let s = repairKnownUrlSpacing(stripEmojis(text.replace(/\u00A0/g, ' ').replace(/\r\n/g, '\n')));
+  // Раньше stripEmojis вырезал ВСЕ смайлики — из-за этого бот «не реагировал» на эмодзи клиента
+  let s = repairKnownUrlSpacing(
+    limitEmojis(stripBrokenEmojiArtifacts(text.replace(/\u00A0/g, ' ').replace(/\r\n/g, '\n')), 4)
+  );
   const protected = protectUrls(s);
   s = protected.protectedText;
   // Склеенные слова: строчная + заглавная (латиница и кириллица)
   s = s.replace(/([a-zа-яё])([A-ZА-ЯЁ])/g, '$1 $2');
   // Пробел после знаков препинания, если модель его проглотила
-  s = s.replace(/([.!?,:;])([^\s\n\d*])/g, '$1 $2');
+  s = s.replace(/([.!?,:;])([^\s\n\d*🙂😊👍👋])/g, '$1 $2');
   s = restoreUrls(s, protected.urls);
   s = repairKnownUrlSpacing(s);
   s = s.replace(/ {2,}/g, ' ');
@@ -400,18 +431,39 @@ function getWritingQualityBlock(salesLang) {
     return `**TEXT QUALITY (critical for sales):**
 - Flawless spelling, grammar, and punctuation — no typos, no glued words, no broken phrases.
 - Every word must have a space; complete sentences only.
+- Natural fluent English — never Russian transliteration, never Spanglish.
 - At most ONE emoji or text smiley :) per message — add it on greeting and warm replies (Perfecto, Got it, Hi…). Skip only on listings, mortgage, documents, errors.
 - Sound like a real advisor texting on WhatsApp — warm, natural, never robotic or like machine translation.`;
   }
   if (salesLang === 'es') {
     return `**CALIDAD DEL TEXTO (crítico para ventas):**
 - Ortografía, gramática y puntuación impecables — sin faltas, sin palabras pegadas ni frases rotas.
+- Español natural — sin ruso, sin calcos del inglés, sin transliteraciones raras.
 - Cada palabra con su espacio; frases completas.
 - En saludo y confirmaciones cálidas (Perfecto, Hola, Genial) incluye un 🙂 o :) — uno por mensaje. No en fichas, hipoteca ni documentos.
 - Tono humano en WhatsApp — cercano y natural, nunca robótico ni traducción automática.`;
   }
+  if (salesLang === 'de') {
+    return `**TEXTQUALITÄT (kritisch für Verkauf):**
+- Einwandfreie Rechtschreibung, Grammatik und Zeichensetzung — keine Tippfehler, keine zusammengeklebten Wörter.
+- Natürliches Deutsch — kein Russisch, kein steifes Maschinendeutsch.
+- Jedes Wort mit Abstand; vollständige Sätze.
+- Bei Begrüßung und warmen Bestätigungen (Perfekt, Hallo) ein 🙂 oder :) — eines pro Nachricht. Nicht bei Objektlisten, Hypothek oder Dokumenten.
+- Klinge wie ein echter Berater auf WhatsApp — warm, natürlich, nie roboterhaft.`;
+  }
+  if (salesLang === 'fr') {
+    return `**QUALITÉ DU TEXTE (critique pour la vente):**
+- Orthographe, grammaire et ponctuation impeccables — pas de fautes ni mots collés.
+- Français naturel — pas de russe, pas de calques d’anglais.
+- Chaque mot espacé; phrases complètes.
+- À l’accueil et confirmations chaleureuses (Parfait, Bonjour) un 🙂 ou :) — un par message. Pas sur les fiches, l’hypothèque ni les documents.
+- Ton humain WhatsApp — chaleureux et naturel, jamais robotique.`;
+  }
   return `**КАЧЕСТВО ТЕКСТА (критично для продаж):**
 - Без орфографических ошибок, без «склеенных» слов, без обрывков и канцелярита.
+- Пиши НАСТОЯЩИМ русским — запрещена транслитерация английских слов кириллицей.
+  Плохо: «Арор», «баджет», «проперти», «листинг», «хеллоу», «сорри», «плиз».
+  Хорошо: «Ошибка», «бюджет», «объект», «объявление», «привет», «извините», «пожалуйста».
 - Каждое слово отдельно, предложения законченные — перечитай ответ перед отправкой.
 - На приветствии и тёплых репликах (Отлично, Понял, Привет) — один 🙂 или :). Не в подборке, ипотеке, документах.
 - Живой язык опытного риелтора в WhatsApp — тепло и по-человечески, не call-центр и не «переводчик».`;
@@ -463,8 +515,16 @@ async function callAI(messages, tierLabel) {
  * @param {string} userLanguage
  */
 async function askAI(conversationHistory, userLanguage = 'ru') {
+  const salesLangEarly = normalizeSalesLang(userLanguage);
+  const aiNotConfigured =
+    salesLangEarly === 'es'
+      ? 'El servicio de IA no está configurado: define AI_API_KEY y reinicia el bot.'
+      : salesLangEarly === 'en'
+        ? 'AI service is not configured: set AI_API_KEY and restart the bot.'
+        : 'Сервис ИИ не настроен: задайте AI_API_KEY в Railway Variables и перезапустите бота.';
+
   if (!AI_API_KEY || !String(AI_API_KEY).trim()) {
-    return 'Сервис ИИ не настроен: задайте AI_API_KEY в Railway Variables и перезапустите бота.';
+    return aiNotConfigured;
   }
 
   try {
@@ -494,14 +554,40 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
     const listingStage =
       dialog.stage === 'SHOW_LISTINGS' ||
       (dialog.stage === 'REFINE' && dialog.wantsListings);
+    let urlsForRepair = Array.isArray(catalogUrls) ? [...catalogUrls] : [];
+    // Если модель выдумала slug'и, а каталог в промпт не попал — добираем URL для подмены
+    if (
+      (hasInventedHtLinks(reply) || (listingStage && !hasValidCatalogPropertyLinks(reply))) &&
+      !urlsForRepair.length
+    ) {
+      const budget = extractBudgetRange(dialog.allUserText);
+      const priceTarget = derivePriceTarget(budget);
+      const fallback = searchForContext(
+        buildCatalogSearchQuery(conversationHistory) || dialog.allUserText,
+        8,
+        {
+          minPrice: budget.minPrice,
+          maxPrice: budget.maxPrice,
+          priceTarget,
+          propertyTypes: dialog.propertyTypes,
+          macroRegions: dialog.macroRegions,
+          microAreaGroupIds: dialog.microAreaGroupIds || [],
+          microDetection: dialog.microAreas,
+          lang: userLanguage,
+          contextText: dialog.allUserText
+        }
+      );
+      urlsForRepair = Array.isArray(fallback.urls) ? fallback.urls : [];
+    }
     const needsListingLinks =
       listingStage &&
+      urlsForRepair.length > 0 &&
       (!hasValidCatalogPropertyLinks(reply) || hasInventedHtLinks(reply));
     if (needsListingLinks) {
       console.warn(
         '⚠️ AI на этапе подборки без валидных ссылок каталога — переписываю с объектами из каталога'
       );
-      const urlList = (catalogUrls || []).slice(0, 5).join('\n');
+      const urlList = urlsForRepair.slice(0, 5).join('\n');
       reply = await callAI(
         [
           ...messages,
@@ -509,18 +595,40 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
           {
             role: 'user',
             content:
-              `Rewrite: include 3–5 property options NOW. Copy ONLY these exact housetenerife.eu /property/… URLs from the catalog (never invent /objekt/123 or other paths):\n${urlList || '(use URLs from the catalog block in the system message)'}\nKeep the entire reply in the dialog language only (no language mixing). WhatsApp style.`
+              `Rewrite: include 3–5 property options NOW. Copy ONLY these exact housetenerife.eu /property/… URLs from the catalog (never invent /objekt/123 or other paths):\n${urlList}\nKeep the entire reply in the dialog language only (no language mixing). WhatsApp style.`
           }
         ],
         'chat-force-listings'
       );
     }
+    if (replyMismatchesLanguage(reply, salesLang)) {
+      console.warn(
+        `⚠️ AI ответ не на языке диалога (${salesLang}) или с транслитом — переписываю`
+      );
+      reply = await callAI(
+        [
+          ...messages,
+          { role: 'assistant', content: reply },
+          { role: 'user', content: languageRewriteInstruction(salesLang) }
+        ],
+        'chat-lang-rewrite'
+      );
+    }
+    const lastUserMsg =
+      [...(conversationHistory || [])].reverse().find((m) => m.sender === 'user')?.text || '';
     reply = repairPropertyUrlsInText(
-      sanitizeListingWhyLabels(
-        maybeAddWarmSmiley(sanitizeDelayedListingPromise(reply), salesLang, dialog.stage)
+      fixPhoneticTransliterations(
+        sanitizeListingWhyLabels(
+          mirrorUserEmojiInReply(
+            maybeAddWarmSmiley(sanitizeDelayedListingPromise(reply), salesLang, dialog.stage),
+            lastUserMsg,
+            { force: isEmojiOnlyMessage(lastUserMsg) }
+          )
+        ),
+        salesLang
       ),
       userLanguage,
-      catalogUrls
+      urlsForRepair
     );
     return reply;
   } catch (error) {
@@ -528,19 +636,31 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
     console.error('ai-service:', status || error.code || error.message);
 
     if (error.code === 'AI_KEY_MISSING') {
-      return 'Сервис ИИ не настроен: задайте AI_API_KEY в Railway Variables и перезапустите бота.';
+      return aiNotConfigured;
     }
     if (status === 401) {
-      return 'Ошибка авторизации ИИ: проверьте AI_API_KEY в Railway Variables.';
+      return salesLangEarly === 'es'
+        ? 'Error de autorización de IA: revisa AI_API_KEY.'
+        : salesLangEarly === 'en'
+          ? 'AI authorization error: check AI_API_KEY.'
+          : 'Ошибка авторизации ИИ: проверьте AI_API_KEY в Railway Variables.';
     }
     if (status === 402) {
       return (
-        'На счёте DeepSeek нет средств (402). Для бесплатного ИИ зарегистрируйтесь на openrouter.ai, ' +
-        'создайте ключ и в Railway укажите AI_API_URL=https://openrouter.ai/api/v1/chat/completions и AI_MODEL=openrouter/free.'
+        salesLangEarly === 'es'
+          ? 'Sin crédito en la cuenta de IA (402). Prueba OpenRouter free.'
+          : salesLangEarly === 'en'
+            ? 'AI account has no credit (402). Try OpenRouter free.'
+            : 'На счёте DeepSeek нет средств (402). Для бесплатного ИИ зарегистрируйтесь на openrouter.ai, ' +
+              'создайте ключ и в Railway укажите AI_API_URL=https://openrouter.ai/api/v1/chat/completions и AI_MODEL=openrouter/free.'
       );
     }
     if (status === 429 || error.code === 'AI_RATE_LIMIT') {
-      return 'Лимит запросов к ИИ (429). Подождите минуту или смените провайдера (OpenRouter free).';
+      return salesLangEarly === 'es'
+        ? 'Límite de peticiones a la IA (429). Espera un minuto.'
+        : salesLangEarly === 'en'
+          ? 'AI rate limit (429). Wait a minute or switch provider.'
+          : 'Лимит запросов к ИИ (429). Подождите минуту или смените провайдера (OpenRouter free).';
     }
 
     // Только при таймауте/сети — один компактный повтор
@@ -557,13 +677,23 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
           'compact'
         );
         const retryReply = await callAI(messages, 'chat-retry');
+        const salesLangRetry = normalizeSalesLang(userLanguage);
+        const lastUserRetry =
+          [...(conversationHistory || [])].reverse().find((m) => m.sender === 'user')?.text || '';
         return repairPropertyUrlsInText(
-          sanitizeListingWhyLabels(
-            maybeAddWarmSmiley(
-              sanitizeDelayedListingPromise(retryReply),
-              normalizeSalesLang(userLanguage),
-              analyzeConversation(conversationHistory, userLanguage).stage
-            )
+          fixPhoneticTransliterations(
+            sanitizeListingWhyLabels(
+              mirrorUserEmojiInReply(
+                maybeAddWarmSmiley(
+                  sanitizeDelayedListingPromise(retryReply),
+                  salesLangRetry,
+                  analyzeConversation(conversationHistory, userLanguage).stage
+                ),
+                lastUserRetry,
+                { force: isEmojiOnlyMessage(lastUserRetry) }
+              )
+            ),
+            salesLangRetry
           ),
           userLanguage,
           catalogUrls
@@ -573,7 +703,11 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
       }
     }
 
-    return 'Не удалось получить ответ от ИИ. Попробуйте ещё раз через минуту.';
+    return salesLangEarly === 'es'
+      ? 'No pude obtener respuesta de la IA. Inténtalo de nuevo en un minuto.'
+      : salesLangEarly === 'en'
+        ? 'Could not get an AI reply. Please try again in a minute.'
+        : 'Не удалось получить ответ от ИИ. Попробуйте ещё раз через минуту.';
   }
 }
 

@@ -35,12 +35,15 @@ const SHORT_REPLY = {
   hello: 'en',
   hi: 'en',
   hey: 'en',
+  hallo: 'de',
+  bonjour: 'fr',
+  salut: 'fr',
+  merci: 'fr',
+  danke: 'de',
   привет: 'ru',
   здравствуйте: 'ru',
   gracias: 'es',
   thanks: 'en',
-  merci: 'fr',
-  danke: 'de',
 };
 
 const STOP_WORDS = {
@@ -85,6 +88,17 @@ const STOP_WORDS = {
     'budget', 'preis', 'euro', 'tausend',
     'teneriffa', 'spanien', 'dubai', 'marbella', 'barcelona', 'ibiza', 'kanaren',
   ]),
+  fr: new Set([
+    'je', 'nous', 'vous', 'me', 'mon', 'ma', 'mes', 'notre', 'nos', 'votre', 'vos',
+    'le', 'la', 'les', 'un', 'une', 'des', 'et', 'ou', 'mais', 'dans', 'de', 'du', 'au', 'aux', 'a', 'à', 'avec', 'pour', 'par', 'sans', 'sur', 'entre', 'comme', 'où', 'quand', 'pourquoi', 'combien',
+    'bonjour', 'salut', 'bonsoir', 'merci', 's\'il', 'svp', 'oui', 'non', 'ok', 'd\'accord',
+    'veux', 'vouloir', 'voudrais', 'cherche', 'cherchons', 'besoin', 'intéresse', 'aide',
+    'acheter', 'achat', 'investir', 'investissement', 'location', 'vivre', 'déménagement', 'demenagement',
+    'appartement', 'maison', 'villa', 'propriété', 'propriete', 'bien', 'immobilier',
+    'budget', 'prix', 'euro', 'euros', 'mille', 'millions',
+    'tenerife', 'espagne', 'dubai', 'dubaï', 'marbella', 'barcelona', 'barcelone', 'ibiza', 'canaries',
+    'suis', 'avons', 'ai', 'serait', 'aimerais',
+  ]),
 };
 
 const FRANC_ONLY = Object.keys(ISO3_TO_CODE);
@@ -118,7 +132,7 @@ function detectByScript(text) {
 }
 
 function scoreStopWords(words) {
-  const scores = { ru: 0, en: 0, es: 0, de: 0 };
+  const scores = { ru: 0, en: 0, es: 0, de: 0, fr: 0 };
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
     const weight = i < HEAD_WORD_COUNT ? HEAD_WORD_BONUS : 1;
@@ -188,6 +202,10 @@ function isAmbiguousShortReply(text) {
   if (words.length === 1) {
     const w = words[0];
     if (SHORT_REPLY[w] || SHORT_REPLY[trimmed.toLowerCase()]) return true;
+    // Одно служебное EN-слово не должно переключать sticky-язык диалога
+    if (/^(error|sorry|please|thanks|thank|hello|budget|ok|okay|yes|no|hi|hey)$/i.test(w)) {
+      return true;
+    }
   }
   // Цифры, бюджет «300k», эмодзи — без смены языка
   if (words.length <= 3 && words.every((w) => /^\d+[kкм]?$/i.test(w) || /^[€$]$/.test(w))) {
