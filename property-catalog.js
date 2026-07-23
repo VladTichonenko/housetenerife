@@ -183,10 +183,11 @@ function scorePriceFit(price, options = {}) {
     return -4;
   }
   if (maxPrice != null) {
-    if (price >= maxPrice * 0.9 && price <= maxPrice * 1.12) return 14;
-    if (price < maxPrice * 0.85) return -22;
+    if (price > maxPrice * 1.12) return -55;
+    if (price >= maxPrice * 0.78 && price <= maxPrice * 1.08) return 20;
+    if (price < maxPrice * 0.65) return -28;
     if (price <= maxPrice * 1.2) return 4;
-    return -3;
+    return -8;
   }
   if (minPrice != null) {
     if (price >= minPrice && price <= minPrice * 1.15) return 12;
@@ -231,10 +232,10 @@ function filterByMacroRegions(ranked, macroRegions) {
 
 function filterByMicroAreas(ranked, microAreaGroupIds) {
   if (!microAreaGroupIds?.length) return ranked;
-  const filtered = ranked.filter((r) =>
+  // Без тихого fallback на весь остров — иначе Golf del Sur → Adeje
+  return ranked.filter((r) =>
     itemMatchesMicroAreas(r.item, microAreaGroupIds, itemSearchBlob)
   );
-  return filtered.length ? filtered : ranked;
 }
 
 function filterByPropertyTypes(ranked, propertyTypes) {
@@ -291,25 +292,73 @@ function pickDiverseListings(ranked, limit) {
 function itemMatchesPriceTarget(item, priceTarget, relax = 0) {
   const p = parseItemPriceEur(item);
   if (p == null) return relax >= 2;
-  const { floor, ceiling, anchor } = priceTarget;
-  const minP = Math.round(anchor * (0.9 - relax * 0.04));
-  const maxP = Math.round(ceiling * (1.12 + relax * 0.06));
-  return p >= Math.min(floor, minP) && p <= maxP;
+  const { floor, ceiling, anchor, hardMax, hardMin } = priceTarget;
+  // Жёсткий потолок/пол — даже при relax не показывать 890к при бюджете «до 400к»
+  if (hardMax != null && p > hardMax) return false;
+  if (hardMin != null && relax < 2 && p < hardMin * 0.92) return false;
+
+  const minP = Math.round(anchor * (0.88 - relax * 0.06));
+  const maxP = Math.round(ceiling * (1.05 + relax * 0.05));
+  const lo = Math.min(floor, minP);
+  const hi = Math.max(ceiling, maxP);
+  return p >= lo && p <= hi;
 }
 
 function filterByPriceTarget(ranked, priceTarget) {
   if (!priceTarget) return ranked;
   for (const relax of [0, 1, 2]) {
     const filtered = ranked.filter((r) => itemMatchesPriceTarget(r.item, priceTarget, relax));
-    if (filtered.length >= 3) return filtered;
+    if (filtered.length >= 3) {
+      return sortByPriceProximity(filtered, priceTarget.anchor);
+    }
+    if (filtered.length > 0 && relax === 2) {
+      return sortByPriceProximity(filtered, priceTarget.anchor);
+    }
   }
-  const { anchor, ceiling } = priceTarget;
-  const hardMin = Math.round(anchor * 0.88);
-  const hardMax = Math.round(ceiling * 1.18);
-  return ranked.filter((r) => {
+  const { hardMin, hardMax, anchor } = priceTarget;
+  const hard = ranked.filter((r) => {
     const p = parseItemPriceEur(r.item);
     if (p == null) return false;
-    return p >= hardMin && p <= hardMax;
+    if (hardMax != null && p > hardMax) return false;
+    if (hardMin != null && p < hardMin * 0.85) return false;
+    return true;
+  });
+  return sortByPriceProximity(hard.length ? hard : [], anchor);
+}
+
+function sortByPriceProximity(ranked, anchor) {
+  if (!anchor || !ranked?.length) return ranked;
+  return [...ranked].sort((a, b) => {
+    const pa = parseItemPriceEur(a.item);
+    const pb = parseItemPriceEur(b.item);
+    if (pa == null && pb == null) return b.s - a.s;
+    if (pa == null) return 1;
+    if (pb == null) return -1;
+    const da = Math.abs(pa - anchor);
+    const db = Math.abs(pb - anchor);
+    if (da !== db) return da - db;
+    return b.s - a.s;
+  });
+}
+
+/** Жёсткий отсев по min/max бюджета (после soft priceTarget). */
+function filterByHardBudget(ranked, budget) {
+  if (!budget) return ranked;
+  const { minPrice, maxPrice } = budget;
+  if (minPrice == null && maxPrice == null) return ranked;
+  const filtered = ranked.filter((r) => {
+    const p = parseItemPriceEur(r.item);
+    if (p == null) return false;
+    if (maxPrice != null && p > maxPrice * 1.12) return false;
+    if (minPrice != null && p < minPrice * 0.85) return false;
+    return true;
+  });
+  return filtered.length ? filtered : ranked.filter((r) => {
+    // Если совсем пусто — всё равно не отдаём объекты сильно выше max
+    const p = parseItemPriceEur(r.item);
+    if (p == null) return false;
+    if (maxPrice != null && p > maxPrice * 1.12) return false;
+    return true;
   });
 }
 
@@ -436,6 +485,15 @@ function searchForContext(query, limit = 8, options = {}) {
     if (priceFiltered.length) ranked = priceFiltered;
   }
 
+  // Жёсткий потолок бюджета (AI/score не должны протаскивать 890к при «до 400к»)
+  const hardBudget = {
+    minPrice: options.minPrice ?? null,
+    maxPrice: options.maxPrice ?? null
+  };
+  if (hardBudget.minPrice != null || hardBudget.maxPrice != null) {
+    ranked = filterByHardBudget(ranked, hardBudget);
+  }
+
   ranked = pickDiverseListings(ranked, limit);
 
   if (!ranked.length) {
@@ -459,6 +517,9 @@ function searchForContext(query, limit = 8, options = {}) {
     if (priceTarget) {
       const priceFiltered = filterByPriceTarget(ranked, priceTarget);
       if (priceFiltered.length) ranked = priceFiltered;
+    }
+    if (hardBudget.minPrice != null || hardBudget.maxPrice != null) {
+      ranked = filterByHardBudget(ranked, hardBudget);
     }
     ranked = ranked.slice(0, Math.max(limit, 1));
   }

@@ -42,13 +42,13 @@ function analyzeConversation(history, lang = 'ru') {
       lower
     );
 
-  const budget = extractBudgetRange(allUserText);
+  const budget = resolveEffectiveBudget(history, allUserText, lastUser);
   const lastBudget = extractBudgetRange(lastUser);
   const lastHasBudget = budgetHasSignal(lastUser, lastBudget);
   // «любой бюджет» / «кроме цены» — не фильтровать каталог по цене
   const ignoreBudget =
     wantsIgnoreBudget(lastUser) || (!lastHasBudget && wantsIgnoreBudget(allUserText));
-  const hasBudget = budgetHasSignal(allUserText, budget) || ignoreBudget;
+  const hasBudget = budgetHasSignal(allUserText, budget) || ignoreBudget || lastHasBudget;
 
   const microAreas = detectMicroAreas(allUserText, salesLang);
   const hasLocation = microAreas.hasSpecific || microAreas.broadIds.length > 0;
@@ -349,31 +349,61 @@ function extractBudgetRange(text) {
     return { minPrice, maxPrice };
   }
 
-  // до / hasta / up to / максимум
-  const upTo = s.match(
-    /(?:до|макс(?:имум)?|не\s*более|up\s*to|hasta|under|below|bis|jusqu.?à|maximum)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к|tausend)?/i
-  );
-  if (upTo) take(upTo[1], upTo[2], 'max');
+  // до / hasta / up to / максимум — берём ПОСЛЕДНЕЕ «до X» в реплике (повысили бюджет)
+  const upToAll = [
+    ...s.matchAll(
+      /(?:до|макс(?:имум)?|не\s*более|up\s*to|hasta|under|below|bis|jusqu.?à|maximum)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к|tausend)?/gi
+    )
+  ];
+  if (upToAll.length) {
+    const last = upToAll[upToAll.length - 1];
+    take(last[1], last[2], 'max');
+  }
 
-  // от / from / минимум
-  const from = s.match(
-    /(?:от|from|минимум|desde|starting)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к)?/i
-  );
-  if (from) take(from[1], from[2], 'min');
+  // от / from / минимум — последнее
+  const fromAll = [
+    ...s.matchAll(
+      /(?:от|from|минимум|desde|starting|ab)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к)?/gi
+    )
+  ];
+  if (fromAll.length) {
+    const last = fromAll[fromAll.length - 1];
+    take(last[1], last[2], 'min');
+  }
 
-  // около / в районе / around / ~
+  // около / в районе / around / alrededor / ~
   const around = s.match(
-    /(?:около|примерно|в\s+районе|around|about|cerca\s+de|~\s*)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к)?/i
+    /(?:около|примерно|в\s+районе|around|about|cerca\s+de|alrededor(?:\s+de)?|en\s+torno\s+a|~\s*)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к)?/i
   );
   if (around) take(around[1], around[2], 'around');
 
-  // «бюджет 2 миллиона» / «2 млн» / «500к» / «2.5 million»
-  const withUnit = s.matchAll(
+  // «бюджет 2 миллиона» / «2 млн» / «500к» / «2.5 million» / «600000»
+  const withUnit = [...s.matchAll(
     /(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к)(?![а-яёa-z])/gi
-  );
-  for (const m of withUnit) {
+  )];
+  if (withUnit.length) {
+    const m = withUnit[withUnit.length - 1];
     if (maxPrice == null && minPrice == null) take(m[1], m[2], 'around');
     else if (maxPrice == null) take(m[1], m[2], 'max');
+  }
+
+  // Голое крупное число рядом с бюджетом/ценой (600000, 400.000)
+  if (minPrice == null && maxPrice == null) {
+    const bare = [...s.matchAll(/\b(\d{1,3}(?:[.,\s]\d{3})+|\d{5,7})\b/g)];
+    if (bare.length) {
+      const raw = bare[bare.length - 1][1].replace(/[.\s]/g, '').replace(',', '');
+      // European 600.000 → digits; US already handled via upTo often
+      const digits = bare[bare.length - 1][1].replace(/[^\d]/g, '');
+      const v = parseInt(digits, 10);
+      if (Number.isFinite(v) && v >= 50000) {
+        if (/(?:до|hasta|up\s*to|макс|under|below|bis)/i.test(s)) {
+          maxPrice = v;
+        } else {
+          minPrice = Math.round(v * 0.92);
+          maxPrice = Math.round(v * 1.12);
+        }
+      }
+    }
   }
 
   // словесные: до двух миллионов
@@ -459,31 +489,95 @@ function parseBudgetNumber(numStr, unit, fullText) {
 /**
  * Целевой коридор цены для подборки: не уводить клиента на сильно дешёвые объекты.
  * @param {{ minPrice: number|null, maxPrice: number|null }} budget
- * @returns {{ anchor: number, floor: number, ceiling: number }|null}
+ * @param {{ preferNearMax?: boolean }} [opts]
+ * @returns {{ anchor: number, floor: number, ceiling: number, hardMax?: number, hardMin?: number }|null}
  */
-function derivePriceTarget(budget) {
+function derivePriceTarget(budget, opts = {}) {
   const { minPrice, maxPrice } = budget || {};
   if (minPrice == null && maxPrice == null) return null;
 
   let anchor;
   let floor;
   let ceiling;
+  let hardMax;
+  let hardMin;
 
   if (minPrice != null && maxPrice != null) {
     anchor = Math.round((minPrice + maxPrice) / 2);
     floor = Math.round(minPrice * 0.95);
-    ceiling = Math.round(maxPrice * 1.1);
+    ceiling = Math.round(maxPrice * 1.08);
+    hardMin = Math.round(minPrice * 0.88);
+    hardMax = Math.round(maxPrice * 1.12);
   } else if (maxPrice != null) {
-    anchor = maxPrice;
-    floor = Math.round(maxPrice * 0.9);
-    ceiling = Math.round(maxPrice * 1.12);
+    // «до 1 млн» — якорь у верхней границы, не уводить на объекты за полцены
+    anchor = Math.round(maxPrice * (opts.preferNearMax === false ? 0.85 : 0.92));
+    floor = Math.round(maxPrice * 0.7);
+    ceiling = Math.round(maxPrice * 1.08);
+    hardMin = Math.round(maxPrice * 0.55);
+    hardMax = Math.round(maxPrice * 1.12);
   } else {
     anchor = minPrice;
     floor = Math.round(minPrice * 0.95);
-    ceiling = Math.round(minPrice * 1.15);
+    ceiling = Math.round(minPrice * 1.2);
+    hardMin = Math.round(minPrice * 0.9);
+    hardMax = Math.round(minPrice * 1.35);
   }
 
-  return { anchor, floor, ceiling };
+  return { anchor, floor, ceiling, hardMax, hardMin };
+}
+
+/** Клиент просит дороже / повысить бюджет. */
+function wantsMoreExpensive(text) {
+  return /м[aá]s\s+caro|algo\s+m[aá]s\s+caro|дороже|подороже|повыс(?:им|ь|ить)\s+бюджет|увеличи(?:м|ть)\s+бюджет|more\s+expensive|higher\s+budget|bump\s+(?:the\s+)?budget|teurer|plus\s+cher|augmenter\s+le\s+budget/i.test(
+    String(text || '')
+  );
+}
+
+/**
+ * Бюджет: приоритет у последней реплики с цифрами (иначе старое «до 350к» затирает «600к»).
+ */
+function resolveEffectiveBudget(history, allUserText, lastUser) {
+  const userMsgs = (history || []).filter((m) => m.sender === 'user');
+  const lastBudget = extractBudgetRange(lastUser);
+  if (lastBudget.minPrice != null || lastBudget.maxPrice != null) {
+    return applyMoreExpensiveIntent(lastUser, lastBudget, userMsgs);
+  }
+
+  // Идём с конца: первое сообщение с конкретной суммой
+  for (let i = userMsgs.length - 1; i >= 0; i--) {
+    const b = extractBudgetRange(userMsgs[i].text);
+    if (b.minPrice != null || b.maxPrice != null) {
+      return applyMoreExpensiveIntent(lastUser, b, userMsgs);
+    }
+  }
+
+  const fallback = extractBudgetRange(allUserText);
+  return applyMoreExpensiveIntent(lastUser, fallback, userMsgs);
+}
+
+function applyMoreExpensiveIntent(lastUser, budget, userMsgs) {
+  let { minPrice, maxPrice } = budget || {};
+  if (!wantsMoreExpensive(lastUser)) {
+    return { minPrice: minPrice ?? null, maxPrice: maxPrice ?? null };
+  }
+
+  // «Más caro» без новой цифры — сдвигаем предыдущий бюджет вверх
+  const lastHasNumber = extractBudgetRange(lastUser).minPrice != null || extractBudgetRange(lastUser).maxPrice != null;
+  if (!lastHasNumber) {
+    const prev = maxPrice ?? minPrice;
+    if (prev != null) {
+      const raised = Math.round(prev * 1.55);
+      minPrice = Math.round(prev * 1.05);
+      maxPrice = Math.round(raised * 1.12);
+    }
+  } else if (minPrice != null && maxPrice != null) {
+    // Уже задали ~600к — чуть поджимаем пол снизу, чтобы не тащить 300к
+    minPrice = Math.max(minPrice, Math.round(((minPrice + maxPrice) / 2) * 0.85));
+  } else if (maxPrice != null && minPrice == null) {
+    minPrice = Math.round(maxPrice * 0.75);
+  }
+
+  return { minPrice: minPrice ?? null, maxPrice: maxPrice ?? null };
 }
 
 function budgetHasSignal(text, budget) {
@@ -588,6 +682,8 @@ module.exports = {
   buildCatalogSearchQuery,
   extractBudgetRange,
   derivePriceTarget,
+  resolveEffectiveBudget,
+  wantsMoreExpensive,
   formatBudgetLabel,
   buildDialogMemoryBlock,
   budgetHasSignal,
