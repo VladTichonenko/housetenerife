@@ -183,7 +183,7 @@ function replyMismatchesLanguage(text, lang) {
     return false;
   }
 
-  if (salesLang === 'de' || salesLang === 'fr') {
+  if (salesLang === 'de' || salesLang === 'fr' || salesLang === 'pl' || salesLang === 'nl') {
     if (cyr > 20) return true;
     return false;
   }
@@ -219,6 +219,20 @@ function languageRewriteInstruction(lang) {
       'Réécris la dernière réponse STRICTEMENT en français naturel. ' +
       'Sans mélanger russe ou anglais. Toponymes en latin exacts comme au catalogue ' +
       '(Los Cristianos, Costa Adeje, Sant Antoni). Style WhatsApp, ton humain.'
+    );
+  }
+  if (code === 'pl') {
+    return (
+      'Przepisz ostatnią odpowiedź ŚCIŚLE na naturalny polski. ' +
+      'Bez mieszania rosyjskiego ani angielskiego. Toponimy łacińsko dokładnie jak w katalogu ' +
+      '(Los Cristianos, Costa Adeje, Sant Antoni). Styl WhatsApp, ludzki ton.'
+    );
+  }
+  if (code === 'nl') {
+    return (
+      'Herschrijf het laatste antwoord STRENG in natuurlijk Nederlands. ' +
+      'Geen Russisch of Engels erdoorheen. Plaatsnamen Latijns precies zoals in de catalogus ' +
+      '(Los Cristianos, Costa Adeje, Sant Antoni). WhatsApp-stijl, menselijke toon.'
     );
   }
   return (

@@ -27,6 +27,8 @@ const OPENER_PATTERNS = {
   es: /^(Hola|Perfecto|Genial|Vale|Claro|Entendido|De acuerdo|Estupendo|Ok)([!,.]?\s+)/i,
   de: /^(Hallo|Guten Tag|Perfekt|Verstanden|Alles klar|Super|Okay|Ok|Prima)([!,.]?\s+)/i,
   fr: /^(Bonjour|Salut|Parfait|Compris|D.accord|Super|Okay|Ok|Génial)([!,.]?\s+)/i,
+  pl: /^(Cześć|Dzień dobry|Świetnie|Rozumiem|Dobrze|Super|Okay|Ok|Jasne)([!,.]?\s+)/i,
+  nl: /^(Hallo|Goedemorgen|Perfect|Begrepen|Prima|Super|Okay|Ok|Top)([!,.]?\s+)/i,
 };
 
 function hasWarmMarker(text) {
@@ -102,6 +104,12 @@ function getWarmTonePromptBlock(salesLang) {
   }
   if (lang === 'fr') {
     return `**TON CHALEUREUX (WhatsApp):** Aux étapes de conversation (accueil, objectif, type, région, zone, budget) inclure parfois *un* emoji doux 🙂 ou :) — pas à chaque message, oui à l’accueil et environ une réponse chaleureuse sur deux. Exemple: « Parfait :) Quel type de bien… ? » ou « Bonjour, je suis Maxim 🙂 ». Si le client envoie un emoji — le dupliquer. Pas sur les fiches, l’hypothèque ni les documents.`;
+  }
+  if (lang === 'pl') {
+    return `**CIEPLY TON (WhatsApp):** Na etapach rozmowy (powitanie, cel, typ, region, strefa, budżet) czasem dodawaj *jeden* delikatny 🙂 lub :) — nie w każdej wiadomości, tak w powitaniu i mniej więcej co drugiej ciepłej odpowiedzi. Przykład: «Świetnie :) Jaki typ obiektu…?» lub «Cześć, jestem Maxim 🙂». Jeśli klient wysłał emoji — odzwierciedl to samo. Nie w listach ofert, kredycie ani dokumentach.`;
+  }
+  if (lang === 'nl') {
+    return `**WARME TOON (WhatsApp):** In gespreksfasen (begroeting, doel, type, regio, zone, budget) af en toe *één* subtiel 🙂 of :) — niet in elk bericht, wel bij begroeting en ongeveer elke tweede warme reactie. Voorbeeld: «Top :) Welk objecttype…?» of «Hallo, ik ben Maxim 🙂». Als de klant een emoji stuurt — spiegel die. Niet bij objectlijsten, hypotheek of documenten.`;
   }
   return `**ТЁПЛЫЙ ТОН (WhatsApp):** На этапах диалога (приветствие, цель, тип, регион, район, бюджет) иногда добавляй *один* мягкий смайлик 🙂 или скобочки :) — не в каждом сообщении, обязательно в приветствии и примерно в каждом втором тёплом ответе. Если клиент прислал смайлик — *обязательно дублируй его же* в ответе. Пример: «Отлично :) Какой тип объекта…?» или «Привет, я Максим 🙂». Не в подборке со ссылками, не на ипотеке/документах.`;
 }

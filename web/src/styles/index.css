@@ -634,6 +634,12 @@ textarea {
   text-align: right;
 }
 
+.catalog-stats__hint {
+  max-width: 28rem;
+  line-height: 1.35;
+  opacity: 0.9;
+}
+
 .catalog-search {
   display: flex;
   gap: 12px;

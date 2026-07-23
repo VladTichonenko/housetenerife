@@ -25,6 +25,8 @@ const countryToLanguage = {
   'PT': 'pt', // Португалия - португальский
   'BR': 'pt', // Бразилия - португальский
   'PL': 'pl', // Польша - польский
+  'NL': 'nl', // Нидерланды - нидерландский
+  'SR': 'nl', // Суринам - нидерландский
   'TR': 'tr', // Турция - турецкий
   'CN': 'zh', // Китай - китайский
   'JP': 'ja', // Япония - японский
@@ -231,7 +233,8 @@ Apenas me escreva uma mensagem e eu responderei!`,
     error: 'Ocorreu um erro ao processar a mensagem. Tente novamente.'
   },
   pl: {
-    start: 'Cześć! Jestem twoim botem WhatsApp. Wpisz /help, aby zobaczyć listę poleceń.',
+    start:
+      'Cześć! Jestem *Maxim*, analityk inwestycyjny House Tenerife — pomagam z nieruchomościami i projektami inwestycyjnymi (Teneryfa, Dubaj, Ibiza, Marbella, Málaga, Barcelona i więcej, katalog housetenerife.eu).\n\nNa start: szukacie *do życia* czy *na inwestycję*? Albo wpiszcie /help, by zobaczyć komendy.',
     help: `Dostępne polecenia:
 /start - Zacznij pracę z botem
 /help - Pokaż pomoc
@@ -242,10 +245,54 @@ Apenas me escreva uma mensagem e eu responderei!`,
 Po prostu napisz mi wiadomość, a odpowiem!`,
     status: 'Bot działa! Status: gotowy do pracy',
     time: 'Aktualny czas:',
-    site: 'Nasza oficjalna strona House Tenerife, gdzie możesz zobaczyć wszystkie ogłoszenia nieruchomości:',
+    site: 'Oficjalna strona House Tenerife z ofertami:',
     echo: 'Napisałeś:',
     useHelp: 'Użyj /help, aby zobaczyć listę poleceń.',
-    error: 'Wystąpił błąd podczas przetwarzania wiadomości. Spróbuj ponownie.'
+    error: 'Wystąpił błąd podczas przetwarzania wiadomości. Spróbuj ponownie.',
+    ciphertext_reply:
+      'Wiadomość otrzymana, ale nie mogę odczytać tekstu (szyfrowana/jednorazowa). Proszę napisać zwykłym tekstem.',
+    voice_reply:
+      'Nie mogę odsłuchać wiadomości głosowych.\n\nNapisz *tekstem* — albo powiedz, czy chcesz rozmowę z {manager_name} o zapytaniu.',
+    handoff:
+      'Świetnie{client_name_part}! Przekazałem zapytanie — *{manager_name}* napisze na WhatsApp wkrótce.\n\nMożesz też napisać pierwszy: {manager_phone}\n\nTymczasem mogę tu dopracować selekcję lub odpowiedzieć na pytania.',
+    handoff_photo:
+      'Świetnie{client_name_part}! Przekazałem zapytanie — *{manager_name}* napisze na WhatsApp wkrótce.\n\nMożesz też napisać pierwszy: {manager_phone}',
+    handoff_link:
+      'Świetnie{client_name_part}! Przekazałem zapytanie — *{manager_name}* napisze na WhatsApp wkrótce.\n\nMożesz też napisać pierwszy: {manager_phone}',
+    ask_name:
+      'Świetnie, zorganizujmy krótką rozmowę o szczegółach.\n\n*Jak mamy się do Państwa zwracać?*',
+    ask_name_retry: 'Proszę napisać, jak mamy się zwracać (imię).'
+  },
+  nl: {
+    start:
+      'Hallo! Ik ben *Maxim*, investment analyst bij House Tenerife — ik help met vastgoed en investeringsprojecten (Tenerife, Dubai, Ibiza, Marbella, Málaga, Barcelona en meer, catalogus housetenerife.eu).\n\nOm te beginnen: zoeken jullie *om te wonen* of *om te investeren*? Of typ /help voor commando’s.',
+    help: `Beschikbare commando’s:
+/start - Start met de bot
+/help - Toon hulp
+/status - Controleer botstatus
+/time - Huidige tijd
+/site - Ga naar House Tenerife
+
+Schrijf me gewoon een bericht — ik antwoord!`,
+    status: 'Bot werkt! Status: klaar',
+    time: 'Huidige tijd:',
+    site: 'Officiële House Tenerife-site met objecten:',
+    echo: 'Je schreef:',
+    useHelp: 'Gebruik /help voor de lijst met commando’s.',
+    error: 'Er ging iets mis bij het verwerken van het bericht. Probeer opnieuw.',
+    ciphertext_reply:
+      'Bericht ontvangen, maar ik kan de tekst niet lezen (versleuteld/eenmalig). Stuur een normaal tekstbericht.',
+    voice_reply:
+      'Ik kan spraakberichten niet beluisteren.\n\nSchrijf me in *tekst* — of zeg of je een belletje met {manager_name} wilt over je aanvraag.',
+    handoff:
+      'Top{client_name_part}! Ik heb je aanvraag doorgegeven — *{manager_name}* schrijft je zo via WhatsApp.\n\nJe kunt ook eerst zelf schrijven: {manager_phone}\n\nIntussen kan ik hier de selectie verfijnen of vragen beantwoorden.',
+    handoff_photo:
+      'Top{client_name_part}! Ik heb je aanvraag doorgegeven — *{manager_name}* schrijft je zo via WhatsApp.\n\nJe kunt ook eerst zelf schrijven: {manager_phone}',
+    handoff_link:
+      'Top{client_name_part}! Ik heb je aanvraag doorgegeven — *{manager_name}* schrijft je zo via WhatsApp.\n\nJe kunt ook eerst zelf schrijven: {manager_phone}',
+    ask_name:
+      'Prima, laten we een kort belletje plannen voor de details.\n\n*Hoe mogen we je aanspreken?*',
+    ask_name_retry: 'Schrijf alsjeblieft hoe we je moeten aanspreken (je naam).'
   },
   tr: {
     start: 'Merhaba! Ben senin WhatsApp botunum. Komut listesini görmek için /help yazın.',

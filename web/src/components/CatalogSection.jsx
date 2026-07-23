@@ -73,10 +73,14 @@ export default function CatalogSection() {
       <div className="card catalog-stats">
         <div className="catalog-stats__main">
           <span className="catalog-stats__count">{meta.countInDb}</span>
-          <span className="catalog-stats__label">объектов в каталоге</span>
+          <span className="catalog-stats__label">уникальных объектов</span>
         </div>
         <div className="catalog-stats__meta">
           <span>Синхронизация: {formatSyncedAt(meta.syncedAt)}</span>
+          <span className="catalog-stats__hint">
+            На сайте одна квартира = несколько языковых страниц (ru/es/en). В каталоге бота они
+            считаются как один объект (~600–700), а не 1300+.
+          </span>
           {query && (
             <span>
               Найдено: {meta.total} по запросу «{query}»

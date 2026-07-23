@@ -201,18 +201,20 @@ function detectCallOfferInAssistantText(text) {
  * Краткий контекст для предложения созвона (текущий шаг диалога).
  */
 function buildCallOfferContext(dialog, lang = 'ru') {
-  const l = ['ru', 'en', 'es', 'de', 'fr'].includes(lang) ? lang : 'en';
+  const l = ['ru', 'en', 'es', 'de', 'fr', 'pl', 'nl'].includes(lang) ? lang : 'en';
   const type = dialog?.propertyTypeLabel;
   const region = dialog?.regionLabel;
   const area = dialog?.microAreaLabel;
   const stage = dialog?.stage;
-  const pendingRe = /уточняется|TBC|por aclarar|noch offen|à préciser/i;
+  const pendingRe = /уточняется|TBC|por aclarar|noch offen|à préciser|do ustalenia|nog open/i;
 
   if (dialog?.hasPropertyInterest) {
     if (l === 'en') return 'the property you liked and next steps';
     if (l === 'es') return 'la propiedad que te interesa y los siguientes pasos';
     if (l === 'de') return 'die Immobilie, die Sie interessiert, und die nächsten Schritte';
     if (l === 'fr') return 'le bien qui vous intéresse et les prochaines étapes';
+    if (l === 'pl') return 'ofertę, która Państwa interesuje, i kolejne kroki';
+    if (l === 'nl') return 'het object dat u interesseert en de volgende stappen';
     return 'понравившийся объект и следующие шаги';
   }
 
@@ -227,6 +229,8 @@ function buildCallOfferContext(dialog, lang = 'ru') {
     if (l === 'es') return `tu búsqueda (${joined})`;
     if (l === 'de') return `Ihre Suche (${joined})`;
     if (l === 'fr') return `votre recherche (${joined})`;
+    if (l === 'pl') return `Państwa wyszukiwanie (${joined})`;
+    if (l === 'nl') return `uw zoektocht (${joined})`;
     return `ваш запрос (${joined})`;
   }
 
@@ -237,6 +241,8 @@ function buildCallOfferContext(dialog, lang = 'ru') {
       es: 'encontrar la propiedad adecuada',
       de: 'die passende Immobilie finden',
       fr: 'trouver le bon bien',
+      pl: 'dobór nieruchomości — od czego zacząć',
+      nl: 'het juiste object vinden',
     },
     NEED_REGION: {
       ru: 'выбор региона и возможностей',
@@ -244,6 +250,8 @@ function buildCallOfferContext(dialog, lang = 'ru') {
       es: 'elegir la región adecuada',
       de: 'die passende Region wählen',
       fr: 'choisir la bonne région',
+      pl: 'wybór regionu i możliwości',
+      nl: 'de juiste regio kiezen',
     },
     NEED_PURPOSE: {
       ru: 'цель покупки и стратегию',
@@ -251,6 +259,8 @@ function buildCallOfferContext(dialog, lang = 'ru') {
       es: 'tus objetivos y estrategia',
       de: 'Ihr Kaufziel und die Strategie',
       fr: 'votre objectif et stratégie',
+      pl: 'cel zakupu i strategię',
+      nl: 'uw aankoopdoel en strategie',
     },
     NEED_BUDGET: {
       ru: 'бюджет и реальные варианты',
@@ -258,6 +268,8 @@ function buildCallOfferContext(dialog, lang = 'ru') {
       es: 'presupuesto y opciones realistas',
       de: 'Budget und realistische Optionen',
       fr: 'budget et options réalistes',
+      pl: 'budżet i realne opcje',
+      nl: 'budget en realistische opties',
     },
     NEED_LOCATION: {
       ru: 'район и локацию',
@@ -265,6 +277,8 @@ function buildCallOfferContext(dialog, lang = 'ru') {
       es: 'zona y ubicación',
       de: 'Zone und Lage',
       fr: 'zone et emplacement',
+      pl: 'strefę i lokalizację',
+      nl: 'zone en locatie',
     },
     SHOW_LISTINGS: {
       ru: 'подборку объектов',
@@ -272,6 +286,8 @@ function buildCallOfferContext(dialog, lang = 'ru') {
       es: 'la selección de propiedades',
       de: 'die Objektauswahl',
       fr: 'la sélection de biens',
+      pl: 'selekcję ofert',
+      nl: 'de objectselectie',
     },
     REFINE: {
       ru: 'ваши пожелания и подборку',
@@ -279,6 +295,8 @@ function buildCallOfferContext(dialog, lang = 'ru') {
       es: 'tus criterios y opciones',
       de: 'Ihre Wünsche und die Auswahl',
       fr: 'vos critères et la sélection',
+      pl: 'Państwa kryteria i selekcję',
+      nl: 'uw criteria en de selectie',
     },
   };
 

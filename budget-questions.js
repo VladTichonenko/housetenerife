@@ -41,11 +41,29 @@ const BUDGET_QUESTIONS = {
     'Je veux restreindre la recherche à des options pertinentes — quelle fourchette de prix servir de référence ?',
     'Pour éviter les options hors sujet, dans quelle fourchette de prix préférez-vous nous situer ?',
   ],
+  pl: [
+    'Żeby zaproponować naprawdę pasujące opcje i nie pokazywać obiektów, które ewidentnie nie pasują — na jaki zakres ceny lepiej się orientować?',
+    'Chcę pokazać tylko trafne opcje — jaki zakres budżetu jest dla Państwa komfortowy?',
+    'Żeby nie tracić czasu na niepasujące oferty — w jakim przedziale ceny patrzymy?',
+    'Żeby selekcja miała sens — jaki zakres kosztów jest wygodny?',
+    'Chcę zawęzić wyszukiwanie do naprawdę pasujących obiektów — jaki przedział ceny jako orientacja?',
+    'Żeby uniknąć nietrafionych ofert — na jaki zakres ceny mamy się kierować?',
+  ],
+  nl: [
+    'Om echt passende opties voor te stellen en duidelijk ongeschikte objecten te vermijden: op welk prijsbereik moeten we ons richten?',
+    'Ik wil alleen relevante opties tonen — welk budgetbereik voelt comfortabel?',
+    'Om geen tijd te verliezen met onpassende objecten: welke prijsklasse bekijken we?',
+    'Om de selectie zinvol te houden — welk kostenbereik is comfortabel?',
+    'Ik wil de zoektocht beperken tot echt passende objecten — welk prijsbereik als richtlijn?',
+    'Om irrelevante opties te vermijden: welk prijsbereik willen jullie aanhouden?',
+  ],
 };
 
 function normalizeBudgetLang(lang) {
   const code = String(lang || 'ru').toLowerCase().slice(0, 2);
-  if (code === 'ru' || code === 'en' || code === 'es' || code === 'de' || code === 'fr') return code;
+  if (code === 'ru' || code === 'en' || code === 'es' || code === 'de' || code === 'fr' || code === 'pl' || code === 'nl') {
+    return code;
+  }
   return 'en';
 }
 

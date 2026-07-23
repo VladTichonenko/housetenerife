@@ -80,6 +80,14 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
   const maySearchCatalog =
     dialog.hasType && dialog.hasPurpose && (showingListings || tier !== 'full');
 
+  const {
+    extractPropertyItemsFromText,
+    formatLinkedPropertiesForPrompt,
+    getLinkedPropertyStageInstruction
+  } = require('./property-interest');
+  const linkedItems = extractPropertyItemsFromText(userQuery);
+  const hasLinkedProperty = linkedItems.length > 0;
+
   const catalogLimit =
     tier === 'minimal'
       ? 5
@@ -90,7 +98,7 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
           : 8;
 
   let catalog = { found: false, text: '', totalInDb: 0, urls: [] };
-  if (maySearchCatalog) {
+  if (maySearchCatalog && !hasLinkedProperty) {
     catalog = searchForContext(catalogQuery, catalogLimit, {
       minPrice: budget.minPrice,
       maxPrice: budget.maxPrice,
@@ -111,9 +119,25 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
     }
   }
 
+  if (hasLinkedProperty) {
+    const { getShareUrl } = require('./property-share');
+    catalog.found = true;
+    catalog.urls = linkedItems.map((it) => getShareUrl(it, userLanguage)).filter(Boolean);
+  }
+
   const hints = getCatalogHints(salesLang);
   let catalogBlock = '';
-  if (!dialog.hasPurpose && tier === 'full') {
+  if (hasLinkedProperty) {
+    catalogBlock = formatLinkedPropertiesForPrompt(linkedItems, userLanguage);
+    if (!catalogBlock.trim()) {
+      catalogBlock =
+        salesLang === 'es'
+          ? '\n\n(El cliente envió un enlace housetenerife.eu, pero el objeto no está en el catálogo local. Pide la zona/tipo o ofrece llamada.)\n'
+          : salesLang === 'en'
+            ? '\n\n(Client sent a housetenerife.eu link, but it is not in the local catalog. Ask area/type or offer a call.)\n'
+            : '\n\n(Клиент прислал ссылку housetenerife.eu, но объекта нет в локальном каталоге. Уточни район/тип или предложи созвон.)\n';
+    }
+  } else if (!dialog.hasPurpose && tier === 'full') {
     catalogBlock =
       hints?.noPurpose ||
       '\n\n(Цель покупки не ясна — сначала один вопрос: для жизни/переезда или инвестиция? Без объектов и ссылок.)\n';
@@ -145,7 +169,11 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
             ? 'Immobilienkauf Spanien Kanaren'
             : salesLang === 'fr'
               ? 'achat immobilier Espagne Canaries'
-              : 'покупка недвижимости Испания Канары';
+              : salesLang === 'pl'
+                ? 'zakup nieruchomości Hiszpania Wyspy Kanaryjskie'
+                : salesLang === 'nl'
+                  ? 'vastgoed kopen Spanje Canarische Eilanden'
+                  : 'покупка недвижимости Испания Канары';
     const extra = await webSearchSnippets(`${userQuery} ${webSuffix}`);
     if (extra) {
       webBlock = `\n\n**КРАТКАЯ ВЫДЕРЖКА ИЗ ВЕБ-ПОИСКА:**\n${extra}\n`;
@@ -232,7 +260,13 @@ ${blocks.conversation}`;
     tier === 'full' ? getSalesPlaybookBlock(salesLang) : '';
 
   const catalogRules =
-    salesLang === 'ru'
+    hasLinkedProperty
+      ? salesLang === 'ru'
+        ? `**ОБЪЕКТ ПО ССЫЛКЕ:** В блоке ниже — карточка из каталога по ссылке клиента. Расскажи по этим данным (цена, тип, район, 2–3 факта). Не выдумывай. Не предлагай другие объекты, пока клиент не попросит похожие. URL копируй из блока.`
+        : salesLang === 'es'
+          ? `**ENLACE DEL CLIENTE:** El bloque inferior es la ficha del catálogo. Descríbela (precio, tipo, zona, 2–3 datos). No inventes. No ofrezcas otros inmuebles hasta que pida similares. Copia el URL del bloque.`
+          : `**CLIENT LINK:** Block below is the catalog card. Describe it (price, type, area, 2–3 facts). Do not invent. Do not offer other listings until they ask for similar. Copy URL from the block.`
+      : salesLang === 'ru'
       ? `**КАТАЛОГ ОБЪЕКТОВ:**
 Поиск идёт по всей базе (${catalog.totalInDb || 'все'} объектов на сайте); в блоке ниже — лучшие совпадения по критериям переписки. Если блок каталога не пустой — ЗАПРЕЩЕНО писать «нет объектов / ничего нет / в этом районе нет». Показывай то, что есть; если мало — предложи соседний бюджет/зону или сайт. Не утверждай, что «других нет» — предложи уточнить бюджет/район или каталог на сайте.
 На этапах SHOW_LISTINGS / REFINE — покажи 3–5 РАЗНЫХ объектов из блока ниже (название, цена, ссылка, одна фраза почему подходит). Только тот регион${dialog.microAreaLabel ? ` и район (${dialog.microAreaLabel})` : ''}, что выбрал клиент — не подмешивай Adeje, если просили Los Cristianos, и наоборот.
@@ -279,6 +313,13 @@ ${blocks.managerHandoff}`;
         : `\n**СМАЙЛИК КЛИЕНТА:** Клиент прислал «${userEmoji}». Обязательно дублируй ЭТОТ же смайлик в ответе. Если сообщение только из смайлика — ответь им же + одна короткая фраза и следующий вопрос по этапу диалога.\n`
     : '';
 
+  const linkedStageBlock = hasLinkedProperty
+    ? getLinkedPropertyStageInstruction(salesLang)
+    : '';
+  const stageBlock = linkedStageBlock
+    ? `${linkedStageBlock}\n\n(Дальше по воронке, после описания объекта: ${dialog.stageInstruction})`
+    : dialog.stageInstruction;
+
   const systemPrompt = `${mainPrompt}
 
 ${siteLabel} ${siteUrl}
@@ -287,7 +328,7 @@ ${extraConditions}
 ${dialogPathBlock}
 
 ${stageHeader}
-${dialog.stageInstruction}
+${stageBlock}
 
 ${criteriaBlock}
 
@@ -471,6 +512,22 @@ function getWritingQualityBlock(salesLang) {
 - À l’accueil et confirmations chaleureuses (Parfait, Bonjour) un 🙂 ou :) — un par message. Pas sur les fiches, l’hypothèque ni les documents.
 - Ton humain WhatsApp — chaleureux et naturel, jamais robotique.`;
   }
+  if (salesLang === 'pl') {
+    return `**JAKOŚĆ TEKSTU (krytyczne dla sprzedaży):**
+- Bezbłędna ortografia, gramatyka i interpunkcja — bez literówek i sklejonych słów.
+- Naturalny polski — bez rosyjskiego i angielskich kalków.
+- Każde słowo z odstępem; pełne zdania.
+- Przy powitaniu i ciepłych potwierdzeniach (Świetnie, Cześć) jeden 🙂 lub :) — jeden na wiadomość. Nie przy listach ofert, kredycie ani dokumentach.
+- Ludzki ton WhatsApp — ciepło i naturalnie, nigdy jak robot.`;
+  }
+  if (salesLang === 'nl') {
+    return `**TEKSTKWALITEIT (kritisch voor verkoop):**
+- Flawless spelling, grammatica en interpunctie — geen typfouten of plakwoorden.
+- Natuurlijk Nederlands — geen Russisch, geen Engelse calques.
+- Elk woord met spatie; volledige zinnen.
+- Bij begroeting en warme bevestigingen (Top, Hallo) één 🙂 of :) — één per bericht. Niet bij objectlijsten, hypotheek of documenten.
+- Menselijke WhatsApp-toon — warm en natuurlijk, nooit robotachtig.`;
+  }
   return `**КАЧЕСТВО ТЕКСТА (критично для продаж):**
 - Без орфографических ошибок, без «склеенных» слов, без обрывков и канцелярита.
 - Пиши НАСТОЯЩИМ русским — запрещена транслитерация английских слов кириллицей.
@@ -569,7 +626,15 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = []) {
       ? ' (sin límite de precio)'
       : salesLang === 'en'
         ? ' (any price)'
-        : ' (без ограничения цены)'
+        : salesLang === 'de'
+          ? ' (ohne Preislimit)'
+          : salesLang === 'fr'
+            ? ' (sans limite de prix)'
+            : salesLang === 'pl'
+              ? ' (bez limitu ceny)'
+              : salesLang === 'nl'
+                ? ' (geen prijslimiet)'
+                : ' (без ограничения цены)'
     : '';
 
   let intro;
@@ -581,6 +646,10 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = []) {
     intro = `Hier sind passende Optionen${typeLabel ? ` (${typeLabel})` : ''}${area ? ` in ${area}` : ''}${budgetNote}:`;
   } else if (salesLang === 'fr') {
     intro = `Voici des options${typeLabel ? ` (${typeLabel})` : ''}${area ? ` à ${area}` : ''}${budgetNote}:`;
+  } else if (salesLang === 'pl') {
+    intro = `Oto opcje${typeLabel ? ` (${typeLabel})` : ''}${area ? ` w ${area}` : ''}${budgetNote}:`;
+  } else if (salesLang === 'nl') {
+    intro = `Hier zijn passende opties${typeLabel ? ` (${typeLabel})` : ''}${area ? ` in ${area}` : ''}${budgetNote}:`;
   } else {
     intro = `Вот варианты${typeLabel ? ` (${typeLabel})` : ''}${area ? ` в ${area}` : ''}${budgetNote}:`;
   }
@@ -594,7 +663,11 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = []) {
           ? 'Welcher passt besser, oder was sollen wir anpassen?'
           : salesLang === 'fr'
             ? 'Lequel vous convient le mieux, ou que faut-il ajuster ?'
-            : 'Какой ближе, или что скорректируем?';
+            : salesLang === 'pl'
+              ? 'Która bliższa, albo co skorygujemy?'
+              : salesLang === 'nl'
+                ? 'Welke past beter, of wat passen we aan?'
+                : 'Какой ближе, или что скорректируем?';
 
   return `${intro}\n\n${lines.join('\n\n')}\n\n${closer}`;
 }

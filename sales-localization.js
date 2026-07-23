@@ -1,8 +1,9 @@
 'use strict';
 
 const { DE, FR } = require('./sales-packs-de-fr');
+const { PL, NL } = require('./sales-packs-pl-nl');
 
-const SUPPORTED = ['ru', 'en', 'es', 'de', 'fr'];
+const SUPPORTED = ['ru', 'en', 'es', 'de', 'fr', 'pl', 'nl'];
 
 function normalizeSalesLang(lang) {
   const l = String(lang || 'ru').toLowerCase().slice(0, 2);
@@ -523,6 +524,12 @@ function buildReplyLanguageRule(targetLang) {
   if (code === 'fr') {
     return `**LANGUE DE RÉPONSE (critique):** Réponds STRICTEMENT en français. Toute la réponse dans une seule langue — sans mélanger russe ou anglais. Sélection, intro et question finale aussi en français. Jamais le rótulo « Pourquoi pour vous: » / « Why for you: ». Ne change pas pour ok/yes courts ni pour la langue du téléphone. Toponymes en latin exacts comme au catalogue.`;
   }
+  if (code === 'pl') {
+    return `**JĘZYK ODPOWIEDZI (krytyczne):** Odpowiadaj ŚCIŚLE po polsku. Cała odpowiedź w jednym języku — bez mieszania rosyjskiego ani angielskiego. Selekcja, wstęp i pytanie końcowe też po polsku. Nigdy etykieta „Dlaczego dla Państwa:“ / „Why for you:“. Nie zmieniaj języka przez krótkie ok/yes ani język numeru telefonu. Toponimy łacińsko dokładnie jak w katalogu.`;
+  }
+  if (code === 'nl') {
+    return `**ANTWOORDTAAL (kritisch):** Antwoord STRENG in het Nederlands. Het hele antwoord in één taal — geen Russisch of Engels erdoorheen. Selectie, intro en slotvraag ook in het Nederlands. Nooit het label „Waarom voor u:“ / „Why for you:“. Niet wisselen door kort ok/yes of de telefoontaal. Plaatsnamen Latijns precies zoals in de catalogus.`;
+  }
   return `**REPLY LANGUAGE (critical):** Reply STRICTLY in English. Entire reply in one language only — no Russian or Spanish mixed in. Listing intros and the closing question must also be English. Never write the label "Why for you:" / "Why it fits:". Do not switch because of short ok/sí/да or the phone number's language.`;
 }
 
@@ -540,6 +547,12 @@ function getSearchingListingsMessage(lang) {
   if (code === 'fr') {
     return 'Parfait, je prépare quelques options et je vous les envoie :)';
   }
+  if (code === 'pl') {
+    return 'Dobrze, teraz dobiorę kilka opcji i wyślę :)';
+  }
+  if (code === 'nl') {
+    return 'Oké, ik zoek een paar opties uit en stuur ze zo door :)';
+  }
   return 'Окей, сейчас подберу варианты и пришлю вам :)';
 }
 
@@ -549,6 +562,8 @@ function getSalesPack(lang) {
   if (code === 'es') return ES;
   if (code === 'de') return DE;
   if (code === 'fr') return FR;
+  if (code === 'pl') return PL;
+  if (code === 'nl') return NL;
   return RU;
 }
 
@@ -581,7 +596,11 @@ function getStageInstruction(lang, stage, dialog) {
           ? 'noch offen'
           : code === 'fr'
             ? 'à préciser'
-            : 'уточняется';
+            : code === 'pl'
+              ? 'do ustalenia'
+              : code === 'nl'
+                ? 'nog open'
+                : 'уточняется';
   const askClient =
     code === 'es'
       ? 'pregunte al cliente'
@@ -591,7 +610,11 @@ function getStageInstruction(lang, stage, dialog) {
           ? 'beim Kunden nachfragen'
           : code === 'fr'
             ? 'demander au client'
-            : 'уточните у клиента';
+            : code === 'pl'
+              ? 'dopytać klienta'
+              : code === 'nl'
+                ? 'aan de klant vragen'
+                : 'уточните у клиента';
   const theirRequest =
     code === 'es'
       ? 'su consulta'
@@ -601,7 +624,11 @@ function getStageInstruction(lang, stage, dialog) {
           ? 'ihre Anfrage'
           : code === 'fr'
             ? 'leur demande'
-            : 'их запрос';
+            : code === 'pl'
+              ? 'ich zapytanie'
+              : code === 'nl'
+                ? 'hun aanvraag'
+                : 'их запрос';
   const typeLabel = dialog.propertyTypeLabel || pending;
   const regionLabel = dialog.regionLabel || pending;
   const microAreaLabel =

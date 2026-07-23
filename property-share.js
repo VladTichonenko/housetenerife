@@ -8,7 +8,7 @@ function catalog() {
 
 // RU/ES: /ru/property/… /es/property/… — EN: /property/… (без /en/, такого пути на сайте нет)
 const PROPERTY_URL_RE =
-  /https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr))?\/property\/[^\s<>\])"'}]+/gi;
+  /https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[^\s<>\])"'}]+/gi;
 
 /** Любая ссылка на housetenerife.eu (в т.ч. выдуманные /objekt/123). */
 const ANY_HT_URL_RE =
@@ -94,7 +94,7 @@ function repairKnownUrlSpacing(text) {
     .replace(/(housetenerife\.eu)\s*\/\s*/gi, '$1/')
     // Только доклейка кусков slug у /property/…, не «objekt/123 closest»
     .replace(
-      /(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr))?\/property\/[a-z0-9-]*)\s+([a-z0-9-]+\/?)/gi,
+      /(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[a-z0-9-]*)\s+([a-z0-9-]+\/?)/gi,
       '$1$2'
     );
 }
@@ -129,7 +129,7 @@ function splitGluedUrlTail(rawUrl) {
 
   // …/objekt/11223Whichone → …/objekt/11223 + Whichone
   const gluedDigits = url.match(
-    /^(https?:\/\/(?:www\.)?housetenerife\.eu\/(?:(?:ru|es|en|de|fr)\/)?[a-z]+\/\d{2,})([A-Za-zА-Яа-яЁё].*)$/i
+    /^(https?:\/\/(?:www\.)?housetenerife\.eu\/(?:(?:ru|es|en|de|fr|pl|nl)\/)?[a-z]+\/\d{2,})([A-Za-zА-Яа-яЁё].*)$/i
   );
   if (gluedDigits) {
     return { url: gluedDigits[1], tail: gluedDigits[2] };
@@ -137,7 +137,7 @@ function splitGluedUrlTail(rawUrl) {
 
   // …/property/some-slug + ExtraWord (только если хвост с заглавной — иначе ломает villa-391)
   const prop = url.match(
-    /^(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr))?\/property\/[a-z0-9-]+\/?)([A-ZА-ЯЁ][A-Za-zА-Яа-яЁё].*)$/
+    /^(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[a-z0-9-]+\/?)([A-ZА-ЯЁ][A-Za-zА-Яа-яЁё].*)$/
   );
   if (prop) {
     return { url: prop[1], tail: prop[2] };

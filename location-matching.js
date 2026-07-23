@@ -715,11 +715,11 @@ function formatMicroAreaLabel(groupIds, broadIds, lang = 'ru') {
     malaga_coast: { ru: 'Torremolinos / Fuengirola', en: 'Torremolinos / Fuengirola', es: 'Torremolinos / Fuengirola' },
     barcelona_city: { ru: 'Barcelona / Eixample', en: 'Barcelona / Eixample', es: 'Barcelona / Eixample' },
     barcelona_coast: { ru: 'Sitges / Maresme', en: 'Sitges / Maresme', es: 'Sitges / Maresme' },
-    south: { ru: 'юг Тенерифе', en: 'south Tenerife', es: 'sur de Tenerife', de: 'Süden Teneriffa', fr: 'sud de Tenerife' },
-    north: { ru: 'север Тенерифе', en: 'north Tenerife', es: 'norte de Tenerife', de: 'Norden Teneriffa', fr: 'nord de Tenerife' },
-    west: { ru: 'запад Тенерифе', en: 'west Tenerife', es: 'oeste de Tenerife', de: 'Westen Teneriffa', fr: 'ouest de Tenerife' },
+    south: { ru: 'юг Тенерифе', en: 'south Tenerife', es: 'sur de Tenerife', de: 'Süden Teneriffa', fr: 'sud de Tenerife', pl: 'południe Teneryfy', nl: 'zuiden Tenerife' },
+    north: { ru: 'север Тенерифе', en: 'north Tenerife', es: 'norte de Tenerife', de: 'Norden Teneriffa', fr: 'nord de Tenerife', pl: 'północ Teneryfy', nl: 'noorden Tenerife' },
+    west: { ru: 'запад Тенерифе', en: 'west Tenerife', es: 'oeste de Tenerife', de: 'Westen Teneriffa', fr: 'ouest de Tenerife', pl: 'zachód Teneryfy', nl: 'westen Tenerife' },
   };
-  const l = ['ru', 'en', 'es', 'de', 'fr'].includes(lang) ? lang : 'en';
+  const l = ['ru', 'en', 'es', 'de', 'fr', 'pl', 'nl'].includes(lang) ? lang : 'en';
   const parts = [...groupIds, ...broadIds].map((id) => names[id]?.[l] || names[id]?.en || id);
   return parts.join(', ');
 }
@@ -765,7 +765,7 @@ function needsMicroAreaSelection(macroRegions, microAreas) {
  * @param {string} lang
  */
 function getAreaOptionsPrompt(macroRegions, lang = 'ru') {
-  const l = ['ru', 'en', 'es', 'de', 'fr'].includes(lang) ? lang : 'en';
+  const l = ['ru', 'en', 'es', 'de', 'fr', 'pl', 'nl'].includes(lang) ? lang : 'en';
   const regions = (macroRegions || []).filter((r) => REGIONS_REQUIRING_MICRO.includes(r));
   if (!regions.length) return '';
   const parts = regions.map((r) => AREA_OPTIONS_BY_MACRO[r]?.[l] || r);

@@ -47,6 +47,24 @@ const TYPE_LABELS = {
     commercial: 'immobilier commercial',
     business: 'business à vendre',
     investment: 'projets d’investissement'
+  },
+  pl: {
+    apartments: 'apartamenty / mieszkania',
+    villas: 'wille',
+    houses: 'domy / szeregowce',
+    land: 'działki / grunty',
+    commercial: 'nieruchomości komercyjne',
+    business: 'biznes na sprzedaż',
+    investment: 'projekty inwestycyjne / deweloperskie'
+  },
+  nl: {
+    apartments: 'appartementen',
+    villas: 'villa’s',
+    houses: 'huizen / townhouses',
+    land: 'grond / kavels',
+    commercial: 'commercieel vastgoed',
+    business: 'business te koop',
+    investment: 'investerings- / ontwikkelingsprojecten'
   }
 };
 
@@ -56,7 +74,9 @@ const TYPE_OPTIONS_PROMPT = {
   en: 'apartments, villa, house, land, commercial, business, investment project',
   es: 'apartamentos, villa, casa, terreno, comercial, negocio, proyecto de inversión',
   de: 'Apartment, Villa, Haus, Grundstück, Gewerbe, Business, Investitionsprojekt',
-  fr: 'appartement, villa, maison, terrain, commercial, business, projet d’investissement'
+  fr: 'appartement, villa, maison, terrain, commercial, business, projet d’investissement',
+  pl: 'apartament, willa, dom, działka, lokal, biznes, projekt inwestycyjny',
+  nl: 'appartement, villa, huis, grond, commercieel, business, investeringsproject'
 };
 
 /** Если точного типа нет в зоне — мягкий fallback только внутри «семьи» (не бизнес↔жильё). */
@@ -88,33 +108,33 @@ function categoriesFromTypeLabel(label) {
   };
 
   // Явные составные / каталожные формулировки
-  if (/апартамент|apartments?|apartamentos?|appartement|wohnung|pisos?|flats?|пентхаус|penthouse|студи|studio/i.test(lower)) {
+  if (/апартамент|apartments?|apartamentos?|appartement|wohnung|pisos?|flats?|mieszkan|apartament|пентхаус|penthouse|студи|studio/i.test(lower)) {
     add('apartments');
   }
-  if (/вилл|villas?|villen?/i.test(lower)) add('villas');
+  if (/вилл|villas?|villen?|will[aeiyę]/i.test(lower)) add('villas');
   if (
-    /таунхаус|townhouse|reihenhaus|коттедж|дома\b|\bhouses?\b|\bcasas?\b|\bhäuser\b|\bhauser\b|\bmaisons?\b/i.test(
+    /таунхаус|townhouse|reihenhaus|коттедж|дома\b|\bhouses?\b|\bcasas?\b|\bhäuser\b|\bhauser\b|\bmaisons?\b|\bdomy?\b|\bhuizen?\b/i.test(
       lower
     )
   ) {
     add('houses');
   }
-  if (/земл|\bland\b|terreno|grundstück|grundstuck|terrain|участк/i.test(lower)) add('land');
+  if (/земл|\bland\b|terreno|grundstück|grundstuck|terrain|участк|działk|dzialk|kavel|\bgrond\b/i.test(lower)) add('land');
   if (
-    /коммерческ|commercial\s+propert|inmuebles?\s+comercial|gewerbeimmobil|immobilier\s+commercial|local\s+comercial/i.test(
+    /коммерческ|commercial\s+propert|inmuebles?\s+comercial|gewerbeimmobil|immobilier\s+commercial|local\s+comercial|nieruchomośc[iy]?\s+komerc|commercieel\s+vastgoed/i.test(
       lower
     )
   ) {
     add('commercial');
   }
   if (
-    /бизнес\s+на\s+продаж|business\s+for\s+sale|negocio\s+en\s+venta|ресторан|бар(?:ы|а|ов)?|кафе|\bотел|\bhotel|car\s+rental|аренд[аы]\s+авто|fonds\s+de\s+commerce|geschäft\s+zu\s+verkaufen/i.test(
+    /бизнес\s+на\s+продаж|business\s+for\s+sale|negocio\s+en\s+venta|ресторан|бар(?:ы|а|ов)?|кафе|\bотел|\bhotel|car\s+rental|аренд[аы]\s+авто|fonds\s+de\s+commerce|geschäft\s+zu\s+verkaufen|biznes\s+na\s+sprzedaż|business\s+te\s+koop/i.test(
       lower
     )
   ) {
     add('business');
   }
-  if (/инвест|девелоп|investment|development|anlageprojekt|projet\s+d.?investissement/i.test(lower)) {
+  if (/инвест|девелоп|investment|development|anlageprojekt|projet\s+d.?investissement|projekt\s+inwestycyj|investeringsproject/i.test(lower)) {
     add('investment');
   }
 
@@ -123,7 +143,7 @@ function categoriesFromTypeLabel(label) {
 
 function collectOverviews(item) {
   const parts = [item?.overview];
-  for (const lang of ['ru', 'es', 'en', 'de', 'fr']) {
+  for (const lang of ['ru', 'es', 'en', 'de', 'fr', 'pl', 'nl']) {
     parts.push(item?.overviews?.[lang]);
   }
   return parts.filter(Boolean);
@@ -136,7 +156,7 @@ function collectOverviews(item) {
  */
 function getItemPropertyCategories(item) {
   const labelsByLang = {};
-  for (const lang of ['ru', 'en', 'es', 'de', 'fr']) {
+  for (const lang of ['ru', 'en', 'es', 'de', 'fr', 'pl', 'nl']) {
     const ov =
       item?.overviews?.[lang] ||
       (lang === 'ru' ? item?.overview : '') ||
@@ -246,29 +266,29 @@ function detectPropertyTypePreference(text, lang = 'ru') {
     /(?:для\s+)?(?:жизни|себя|семьи|проживания)|переезд|relocate|live\s+in|para\s+vivir|wohnen|habiter/i.test(
       lower
     ) &&
-    !/апартамент|\bapartments?\b|apartament|квартир|\bpisos?\b|вилл|\bvillas?\b|земл|коммерч|бизнес|участок|\bcasas?\b|wohnung|appartement/i.test(
+    !/апартамент|\bapartments?\b|apartament|квартир|\bpisos?\b|вилл|\bvillas?\b|земл|коммерч|бизнес|участок|\bcasas?\b|wohnung|appartement|mieszkan|woning/i.test(
       lower
     );
 
-  if (/земл|участок|terreno|\bplot\b|\bland\b|grundstück|grundstuck|terrain/i.test(lower)) {
+  if (/земл|участок|terreno|\bplot\b|\bland\b|grundstück|grundstuck|terrain|działk|dzialk|kavel|\bgrond\b/i.test(lower)) {
     types.add('land');
   }
   if (
-    /коммерческ|commercial\s+property|офис|магазин|склад|торгов|помещени|local\s+comercial|gewerbeimmobil/i.test(
+    /коммерческ|commercial\s+property|офис|магазин|склад|торгов|помещени|local\s+comercial|gewerbeimmobil|komerc|commercieel/i.test(
       lower
     )
   ) {
     types.add('commercial');
   }
   if (
-    /бизнес\s+на\s+продаж|готовый\s+бизнес|ресторан|бар|кафе|\bотель\b|\bhotel\b|car\s+rental|аренд[аы]\s+авто|negocio\s+en\s+venta|business\s+for\s+sale|geschäft\s+zu\s+verkaufen|fonds\s+de\s+commerce/i.test(
+    /бизнес\s+на\s+продаж|готовый\s+бизнес|ресторан|бар|кафе|\bотель\b|\bhotel\b|car\s+rental|аренд[аы]\s+авто|negocio\s+en\s+venta|business\s+for\s+sale|geschäft\s+zu\s+verkaufen|fonds\s+de\s+commerce|biznes\s+na\s+sprzedaż|business\s+te\s+koop/i.test(
       lower
     )
   ) {
     types.add('business');
   }
   if (
-    /девелоп|инвестиционн(?:ый|ые|ых)?\s+проект|development\s+project|investment\s+project|anlageprojekt|projet\s+d.?investissement/i.test(
+    /девелоп|инвестиционн(?:ый|ые|ых)?\s+проект|development\s+project|investment\s+project|anlageprojekt|projet\s+d.?investissement|projekt\s+inwestycyj|investeringsproject/i.test(
       lower
     )
   ) {
@@ -277,15 +297,15 @@ function detectPropertyTypePreference(text, lang = 'ru') {
 
   // EN apartment(s) ≠ ES apartamento — оба варианта
   if (
-    /апартамент|квартир|\bapartments?\b|apartamentos?|apartament|appartement|\bwohnung|\bpisos?\b|\bflats?\b|студи|studio|пентхаус|penthouse/i.test(
+    /апартамент|квартир|\bapartments?\b|apartamentos?|apartament|appartement|\bwohnung|\bpisos?\b|\bflats?\b|студи|studio|пентхаус|penthouse|mieszkan|woning/i.test(
       lower
     )
   ) {
     types.add('apartments');
   }
-  if (/вилл|\bvillas?\b|\bvillen?\b/i.test(lower)) types.add('villas');
+  if (/вилл|\bvillas?\b|\bvillen?\b|will[aeiyę]/i.test(lower)) types.add('villas');
   if (
-    /таунхаус|townhouse|коттедж|частный\s+дом|\bcasas?\b|\bhäuser\b|\bhauser\b|\bmaisons?\b|reihenhaus/i.test(
+    /таунхаус|townhouse|коттедж|частный\s+дом|\bcasas?\b|\bhäuser\b|\bhauser\b|\bmaisons?\b|reihenhaus|\bdomy?\b|\bhuizen?\b/i.test(
       lower
     )
   ) {

@@ -230,7 +230,11 @@ function analyzeConversation(history, lang = 'ru') {
             ? 'ohne Preislimit'
             : salesLang === 'fr'
               ? 'sans limite de prix'
-              : 'без ограничения цены'
+              : salesLang === 'pl'
+                ? 'bez limitu ceny'
+                : salesLang === 'nl'
+                  ? 'geen prijslimiet'
+                  : 'без ограничения цены'
       : formatBudgetLabel(budget, salesLang),
     regionOptions: REGION_OPTIONS_PROMPT[salesLang] || REGION_OPTIONS_PROMPT.en,
     salesLang,
@@ -597,6 +601,8 @@ function formatBudgetLabel(budget, lang = 'ru') {
     if (lang === 'en') return `${fmt(minPrice)}–${fmt(maxPrice)}`;
     if (lang === 'de') return `${fmt(minPrice)}–${fmt(maxPrice)}`;
     if (lang === 'fr') return `de ${fmt(minPrice)} à ${fmt(maxPrice)}`;
+    if (lang === 'pl') return `od ${fmt(minPrice)} do ${fmt(maxPrice)}`;
+    if (lang === 'nl') return `${fmt(minPrice)}–${fmt(maxPrice)}`;
     return `от ${fmt(minPrice)} до ${fmt(maxPrice)}`;
   }
   if (maxPrice != null) {
@@ -604,6 +610,8 @@ function formatBudgetLabel(budget, lang = 'ru') {
     if (lang === 'en') return `up to ${fmt(maxPrice)}`;
     if (lang === 'de') return `bis ${fmt(maxPrice)}`;
     if (lang === 'fr') return `jusqu’à ${fmt(maxPrice)}`;
+    if (lang === 'pl') return `do ${fmt(maxPrice)}`;
+    if (lang === 'nl') return `tot ${fmt(maxPrice)}`;
     return `до ${fmt(maxPrice)}`;
   }
   if (minPrice != null) {
@@ -611,6 +619,8 @@ function formatBudgetLabel(budget, lang = 'ru') {
     if (lang === 'en') return `from ${fmt(minPrice)}`;
     if (lang === 'de') return `ab ${fmt(minPrice)}`;
     if (lang === 'fr') return `à partir de ${fmt(minPrice)}`;
+    if (lang === 'pl') return `od ${fmt(minPrice)}`;
+    if (lang === 'nl') return `vanaf ${fmt(minPrice)}`;
     return `от ${fmt(minPrice)}`;
   }
   return '';
@@ -664,6 +674,34 @@ function buildDialogMemoryBlock(state, lang = 'ru') {
         ? ' Client wants more/similar options — send a new shortlist NOW using these criteria.'
         : ''
     } Ask only for what is still missing.`;
+  }
+  if (lang === 'de') {
+    return `**DIALOGGEDÄCHTNIS (pflicht):** Bereits bekannt: ${known.join('; ')}. NICHT erneut fragen: ${neverAsk.join(', ')}.${
+      state.wantsMoreLikeThese
+        ? ' Kunde will mehr/ähnliche — sofort neue Auswahl mit diesen Kriterien.'
+        : ''
+    } Nur fragen, was noch fehlt.`;
+  }
+  if (lang === 'fr') {
+    return `**MÉMOIRE DU DIALOGUE (obligatoire):** Déjà connu: ${known.join('; ')}. NE PAS redemander: ${neverAsk.join(', ')}.${
+      state.wantsMoreLikeThese
+        ? ' Le client veut plus/similaires — nouvelle sélection MAINTENANT avec ces critères.'
+        : ''
+    } Demander seulement ce qui manque.`;
+  }
+  if (lang === 'pl') {
+    return `**PAMIĘĆ DIALOGU (obowiązkowe):** Już wiadomo: ${known.join('; ')}. NIE pytaj ponownie: ${neverAsk.join(', ')}.${
+      state.wantsMoreLikeThese
+        ? ' Klient prosi o więcej/podobne — od razu nowa selekcja według tych kryteriów.'
+        : ''
+    } Pytaj tylko o to, czego jeszcze brakuje.`;
+  }
+  if (lang === 'nl') {
+    return `**DIALOOGGEHEUGEN (verplicht):** Al bekend: ${known.join('; ')}. NIET opnieuw vragen: ${neverAsk.join(', ')}.${
+      state.wantsMoreLikeThese
+        ? ' Klant wil meer/vergelijkbaar — meteen nieuwe selectie met deze criteria.'
+        : ''
+    } Vraag alleen wat nog ontbreekt.`;
   }
   return `**ПАМЯТЬ ДИАЛОГА (обязательно):** Уже известно: ${known.join('; ')}. НЕ переспрашивай: ${neverAsk.join(', ')}.${
     state.wantsMoreLikeThese

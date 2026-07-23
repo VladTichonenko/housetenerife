@@ -225,8 +225,15 @@ function extractUrls(html) {
 }
 
 function extractPropertyIdFromHtml(html) {
-  const m = String(html).match(/\bHZ\d+\b/i);
-  return m ? m[0].toUpperCase() : null;
+  const s = String(html || '');
+  const hz = s.match(/\bHZ\d{2,6}\b/i);
+  if (hz) return hz[0].toUpperCase();
+  // Houzez / WP иногда только numeric post id
+  const dataId = s.match(/data-property-id=["']?(\d{2,8})/i);
+  if (dataId) return `HZ${dataId[1]}`;
+  const postId = s.match(/<body[^>]*class="[^"]*\bpostid-(\d{2,8})\b/i);
+  if (postId) return `HZ${postId[1]}`;
+  return null;
 }
 
 /** WPML / hreflang / ссылки на другие языки */
@@ -423,7 +430,10 @@ async function main() {
   }
 
   const propertyUrls = sortPropertyUrls([...propertyBySlug.values()]);
-  console.log(`\nНайдено уникальных slug: ${propertyUrls.length}`);
+  console.log(`\nНайдено URL для загрузки (по slug): ${propertyUrls.length}`);
+  console.log(
+    'ℹ️  В sitemap один объект = несколько языковых страниц (ru/es/en). После загрузки каталог дедупится по HZ id — обычно ~600–700 уникальных объектов, не 1300+.'
+  );
   if (EXTRA_LANGS.length) console.log(`Доп. языки: ${EXTRA_LANGS.join(', ')}`);
 
   const byId = new Map();
@@ -485,8 +495,11 @@ async function main() {
   }
 
   const total = writeCatalog(false);
-  console.log(`\nГотово: ${total} объектов (уникальных) → ${outPath}`);
+  console.log(`\nГотово: ${total} уникальных объектов → ${outPath}`);
   console.log(`Загружено карточек: ${fetched}, пропущено дублей URL: ${skipped}, ошибок: ${errors}`);
+  console.log(
+    'Итог: число в панели админки = уникальные объявления. Языковые копии одной квартиры не считаются отдельно.'
+  );
 }
 
 main().catch((e) => {

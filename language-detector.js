@@ -14,10 +14,11 @@ const ISO3_TO_CODE = {
   fra: 'fr',
   ita: 'it',
   pol: 'pl',
+  nld: 'nl',
   tur: 'tr',
 };
 
-const SUPPORTED_DETECT = ['ru', 'en', 'es', 'de', 'uk', 'pt', 'fr', 'it', 'pl', 'tr'];
+const SUPPORTED_DETECT = ['ru', 'en', 'es', 'de', 'uk', 'pt', 'fr', 'it', 'pl', 'nl', 'tr'];
 
 /** Короткие реплики — целые слова */
 const SHORT_REPLY = {
@@ -44,6 +45,19 @@ const SHORT_REPLY = {
   здравствуйте: 'ru',
   gracias: 'es',
   thanks: 'en',
+  cześć: 'pl',
+  czesc: 'pl',
+  tak: 'pl',
+  nie: 'pl',
+  dziękuję: 'pl',
+  dziekuje: 'pl',
+  proszę: 'pl',
+  prosze: 'pl',
+  bedankt: 'nl',
+  graag: 'nl',
+  goedemorgen: 'nl',
+  goedemiddag: 'nl',
+  goedenavond: 'nl',
 };
 
 const STOP_WORDS = {
@@ -99,6 +113,26 @@ const STOP_WORDS = {
     'tenerife', 'espagne', 'dubai', 'dubaï', 'marbella', 'barcelona', 'barcelone', 'ibiza', 'canaries',
     'suis', 'avons', 'ai', 'serait', 'aimerais',
   ]),
+  pl: new Set([
+    'ja', 'my', 'wy', 'ty', 'mi', 'nas', 'was', 'mnie', 'ciebie', 'pan', 'pani',
+    'i', 'w', 'na', 'z', 'do', 'od', 'dla', 'po', 'przy', 'bez', 'lub', 'ale', 'że', 'jak', 'gdzie', 'kiedy', 'dlaczego', 'ile',
+    'cześć', 'czesc', 'dzień', 'dobry', 'dziekuje', 'dziękuję', 'proszę', 'prosze', 'tak', 'nie', 'ok',
+    'chcę', 'chce', 'chcemy', 'szukam', 'szukamy', 'potrzebuję', 'potrzebuje', 'interesuje',
+    'kupić', 'kupic', 'inwestycja', 'inwestować', 'inwestowac', 'wynajem', 'mieszkać', 'mieszkac', 'przeprowadzka',
+    'mieszkanie', 'apartament', 'dom', 'willa', 'nieruchomość', 'nieruchomosc', 'obiekt', 'działka', 'dzialka',
+    'budżet', 'budzet', 'cena', 'euro', 'tysięcy', 'tysiecy', 'milion',
+    'teneryfa', 'tenerife', 'hiszpania', 'dubaj', 'marbella', 'barcelona', 'ibiza',
+  ]),
+  nl: new Set([
+    'ik', 'wij', 'we', 'jij', 'je', 'u', 'mij', 'ons', 'mijn', 'jouw', 'uw',
+    'de', 'het', 'een', 'en', 'of', 'maar', 'in', 'op', 'aan', 'met', 'van', 'voor', 'naar', 'bij', 'uit', 'over', 'als', 'wat', 'waar', 'wanneer', 'waarom', 'hoeveel',
+    'hallo', 'goedemorgen', 'goedemiddag', 'goedenavond', 'bedankt', 'alsjeblieft', 'graag', 'ja', 'nee', 'ok', 'oke',
+    'wil', 'willen', 'zoek', 'zoeken', 'nodig', 'interessant', 'hulp',
+    'kopen', 'koop', 'investering', 'investeren', 'huur', 'wonen', 'verhuizen',
+    'appartement', 'huis', 'villa', 'woning', 'vastgoed', 'object', 'grond',
+    'budget', 'prijs', 'euro', 'duizend', 'miljoen',
+    'tenerife', 'spanje', 'dubai', 'marbella', 'barcelona', 'ibiza', 'canarische',
+  ]),
 };
 
 const FRANC_ONLY = Object.keys(ISO3_TO_CODE);
@@ -125,6 +159,7 @@ function detectByScript(text) {
     if (/\b(і|ї|є|ґ|це|як|де|чому|привіт|дякую)\b/i.test(text)) return 'uk';
     return 'ru';
   }
+  if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(text)) return 'pl';
   if (/[ñáéíóúüÑÁÉÍÓÚÜ]/i.test(text)) return 'es';
   if (/[äöüßÄÖÜ]/i.test(text)) return 'de';
   if (/[àâçéèêëîïôùûüœæ]/i.test(text)) return 'fr';
@@ -132,7 +167,7 @@ function detectByScript(text) {
 }
 
 function scoreStopWords(words) {
-  const scores = { ru: 0, en: 0, es: 0, de: 0, fr: 0 };
+  const scores = { ru: 0, en: 0, es: 0, de: 0, fr: 0, pl: 0, nl: 0 };
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
     const weight = i < HEAD_WORD_COUNT ? HEAD_WORD_BONUS : 1;
@@ -169,6 +204,22 @@ function applyEnglishMarkers(text, words, scores) {
 
 function applyRussianMarkers(text, scores) {
   if (/[а-яё]/i.test(text)) scores.ru += 4;
+}
+
+function applyPolishMarkers(text, scores) {
+  if (/[ąćęłńóśźż]/i.test(text)) scores.pl += 4;
+  if (/\b(chcę|szukam|mieszkanie|apartament|budżet|inwestycja|nieruchomość|proszę|dziękuję|cześć)\b/i.test(text)) {
+    scores.pl += 3;
+  }
+}
+
+function applyDutchMarkers(text, scores) {
+  if (/\b(ik|wij|zoek|zoeken|appartement|woning|vastgoed|budget|investering|bedankt|graag|goedemorgen)\b/i.test(text)) {
+    scores.nl += 3;
+  }
+  if (/\b(het|een|van|voor|naar|met|wil|kopen|wonen)\b/i.test(text)) {
+    scores.nl += 1.5;
+  }
 }
 
 function pickTopScore(scores) {
@@ -227,6 +278,9 @@ function isStrongLanguageSignal(text, detectedLang) {
   if (/[а-яёіїєґ]/i.test(trimmed) && (detectedLang === 'ru' || detectedLang === 'uk')) {
     return true;
   }
+  if (/[ąćęłńóśźż]/i.test(trimmed) && detectedLang === 'pl') {
+    return true;
+  }
 
   const words = tokenize(trimmed);
   if (words.length >= 4 && trimmed.length >= 16) return true;
@@ -258,6 +312,8 @@ function detectLanguageFromText(text) {
   applySpanishMarkers(trimmed, words, scores);
   applyEnglishMarkers(trimmed, words, scores);
   applyRussianMarkers(trimmed, scores);
+  applyPolishMarkers(trimmed, scores);
+  applyDutchMarkers(trimmed, scores);
 
   const heuristicLang = pickTopScore(scores);
   const francLang = trimmed.length >= 8 ? detectByFranc(trimmed) : null;
@@ -291,6 +347,7 @@ function getLanguageName(langCode) {
     it: 'Итальянский',
     pt: 'Португальский',
     pl: 'Польский',
+    nl: 'Нидерландский',
     tr: 'Турецкий',
     uk: 'Украинский',
   };

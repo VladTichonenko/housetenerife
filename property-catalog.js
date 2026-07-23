@@ -26,7 +26,7 @@ function resolveCatalogPath() {
 }
 
 const DATA = resolveCatalogPath();
-const SUPPORTED_LANGS = ['ru', 'en', 'es', 'de', 'fr'];
+const SUPPORTED_LANGS = ['ru', 'en', 'es', 'de', 'fr', 'pl', 'nl'];
 
 let cache = null;
 let cacheMtimeMs = 0;
@@ -92,9 +92,11 @@ const FALLBACK_CHAIN = {
   // У части объектов нет /es/ страницы на сайте — лучше EN, чем RU
   es: ['es', 'en', 'ru'],
   en: ['en', 'es', 'ru'],
-  // DE/FR страницы есть на сайте; если в JSON ещё нет — fallback на EN
+  // DE/FR/PL/NL страницы есть на сайте; если в JSON ещё нет — fallback на EN
   de: ['de', 'en', 'es', 'ru'],
-  fr: ['fr', 'en', 'es', 'ru']
+  fr: ['fr', 'en', 'es', 'ru'],
+  pl: ['pl', 'en', 'es', 'ru'],
+  nl: ['nl', 'en', 'es', 'ru']
 };
 
 function pickLocalized(map, langChain) {
@@ -367,7 +369,9 @@ const EMPTY_CATALOG_MSG = {
   en: 'Local catalog is empty. Admin: run npm run sync-db. For now direct clients to https://housetenerife.eu/',
   es: 'Catálogo local vacío. Admin: ejecute npm run sync-db. Mientras tanto: https://housetenerife.eu/es/',
   de: 'Lokaler Katalog ist leer. Admin: npm run sync-db. Vorerst: https://housetenerife.eu/de/',
-  fr: 'Catalogue local vide. Admin: npm run sync-db. En attendant: https://housetenerife.eu/fr/'
+  fr: 'Catalogue local vide. Admin: npm run sync-db. En attendant: https://housetenerife.eu/fr/',
+  pl: 'Lokalny katalog jest pusty. Admin: npm run sync-db. Na razie: https://housetenerife.eu/pl/',
+  nl: 'Lokale catalogus is leeg. Admin: npm run sync-db. Voorlopig: https://housetenerife.eu/nl/'
 };
 
 const NO_MATCH_MSG = {
@@ -375,7 +379,9 @@ const NO_MATCH_MSG = {
   en: 'No matches for this query. Ask for budget and area; catalog: https://housetenerife.eu/',
   es: 'Sin coincidencias. Pida presupuesto y zona; catálogo: https://housetenerife.eu/es/',
   de: 'Keine Treffer für diese Anfrage. Budget und Zone klären; Katalog: https://housetenerife.eu/de/',
-  fr: 'Aucune correspondance. Précisez budget et zone; catalogue: https://housetenerife.eu/fr/'
+  fr: 'Aucune correspondance. Précisez budget et zone; catalogue: https://housetenerife.eu/fr/',
+  pl: 'Brak trafień dla tego zapytania. Uściślij budżet i strefę; katalog: https://housetenerife.eu/pl/',
+  nl: 'Geen treffers voor deze zoekopdracht. Budget en zone verduidelijken; catalogus: https://housetenerife.eu/nl/'
 };
 
 const PRICE_FALLBACK = {
@@ -383,7 +389,9 @@ const PRICE_FALLBACK = {
   en: 'price on request',
   es: 'precio a consultar',
   de: 'Preis auf Anfrage',
-  fr: 'prix sur demande'
+  fr: 'prix sur demande',
+  pl: 'cena do ustalenia',
+  nl: 'prijs op aanvraag'
 };
 
 /**
@@ -557,9 +565,13 @@ function searchForContext(query, limit = 8, options = {}) {
           ? ` Preiskorridor ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (nicht deutlich günstiger vorschlagen).`
           : priceTarget && lang === 'fr'
             ? ` Fourchette ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (ne pas proposer nettement moins cher).`
-            : priceTarget
-              ? ` Коридор цены ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (не предлагай сильно дешевле).`
-              : '';
+            : priceTarget && lang === 'pl'
+              ? ` Przedział ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (nie proponuj dużo taniej).`
+              : priceTarget && lang === 'nl'
+                ? ` Prijsband ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (niet veel goedkoper voorstellen).`
+                : priceTarget
+                  ? ` Коридор цены ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (не предлагай сильно дешевле).`
+                  : '';
 
   const typeHint =
     usedSoftTypeFallback && lang === 'en'
@@ -570,9 +582,13 @@ function searchForContext(query, limit = 8, options = {}) {
           ? ' HINWEIS: wenig exakter Typ — nur nahe Wohn-Alternativen (nie Business unter Wohnungen mischen). Kurz erwähnen.'
           : usedSoftTypeFallback && lang === 'fr'
             ? ' NOTE: peu de stock du type exact — seulement alternatives résidentielles proches (jamais mélanger business et logement). À dire brièvement.'
-            : usedSoftTypeFallback
-              ? ' ВАЖНО: точного типа в зоне мало — только близкие жилые альтернативы (никогда не подмешивай бизнес к апартаментам/виллам). Кратко скажи клиенту.'
-              : '';
+            : usedSoftTypeFallback && lang === 'pl'
+              ? ' UWAGA: mało dokładnego typu — tylko bliskie alternatywy mieszkaniowe (nigdy nie mieszaj biznesu z mieszkaniami). Krótko powiedz klientowi.'
+              : usedSoftTypeFallback && lang === 'nl'
+                ? ' LET OP: weinig exact type — alleen nabije woonalternatieven (nooit business met woningen mengen). Kort vermelden.'
+                : usedSoftTypeFallback
+                  ? ' ВАЖНО: точного типа в зоне мало — только близкие жилые альтернативы (никогда не подмешивай бизнес к апартаментам/виллам). Кратко скажи клиенту.'
+                  : '';
 
   const header =
     lang === 'en'
@@ -583,7 +599,11 @@ function searchForContext(query, limit = 8, options = {}) {
           ? `[Vollständiger Katalog: ${totalInDb} Objekte; unten ${lines.length} passende Varianten — nur diese URLs verwenden.${priceHint}${typeHint}]`
           : lang === 'fr'
             ? `[Catalogue complet: ${totalInDb} annonces; ci-dessous ${lines.length} options — utiliser uniquement ces liens.${priceHint}${typeHint}]`
-            : `[Полный каталог: ${totalInDb} объектов; ниже ${lines.length} разных вариантов по запросу — другие ссылки не выдумывай.${priceHint}${typeHint}]`;
+            : lang === 'pl'
+              ? `[Pełny katalog: ${totalInDb} ofert; poniżej ${lines.length} dopasowanych wariantów — używaj tylko tych URL.${priceHint}${typeHint}]`
+              : lang === 'nl'
+                ? `[Volledige catalogus: ${totalInDb} objecten; hieronder ${lines.length} passende opties — gebruik alleen deze URL’s.${priceHint}${typeHint}]`
+                : `[Полный каталог: ${totalInDb} объектов; ниже ${lines.length} разных вариантов по запросу — другие ссылки не выдумывай.${priceHint}${typeHint}]`;
 
   return {
     found: true,
@@ -670,6 +690,8 @@ function getCatalogSiteUrl(lang) {
   if (l === 'en') return 'https://housetenerife.eu/';
   if (l === 'de') return 'https://housetenerife.eu/de/';
   if (l === 'fr') return 'https://housetenerife.eu/fr/';
+  if (l === 'pl') return 'https://housetenerife.eu/pl/';
+  if (l === 'nl') return 'https://housetenerife.eu/nl/';
   return 'https://housetenerife.eu/ru/';
 }
 

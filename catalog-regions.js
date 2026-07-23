@@ -6,7 +6,7 @@
 const MACRO_REGIONS = {
   tenerife: {
     id: 'tenerife',
-    labels: { ru: 'Тенерифе / Канары', en: 'Tenerife / Canary Islands', es: 'Tenerife / Canarias', de: 'Teneriffa / Kanaren', fr: 'Tenerife / Canaries' },
+    labels: { ru: 'Тенерифе / Канары', en: 'Tenerife / Canary Islands', es: 'Tenerife / Canarias', de: 'Teneriffa / Kanaren', fr: 'Tenerife / Canaries', pl: 'Teneryfa / Wyspy Kanaryjskie', nl: 'Tenerife / Canarische Eilanden' },
     keywords: [
       'tenerife',
       'teneriffa',
@@ -61,7 +61,7 @@ const MACRO_REGIONS = {
   },
   dubai: {
     id: 'dubai',
-    labels: { ru: 'Дубай', en: 'Dubai', es: 'Dubái', de: 'Dubai', fr: 'Dubaï' },
+    labels: { ru: 'Дубай', en: 'Dubai', es: 'Dubái', de: 'Dubai', fr: 'Dubaï', pl: 'Dubaj', nl: 'Dubai' },
     keywords: [
       'dubai',
       'dubaj',
@@ -84,7 +84,7 @@ const MACRO_REGIONS = {
   },
   ibiza: {
     id: 'ibiza',
-    labels: { ru: 'Ибица', en: 'Ibiza', es: 'Ibiza', de: 'Ibiza', fr: 'Ibiza' },
+    labels: { ru: 'Ибица', en: 'Ibiza', es: 'Ibiza', de: 'Ibiza', fr: 'Ibiza', pl: 'Ibiza', nl: 'Ibiza' },
     keywords: [
       'ibiza',
       'ибиц',
@@ -118,7 +118,7 @@ const MACRO_REGIONS = {
   },
   marbella: {
     id: 'marbella',
-    labels: { ru: 'Марбелья / Costa del Sol', en: 'Marbella / Costa del Sol', es: 'Marbella / Costa del Sol', de: 'Marbella / Costa del Sol', fr: 'Marbella / Costa del Sol' },
+    labels: { ru: 'Марбелья / Costa del Sol', en: 'Marbella / Costa del Sol', es: 'Marbella / Costa del Sol', de: 'Marbella / Costa del Sol', fr: 'Marbella / Costa del Sol', pl: 'Marbella / Costa del Sol', nl: 'Marbella / Costa del Sol' },
     keywords: [
       'marbella',
       'марбел',
@@ -140,7 +140,7 @@ const MACRO_REGIONS = {
   },
   malaga: {
     id: 'malaga',
-    labels: { ru: 'Малага', en: 'Málaga / Malaga', es: 'Málaga', de: 'Málaga', fr: 'Málaga' },
+    labels: { ru: 'Малага', en: 'Málaga / Malaga', es: 'Málaga', de: 'Málaga', fr: 'Málaga', pl: 'Málaga', nl: 'Málaga' },
     keywords: [
       'malaga',
       'málaga',
@@ -154,7 +154,7 @@ const MACRO_REGIONS = {
   },
   barcelona: {
     id: 'barcelona',
-    labels: { ru: 'Барселона', en: 'Barcelona', es: 'Barcelona', de: 'Barcelona', fr: 'Barcelone' },
+    labels: { ru: 'Барселона', en: 'Barcelona', es: 'Barcelona', de: 'Barcelona', fr: 'Barcelone', pl: 'Barcelona', nl: 'Barcelona' },
     keywords: [
       'barcelona',
       'барселон',
@@ -174,7 +174,9 @@ const REGION_OPTIONS_PROMPT = {
   en: 'Tenerife, Dubai, Ibiza, Marbella, Malaga, Barcelona',
   es: 'Tenerife, Dubái, Ibiza, Marbella, Málaga, Barcelona',
   de: 'Teneriffa, Dubai, Ibiza, Marbella, Málaga, Barcelona',
-  fr: 'Tenerife, Dubaï, Ibiza, Marbella, Málaga, Barcelone'
+  fr: 'Tenerife, Dubaï, Ibiza, Marbella, Málaga, Barcelone',
+  pl: 'Teneryfa, Dubaj, Ibiza, Marbella, Málaga, Barcelona',
+  nl: 'Tenerife, Dubai, Ibiza, Marbella, Málaga, Barcelona'
 };
 
 function itemSearchBlob(item) {
@@ -185,7 +187,7 @@ function itemSearchBlob(item) {
     item?.url,
     item?.id
   ];
-  for (const lang of ['ru', 'es', 'en', 'de', 'fr']) {
+  for (const lang of ['ru', 'es', 'en', 'de', 'fr', 'pl', 'nl']) {
     parts.push(item?.titles?.[lang], item?.descriptions?.[lang], item?.overviews?.[lang], item?.urls?.[lang]);
   }
   return parts.filter(Boolean).join(' ');
