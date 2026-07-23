@@ -43,7 +43,12 @@ function analyzeConversation(history, lang = 'ru') {
     );
 
   const budget = extractBudgetRange(allUserText);
-  const hasBudget = budgetHasSignal(allUserText, budget);
+  const lastBudget = extractBudgetRange(lastUser);
+  const lastHasBudget = budgetHasSignal(lastUser, lastBudget);
+  // «любой бюджет» / «кроме цены» — не фильтровать каталог по цене
+  const ignoreBudget =
+    wantsIgnoreBudget(lastUser) || (!lastHasBudget && wantsIgnoreBudget(allUserText));
+  const hasBudget = budgetHasSignal(allUserText, budget) || ignoreBudget;
 
   const microAreas = detectMicroAreas(allUserText, salesLang);
   const hasLocation = microAreas.hasSpecific || microAreas.broadIds.length > 0;
@@ -51,23 +56,29 @@ function analyzeConversation(history, lang = 'ru') {
   const hasRegion = regionPref.hasRegion;
   const macroRegions = regionPref.regions;
   const regionLabel = regionPref.label;
-  const typePref = detectPropertyTypePreference(allUserText, salesLang);
+  const typePrefLast = detectPropertyTypePreference(lastUser, salesLang);
+  const typePrefAll = detectPropertyTypePreference(allUserText, salesLang);
+  // Последняя реплика важнее: «вилла» ранее не должна затирать «готовый бизнес» сейчас
+  const typePref = typePrefLast.hasType ? typePrefLast : typePrefAll;
   const hasType = typePref.hasType;
   const propertyTypes = typePref.types;
   const propertyTypeLabel = typePref.label;
   const wantsListings =
-    /покаж|подбер|вариант|объект|каталог|ссылк|похож|ещё\s*(?:раз|вариант|объект|опци)|еще\s*(?:раз|вариант|объект|опци)|другие\s*(?:вариант|опци|объект)|show me|send me|options|listings|properties|shortlist|similar|more\s+options|another|mu[eé]strame|ens[eé]ñame|opciones|fichas|propiedades|selecci[oó]n|parecid|otras?\s+opcion|zeig|optionen|objekte|vorschl[aä]ge|montre|montrez|options|fiches|biens|s[ée]lection/i.test(
+    /покаж|подбер|вариант|объект|каталог|ссылк|похож|ещё\s*(?:раз|вариант|объект|опци)|еще\s*(?:раз|вариант|объект|опци)|другие\s*(?:вариант|опци|объект)|по\s+моим\s+параметр|кроме\s+цен|show me|send me|options|listings|properties|shortlist|similar|more\s+options|another|mu[eé]strame|ens[eé]ñame|opciones|fichas|propiedades|selecci[oó]n|parecid|otras?\s+opcion|zeig|optionen|objekte|vorschl[aä]ge|montre|montrez|options|fiches|biens|s[ée]lection/i.test(
       lower
     );
   const wantsMoreLikeThese =
-    /похож|ещё\s*(?:так|раз|вариант|объект)|еще\s*(?:так|раз|вариант)|другие\s*(?:вариант|опци)|similar|more\s+(?:like|options|listings)|otra\s+opci|otras?\s+(?:opcion|ficha)|parecid|ähnliche|aehnliche|weitere\s+option|plus\s+d.?options|similaires|autres?\s+(?:options|fiches)/i.test(
+    /похож|ещё\s*(?:так|раз|вариант|объект)|еще\s*(?:так|раз|вариант)|другие\s*(?:вариант|опци)|по\s+моим\s+параметр|similar|more\s+(?:like|options|listings)|otra\s+opci|otras?\s+(?:opcion|ficha)|parecid|ähnliche|aehnliche|weitere\s+option|plus\s+d.?options|similaires|autres?\s+(?:options|fiches)/i.test(
       lastUser.toLowerCase()
     );
   const userTurns = userMsgs.length;
 
   let stage = 'FIRST_CONTACT';
 
-  const needsMicroArea = hasRegion && needsMicroAreaSelection(macroRegions, microAreas);
+  const needsMicroArea =
+    hasRegion &&
+    needsMicroAreaSelection(macroRegions, microAreas) &&
+    !propertyTypeSkipsMicroArea(propertyTypes);
   const areaOptionsPrompt = getAreaOptionsPrompt(macroRegions, salesLang);
   const microAreaGroupIds = filterMicroGroupsForMacro(microAreas.groupIds, macroRegions);
 
@@ -111,8 +122,15 @@ function analyzeConversation(history, lang = 'ru') {
     stage = 'SHOW_LISTINGS';
   }
 
-  // «Ещё похожие» при уже собранных критериях — всегда подборка, не откат к бюджету
-  if (wantsMoreLikeThese && readyForListings) {
+  // «Ещё похожие» / «кроме цены» при уже собранных критериях — всегда подборка
+  if (
+    (wantsMoreLikeThese || ignoreBudget) &&
+    hasType &&
+    hasPurpose &&
+    hasRegion &&
+    !needsMicroArea &&
+    (hasBudget || ignoreBudget)
+  ) {
     stage = 'SHOW_LISTINGS';
   }
 
@@ -201,8 +219,19 @@ function analyzeConversation(history, lang = 'ru') {
     propertyTypeLabel,
     wantsListings,
     wantsMoreLikeThese,
+    ignoreBudget,
     budget,
-    budgetLabel: formatBudgetLabel(budget, salesLang),
+    budgetLabel: ignoreBudget
+      ? salesLang === 'es'
+        ? 'sin límite de precio'
+        : salesLang === 'en'
+          ? 'any price'
+          : salesLang === 'de'
+            ? 'ohne Preislimit'
+            : salesLang === 'fr'
+              ? 'sans limite de prix'
+              : 'без ограничения цены'
+      : formatBudgetLabel(budget, salesLang),
     regionOptions: REGION_OPTIONS_PROMPT[salesLang] || REGION_OPTIONS_PROMPT.en,
     salesLang,
     stage,
@@ -267,6 +296,21 @@ function buildCatalogSearchQuery(history) {
   return userTexts.trim();
 }
 
+/** Клиент просит подборку без фильтра по цене (оставить район/тип). */
+function wantsIgnoreBudget(text) {
+  return /кроме\s+цен|без\s+(?:учёта|учета|ограничения|лимита)\s+цен|любой\s+цен|любой\s+бюджет|не\s+смотр(?:я|и)\s+на\s+цен|независимо\s+от\s+цен|any\s+price|any\s+budget|regardless\s+of\s+(?:the\s+)?price|without\s+(?:a\s+)?(?:price|budget)\s+limit|ignore\s+(?:the\s+)?(?:price|budget)|sin\s+(?:l[ií]mite\s+de\s+)?(?:precio|presupuesto)|ohne\s+(?:preis|budget)(?:limit)?|beliebiges\s+budget|peu\s+importe\s+le\s+prix|sans\s+limite\s+de\s+prix|n.?importe\s+quel\s+budget/i.test(
+    String(text || '')
+  );
+}
+
+/** Для бизнеса/земли/коммерции район часто не обязателен — достаточно региона. */
+function propertyTypeSkipsMicroArea(propertyTypes) {
+  if (!propertyTypes?.length) return false;
+  return propertyTypes.every((t) =>
+    ['business', 'commercial', 'land', 'investment'].includes(t)
+  );
+}
+
 /**
  * @param {string} text
  * @returns {{ minPrice: number|null, maxPrice: number|null }}
@@ -317,9 +361,9 @@ function extractBudgetRange(text) {
   );
   if (from) take(from[1], from[2], 'min');
 
-  // около / around / ~ 
+  // около / в районе / around / ~
   const around = s.match(
-    /(?:около|примерно|around|about|cerca\s+de|~\s*)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к)?/i
+    /(?:около|примерно|в\s+районе|around|about|cerca\s+de|~\s*)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к)?/i
   );
   if (around) take(around[1], around[2], 'around');
 
@@ -547,6 +591,7 @@ module.exports = {
   formatBudgetLabel,
   buildDialogMemoryBlock,
   budgetHasSignal,
+  wantsIgnoreBudget,
   LOCATION_KEYWORDS,
   detectMicroAreas,
   detectRegionPreference,

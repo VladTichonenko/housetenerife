@@ -131,19 +131,60 @@ function collectOverviews(item) {
 
 /**
  * Категории объекта: сначала поле Property type (надёжно), иначе эвристика по тексту.
+ * При рассинхроне языков (RU=Apartments, ES=Villas на разных объектах) — доверяем URL/EN/RU.
  * @returns {string[]}
  */
 function getItemPropertyCategories(item) {
-  const overviews = collectOverviews(item);
-  const fromLabels = [];
-  for (const ov of overviews) {
+  const labelsByLang = {};
+  for (const lang of ['ru', 'en', 'es', 'de', 'fr']) {
+    const ov =
+      item?.overviews?.[lang] ||
+      (lang === 'ru' ? item?.overview : '') ||
+      '';
     const label = extractPropertyTypeFromOverview(ov);
     if (!label) continue;
-    for (const c of categoriesFromTypeLabel(label)) {
+    labelsByLang[lang] = categoriesFromTypeLabel(label);
+  }
+
+  const fromLabels = [];
+  for (const cats of Object.values(labelsByLang)) {
+    for (const c of cats) {
       if (!fromLabels.includes(c)) fromLabels.push(c);
     }
   }
+
   if (fromLabels.length) {
+    // Конфликт склейки WPML: в разных языках разные типы жилья (не составная метка)
+    const residential = ['apartments', 'villas', 'houses'];
+    const primaries = Object.values(labelsByLang)
+      .map((cats) => cats.find((c) => residential.includes(c)))
+      .filter(Boolean);
+    const uniquePrimary = [...new Set(primaries)];
+    const compoundInAny = Object.values(labelsByLang).some((cats) => cats.length > 1);
+
+    if (uniquePrimary.length > 1 && !compoundInAny) {
+      const urlTitle = [
+        item?.url,
+        item?.urls?.ru,
+        item?.urls?.en,
+        item?.titles?.ru,
+        item?.titles?.en,
+        item?.title
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      if (/apartment|apartament|apartamento|piso|flat|квартир|апартамент|wohnung|appartement/i.test(urlTitle)) {
+        return ['apartments'];
+      }
+      if (/villa|вилл/i.test(urlTitle)) return ['villas'];
+      if (/townhouse|таунхаус|house|casa|дом/i.test(urlTitle)) return ['houses'];
+      // Иначе берём RU/EN метку
+      const preferred =
+        labelsByLang.ru?.[0] || labelsByLang.en?.[0] || uniquePrimary[0];
+      return preferred ? [preferred] : fromLabels.slice(0, 1);
+    }
+
     // Houzez иногда помечает таунхаусы как «Апартаменты»
     const titleBlob = [item?.title, item?.titles?.ru, item?.titles?.en, item?.titles?.es]
       .filter(Boolean)
@@ -165,7 +206,7 @@ function getItemPropertyCategories(item) {
     item?.titles?.es,
     item?.description,
     item?.descriptions?.ru,
-    ...overviews
+    ...collectOverviews(item)
   ]
     .filter(Boolean)
     .join(' ')

@@ -1,5 +1,5 @@
 const { chatCompletions, AI_MODEL, AI_API_KEY } = require('./ai-client');
-const { searchForContext, getCatalogSiteUrl } = require('./property-catalog');
+const { searchForContext, getCatalogSiteUrl, getLocalizedItem } = require('./property-catalog');
 const { webSearchSnippets, shouldAugmentWithWeb } = require('./web-search');
 const { getBotConfig } = require('./bot-config');
 const { getKnowledgeBaseForPrompt } = require('./knowledge-base');
@@ -24,8 +24,14 @@ const { maybeAddWarmSmiley, getWarmTonePromptBlock } = require('./reply-warmth')
 const {
   repairPropertyUrlsInText,
   hasValidCatalogPropertyLinks,
-  hasInventedHtLinks
+  hasInventedHtLinks,
+  hasDuplicatePropertyUrls,
+  hasMismatchedPropertyTypeUrls,
+  collectRecentPropertyUrls,
+  findItemByUrl,
+  getShareUrl
 } = require('./property-share');
+const { itemMatchesPropertyTypes } = require('./property-types');
 const {
   fixPhoneticTransliterations,
   replyMismatchesLanguage,
@@ -65,8 +71,10 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
 
   const dialog = analyzeConversation(limitedHistory, salesLang);
   const catalogQuery = buildCatalogSearchQuery(limitedHistory) || userQuery;
-  const budget = dialog.budget || extractBudgetRange(dialog.allUserText);
-  const priceTarget = derivePriceTarget(budget);
+  const budget = dialog.ignoreBudget
+    ? { minPrice: null, maxPrice: null }
+    : dialog.budget || extractBudgetRange(dialog.allUserText);
+  const priceTarget = dialog.ignoreBudget ? null : derivePriceTarget(budget);
   const showingListings =
     dialog.stage === 'SHOW_LISTINGS' || dialog.stage === 'REFINE' || dialog.wantsListings;
   const maySearchCatalog =
@@ -228,8 +236,12 @@ ${blocks.conversation}`;
       ? `**КАТАЛОГ ОБЪЕКТОВ:**
 Поиск идёт по всей базе (${catalog.totalInDb || 'все'} объектов на сайте); в блоке ниже — лучшие совпадения по критериям переписки. Если блок каталога не пустой — ЗАПРЕЩЕНО писать «нет объектов / ничего нет / в этом районе нет». Показывай то, что есть; если мало — предложи соседний бюджет/зону или сайт. Не утверждай, что «других нет» — предложи уточнить бюджет/район или каталог на сайте.
 На этапах SHOW_LISTINGS / REFINE — покажи 3–5 РАЗНЫХ объектов из блока ниже (название, цена, ссылка, одна фраза почему подходит). Только тот регион${dialog.microAreaLabel ? ` и район (${dialog.microAreaLabel})` : ''}, что выбрал клиент — не подмешивай Adeje, если просили Los Cristianos, и наоборот.
-**Тип объекта:** строго соблюдай запрошенный тип (${dialog.propertyTypeLabel || 'из критериев'}). Если просили апартаменты — не давай виллы и тем более бизнес/рестораны. Если в блоке каталога другой тип — не показывай его клиенту.
-**Цена:** не предлагай варианты сильно дешевле бюджета клиента — только около названной суммы или чуть дороже (премиум/больше метраж), если клиент не просил именно дешевле.
+**Тип объекта:** строго соблюдай запрошенный тип (${dialog.propertyTypeLabel || 'из критериев'}). Если просили виллы — только виллы (не апартаменты и не «виллы и апартаменты»). Если просили апартаменты — не давай виллы и тем более бизнес/рестораны. Если просили готовый бизнес — только бизнес/ресторан/бар из каталога; ЗАПРЕЩЕНО подменять апартаментами «под аренду». Копируй из блока каталога пары «название + URL» как есть — не подставляй одну ссылку к разным объектам и не повторяй ссылку из предыдущих сообщений чата.
+**Цена:** ${
+        dialog.ignoreBudget
+          ? 'клиент снял ограничение по цене — показывай подходящие по типу и району объекты из блока без фильтра «около бюджета».'
+          : 'не предлагай варианты сильно дешевле бюджета клиента — только около названной суммы или чуть дороже (премиум/больше метраж), если клиент не просил именно дешевле.'
+      }
 **Ссылки:** копируй URL из блока каталога БУКВАЛЬНО (формат https://housetenerife.eu/…/property/slug/). Запрещено выдумывать /objekt/123, /object/ID и любые другие пути.
 На этапах FIRST_CONTACT / NEED_* — объекты не вываливай. Регионы каталога: ${dialog.regionOptions} (housetenerife.eu).
 Подборка только когда ясны *цель*, тип, бюджет, регион и конкретная зона/район; ссылки только из блока ниже.
@@ -509,6 +521,93 @@ async function callAI(messages, tierLabel) {
   return text;
 }
 
+/** Подборка строго из каталога, если модель снова путает тип или дублирует ссылки. */
+function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = []) {
+  const salesLang = normalizeSalesLang(lang);
+  const wanted = dialog.propertyTypes || [];
+  const avoidKeys = new Set(
+    (avoidUrls || []).map((u) =>
+      String(u || '')
+        .toLowerCase()
+        .replace(/\/+$/, '')
+    )
+  );
+  const lines = [];
+  const seen = new Set();
+
+  const ranked = [...(urls || [])].sort((a, b) => {
+    const aAvoid = avoidKeys.has(String(a || '').toLowerCase().replace(/\/+$/, '')) ? 1 : 0;
+    const bAvoid = avoidKeys.has(String(b || '').toLowerCase().replace(/\/+$/, '')) ? 1 : 0;
+    return aAvoid - bAvoid;
+  });
+
+  for (const raw of ranked) {
+    const item = findItemByUrl(raw);
+    if (!item) continue;
+    if (wanted.length && !itemMatchesPropertyTypes(item, wanted)) continue;
+    const share = getShareUrl(item, lang);
+    if (!share || seen.has(share)) continue;
+    seen.add(share);
+    const loc = getLocalizedItem(item, lang);
+    const desc = String(loc.description || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 160);
+    const price = loc.price || '';
+    lines.push(
+      `• *${loc.title || 'Object'}*${price ? ` — ${price}` : ''}\n${desc}${desc ? '\n' : ''}${share}`
+    );
+    if (lines.length >= 5) break;
+  }
+
+  if (!lines.length) return '';
+
+  const typeLabel = dialog.propertyTypeLabel || '';
+  const area = dialog.microAreaLabel || dialog.regionLabel || '';
+  const budgetNote = dialog.ignoreBudget
+    ? salesLang === 'es'
+      ? ' (sin límite de precio)'
+      : salesLang === 'en'
+        ? ' (any price)'
+        : ' (без ограничения цены)'
+    : '';
+
+  let intro;
+  if (salesLang === 'es') {
+    intro = `Aquí tienes opciones${typeLabel ? ` de ${typeLabel}` : ''}${area ? ` en ${area}` : ''}${budgetNote}:`;
+  } else if (salesLang === 'en') {
+    intro = `Here are some options${typeLabel ? ` (${typeLabel})` : ''}${area ? ` in ${area}` : ''}${budgetNote}:`;
+  } else if (salesLang === 'de') {
+    intro = `Hier sind passende Optionen${typeLabel ? ` (${typeLabel})` : ''}${area ? ` in ${area}` : ''}${budgetNote}:`;
+  } else if (salesLang === 'fr') {
+    intro = `Voici des options${typeLabel ? ` (${typeLabel})` : ''}${area ? ` à ${area}` : ''}${budgetNote}:`;
+  } else {
+    intro = `Вот варианты${typeLabel ? ` (${typeLabel})` : ''}${area ? ` в ${area}` : ''}${budgetNote}:`;
+  }
+
+  const closer =
+    salesLang === 'es'
+      ? '¿Cuál te encaja más o qué ajustamos?'
+      : salesLang === 'en'
+        ? 'Which feels closest, or what should we adjust?'
+        : salesLang === 'de'
+          ? 'Welcher passt besser, oder was sollen wir anpassen?'
+          : salesLang === 'fr'
+            ? 'Lequel vous convient le mieux, ou que faut-il ajuster ?'
+            : 'Какой ближе, или что скорректируем?';
+
+  return `${intro}\n\n${lines.join('\n\n')}\n\n${closer}`;
+}
+
+function replyNeedsCatalogForce(reply, wantedTypes) {
+  return (
+    !hasValidCatalogPropertyLinks(reply) ||
+    hasInventedHtLinks(reply) ||
+    hasDuplicatePropertyUrls(reply) ||
+    hasMismatchedPropertyTypeUrls(reply, wantedTypes)
+  );
+}
+
 /**
  * Один запрос к ИИ (без каскада 6× повторов). При 429 — сразу запасной ключ, если задан.
  * @param {Array<{sender:string,text:string}>} conversationHistory
@@ -554,14 +653,20 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
     const listingStage =
       dialog.stage === 'SHOW_LISTINGS' ||
       (dialog.stage === 'REFINE' && dialog.wantsListings);
+    const recentUrls = collectRecentPropertyUrls(conversationHistory);
     let urlsForRepair = Array.isArray(catalogUrls) ? [...catalogUrls] : [];
-    // Если модель выдумала slug'и, а каталог в промпт не попал — добираем URL для подмены
-    if (
-      (hasInventedHtLinks(reply) || (listingStage && !hasValidCatalogPropertyLinks(reply))) &&
-      !urlsForRepair.length
-    ) {
-      const budget = extractBudgetRange(dialog.allUserText);
-      const priceTarget = derivePriceTarget(budget);
+    const replyHasPropertyLink = /housetenerife\.eu[^.\s]*\/property\//i.test(reply);
+    // Чужой тип / дубли / выдумки — даже если этап ещё не SHOW_LISTINGS (модель часто тащит старую ссылку из истории)
+    const badTypeOrLinks =
+      Boolean(dialog.propertyTypes?.length) &&
+      replyHasPropertyLink &&
+      replyNeedsCatalogForce(reply, dialog.propertyTypes);
+
+    if ((hasInventedHtLinks(reply) || badTypeOrLinks || (listingStage && !urlsForRepair.length)) && !urlsForRepair.length) {
+      const budget = dialog.ignoreBudget
+        ? { minPrice: null, maxPrice: null }
+        : extractBudgetRange(dialog.allUserText);
+      const priceTarget = dialog.ignoreBudget ? null : derivePriceTarget(budget);
       const fallback = searchForContext(
         buildCatalogSearchQuery(conversationHistory) || dialog.allUserText,
         8,
@@ -579,27 +684,40 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
       );
       urlsForRepair = Array.isArray(fallback.urls) ? fallback.urls : [];
     }
+
     const needsListingLinks =
-      listingStage &&
       urlsForRepair.length > 0 &&
-      (!hasValidCatalogPropertyLinks(reply) || hasInventedHtLinks(reply));
+      (listingStage || badTypeOrLinks) &&
+      replyNeedsCatalogForce(reply, dialog.propertyTypes);
+
     if (needsListingLinks) {
-      console.warn(
-        '⚠️ AI на этапе подборки без валидных ссылок каталога — переписываю с объектами из каталога'
+      const safe = buildDeterministicListingsReply(
+        urlsForRepair,
+        userLanguage,
+        dialog,
+        recentUrls
       );
-      const urlList = urlsForRepair.slice(0, 5).join('\n');
-      reply = await callAI(
-        [
-          ...messages,
-          { role: 'assistant', content: reply },
-          {
-            role: 'user',
-            content:
-              `Rewrite: include 3–5 property options NOW. Copy ONLY these exact housetenerife.eu /property/… URLs from the catalog (never invent /objekt/123 or other paths):\n${urlList}\nKeep the entire reply in the dialog language only (no language mixing). WhatsApp style.`
-          }
-        ],
-        'chat-force-listings'
-      );
+      if (safe) {
+        console.warn('⚠️ AI подборка с битыми/чужими/дублирующими ссылками — ответ из каталога');
+        reply = safe;
+      } else {
+        console.warn(
+          '⚠️ AI подборка с битыми/чужими/дублирующими ссылками — переписываю из каталога'
+        );
+        const urlList = urlsForRepair.slice(0, 5).join('\n');
+        reply = await callAI(
+          [
+            ...messages,
+            { role: 'assistant', content: reply },
+            {
+              role: 'user',
+              content:
+                `Rewrite: include 3–5 property options NOW. Copy ONLY these exact housetenerife.eu /property/… URLs from the catalog (never invent /objekt/123 or other paths). Each option MUST use a different URL. Keep the requested property type only (${dialog.propertyTypeLabel || 'as in criteria'}). Never substitute apartments for business/villas.\n${urlList}\nKeep the entire reply in the dialog language only (no language mixing). WhatsApp style.`
+            }
+          ],
+          'chat-force-listings'
+        );
+      }
     }
     if (replyMismatchesLanguage(reply, salesLang)) {
       console.warn(
@@ -628,8 +746,28 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
         salesLang
       ),
       userLanguage,
-      urlsForRepair
+      urlsForRepair,
+      { wantedTypes: dialog.propertyTypes || [], avoidUrls: recentUrls }
     );
+
+    // Финальный предохранитель: тип/дубли после починки
+    if (
+      urlsForRepair.length > 0 &&
+      (listingStage || badTypeOrLinks) &&
+      replyNeedsCatalogForce(reply, dialog.propertyTypes)
+    ) {
+      const safe = buildDeterministicListingsReply(
+        urlsForRepair,
+        userLanguage,
+        dialog,
+        recentUrls
+      );
+      if (safe) {
+        console.warn('⚠️ Подборка заменена на каталог (тип/дубли ссылок)');
+        reply = safe;
+      }
+    }
+
     return reply;
   } catch (error) {
     const status = error.response?.status;
@@ -696,7 +834,11 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
             salesLangRetry
           ),
           userLanguage,
-          catalogUrls
+          catalogUrls,
+          {
+            wantedTypes:
+              analyzeConversation(conversationHistory, userLanguage).propertyTypes || []
+          }
         );
       } catch (retryErr) {
         console.error('ai-service retry:', retryErr.message);

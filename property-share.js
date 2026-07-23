@@ -199,26 +199,91 @@ function hasInventedHtLinks(text) {
   });
 }
 
+function normalizeShareUrlKey(url) {
+  try {
+    const u = new URL(stripInvalidEnPrefix(url));
+    return `${u.origin}${u.pathname.replace(/\/+$/, '').toLowerCase()}`;
+  } catch {
+    return String(url || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\/+$/, '');
+  }
+}
+
+function extractPropertyUrlsFromText(text) {
+  const re = new RegExp(PROPERTY_URL_RE.source, 'gi');
+  return String(text || '').match(re) || [];
+}
+
+/** URL объектов, которые уже показывали в этом чате (чтобы не липнуть к одной ссылке). */
+function collectRecentPropertyUrls(history, limit = 12) {
+  const out = [];
+  const seen = new Set();
+  const msgs = [...(history || [])].reverse();
+  for (const m of msgs) {
+    if (m.sender !== 'assistant') continue;
+    for (const raw of extractPropertyUrlsFromText(m.text)) {
+      const key = normalizeShareUrlKey(splitGluedUrlTail(raw).url);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(stripInvalidEnPrefix(splitGluedUrlTail(raw).url));
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
+}
+
 /**
  * Подменяет выдуманные / битые ссылки на реальные из каталога (preferredUrls).
  * Также локализует валидные /property/… ссылки.
+ * @param {object} [options]
+ * @param {string[]} [options.wantedTypes] — если задано, чужой тип (апартаменты при запросе вилл) заменяется
+ * @param {string[]} [options.avoidUrls] — недавно показанные URL (подставлять в последнюю очередь)
  */
-function repairPropertyUrlsInText(text, lang, preferredUrls = []) {
+function repairPropertyUrlsInText(text, lang, preferredUrls = [], options = {}) {
   if (!text || typeof text !== 'string') return text;
   ensureIndex();
 
+  const wantedTypes = Array.isArray(options.wantedTypes) ? options.wantedTypes : [];
+  const avoidKeys = new Set(
+    (options.avoidUrls || []).map((u) => normalizeShareUrlKey(u)).filter(Boolean)
+  );
+  const { itemMatchesPropertyTypes } = require('./property-types');
+
   const pool = [];
-  const seen = new Set();
-  for (const u of preferredUrls || []) {
+  const poolSeen = new Set();
+  const pushPool = (u) => {
     const cleaned = stripInvalidEnPrefix(String(u || '').trim());
-    if (!cleaned || seen.has(cleaned)) continue;
-    seen.add(cleaned);
+    if (!cleaned) return;
+    const key = normalizeShareUrlKey(cleaned);
+    if (poolSeen.has(key)) return;
+    poolSeen.add(key);
     pool.push(cleaned);
+  };
+  // Сначала свежие из каталога, потом уже показанные (если больше нечего)
+  const preferred = [...(preferredUrls || [])];
+  const fresh = [];
+  const reused = [];
+  for (const u of preferred) {
+    const key = normalizeShareUrlKey(u);
+    if (avoidKeys.has(key)) reused.push(u);
+    else fresh.push(u);
   }
+  for (const u of fresh) pushPool(u);
+  for (const u of reused) pushPool(u);
+
   let poolIdx = 0;
+  const usedKeys = new Set();
   const nextPreferred = () => {
-    if (poolIdx >= pool.length) return null;
-    return pool[poolIdx++];
+    while (poolIdx < pool.length) {
+      const pref = pool[poolIdx++];
+      const key = normalizeShareUrlKey(pref);
+      if (usedKeys.has(key)) continue;
+      usedKeys.add(key);
+      return pref;
+    }
+    return null;
   };
 
   let out = repairKnownUrlSpacing(text);
@@ -226,18 +291,53 @@ function repairPropertyUrlsInText(text, lang, preferredUrls = []) {
     const { url: sliced, tail } = splitGluedUrlTail(raw);
     const item = findItemByUrl(sliced);
     const suffix = formatUrlTail(tail);
+
     if (item) {
-      return `${getShareUrl(item, lang)}${suffix}`;
+      let share = getShareUrl(item, lang);
+      const key = normalizeShareUrlKey(share);
+      const typeOk =
+        !wantedTypes.length || itemMatchesPropertyTypes(item, wantedTypes);
+      const recentlyShown = avoidKeys.has(key);
+      // Повтор / чужой тип / уже показывали в чате → следующая из каталога
+      if (!typeOk || usedKeys.has(key) || recentlyShown) {
+        const pref = nextPreferred();
+        if (pref) return `${pref}${suffix}`;
+        if (!typeOk || usedKeys.has(key)) return suffix.trimStart();
+        // recentlyShown but no alternatives — keep once
+        if (usedKeys.has(key)) return suffix.trimStart();
+      }
+      usedKeys.add(key);
+      return `${share}${suffix}`;
     }
 
-    // Любой housetenerife.eu URL вне каталога — подмена из preferred или удаление.
-    // Раньше «правдоподобные» /property/slug оставлялись → 404 у клиента.
     const pref = nextPreferred();
     if (pref) return `${pref}${suffix}`;
     return suffix.trimStart();
   });
 
   return out.replace(/[ \t]{2,}/g, ' ').replace(/ \n/g, '\n').trim();
+}
+
+/** Есть ли в тексте повторяющиеся /property/… ссылки */
+function hasDuplicatePropertyUrls(text) {
+  const re = new RegExp(PROPERTY_URL_RE.source, 'gi');
+  const matches = String(text || '').match(re) || [];
+  if (matches.length < 2) return false;
+  const keys = matches.map((u) => normalizeShareUrlKey(splitGluedUrlTail(u).url));
+  return new Set(keys).size < keys.length;
+}
+
+/** Есть ли ссылки на объекты другого типа, чем запросил клиент */
+function hasMismatchedPropertyTypeUrls(text, wantedTypes) {
+  if (!wantedTypes?.length || !text) return false;
+  const { itemMatchesPropertyTypes } = require('./property-types');
+  const re = new RegExp(PROPERTY_URL_RE.source, 'gi');
+  const matches = String(text).match(re) || [];
+  for (const raw of matches) {
+    const item = findItemByUrl(splitGluedUrlTail(raw).url);
+    if (item && !itemMatchesPropertyTypes(item, wantedTypes)) return true;
+  }
+  return false;
 }
 
 /**
@@ -268,6 +368,9 @@ module.exports = {
   repairPropertyUrlsInText,
   hasValidCatalogPropertyLinks,
   hasInventedHtLinks,
+  hasDuplicatePropertyUrls,
+  hasMismatchedPropertyTypeUrls,
+  collectRecentPropertyUrls,
   findItemByUrl,
   findItemByPropertyId,
   rebuildUrlIndex,
