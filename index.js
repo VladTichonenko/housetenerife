@@ -20,6 +20,7 @@ const {
   getLanguageName,
   isAmbiguousShortReply,
   isStrongLanguageSignal,
+  isMostlyPlaceName,
 } = require('./language-detector');
 const { getSearchingListingsMessage } = require('./sales-localization');
 const { registerAdminRoutes } = require('./admin-api');
@@ -899,10 +900,11 @@ function resolveDialogLanguage(chatId, currentMessageText, phoneFallback = 'ru')
       } else {
         resolved = sticky;
       }
-    } else if (!isAmbiguousShortReply(trimmed) || trimmed.length >= 8) {
-      resolved = fromText;
-    } else {
+    } else if (isAmbiguousShortReply(trimmed) || isMostlyPlaceName(trimmed)) {
+      // Топонимы / ok / 300k — не задают язык диалога
       resolved = detectFromHistory() || phoneFallback || fromText;
+    } else {
+      resolved = fromText;
     }
   } else if (!sticky) {
     resolved = detectFromHistory() || phoneFallback || 'ru';

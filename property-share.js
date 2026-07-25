@@ -315,7 +315,27 @@ function repairPropertyUrlsInText(text, lang, preferredUrls = [], options = {}) 
     return suffix.trimStart();
   });
 
+  // Схлопнуть подряд идущие одинаковые ссылки (копипаст / двойная вставка)
+  out = collapseAdjacentDuplicateUrls(out);
+
   return out.replace(/[ \t]{2,}/g, ' ').replace(/ \n/g, '\n').trim();
+}
+
+/** Убирает подряд дублирующиеся housetenerife URL (часто при копировании). */
+function collapseAdjacentDuplicateUrls(text) {
+  if (!text) return text;
+  const re = new RegExp(ANY_HT_URL_RE.source, 'gi');
+  let lastKey = null;
+  const cleaned = String(text).replace(re, (raw) => {
+    const key = normalizeShareUrlKey(splitGluedUrlTail(raw).url);
+    if (key && key === lastKey) return '';
+    lastKey = key;
+    return raw;
+  });
+  return cleaned
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ');
 }
 
 /** Есть ли в тексте повторяющиеся /property/… ссылки */

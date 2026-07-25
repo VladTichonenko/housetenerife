@@ -81,13 +81,14 @@ const TYPE_OPTIONS_PROMPT = {
 
 /** Если точного типа нет в зоне — мягкий fallback только внутри «семьи» (не бизнес↔жильё). */
 const SOFT_TYPE_FALLBACK = {
-  apartments: ['houses'],
-  houses: ['apartments', 'villas'],
+  // Апартаменты не подменяем домами/виллами — частая жалоба клиентов
+  apartments: [],
+  houses: ['apartments'],
   villas: ['houses'],
-  land: ['investment'],
+  land: [],
   commercial: ['business'],
   business: ['commercial'],
-  investment: ['land']
+  investment: []
 };
 
 function extractPropertyTypeFromOverview(overview) {
@@ -263,7 +264,7 @@ function detectPropertyTypePreference(text, lang = 'ru') {
   const types = new Set();
 
   const lifePurposeOnly =
-    /(?:для\s+)?(?:жизни|себя|семьи|проживания)|переезд|relocate|live\s+in|para\s+vivir|wohnen|habiter/i.test(
+    /(?:для\s+)?(?:жизни|себя|семьи|проживания)|переезд|relocate|live\s+in|para\s+vivir|pour\s+vivre|wohnen|zum\s+wohnen|habiter/i.test(
       lower
     ) &&
     !/апартамент|\bapartments?\b|apartament|квартир|\bpisos?\b|вилл|\bvillas?\b|земл|коммерч|бизнес|участок|\bcasas?\b|wohnung|appartement|mieszkan|woning/i.test(

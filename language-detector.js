@@ -180,25 +180,81 @@ function scoreStopWords(words) {
   return scores;
 }
 
+/** Топонимы / районы — не сигнал языка (Puerto de la Cruz ≠ español). */
+const PLACE_NAME_NEUTRAL_RE =
+  /\b(?:puerto\s+de\s+la\s+cruz|costa\s+adeje|los\s+cristianos|las\s+am[eé]ricas|golf\s+del\s+sur|el\s+m[eé]dano|palm[-\s]?mar|los\s+gigantes|santa\s+cruz|la\s+laguna|la\s+orotava|callao\s+salvaje|playa\s+para[ií]so|el\s+duque|puerto\s+ban[uú]s|nueva\s+andaluc[ií]a|sant\s+antoni|santa\s+eulalia|es\s+cubells|dubai\s+marina|palm\s+jumeirah|business\s+bay|tenerife|marbella|barcelona|m[aá]laga|ibiza|dubai|adeje|arona|fanabe|torviscas)\b/gi;
+
+function stripPlaceNames(text) {
+  return String(text || '')
+    .replace(PLACE_NAME_NEUTRAL_RE, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Сообщение почти целиком — название места (с артиклями de/la/el). */
+function isMostlyPlaceName(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed || trimmed.length > 80) return false;
+  PLACE_NAME_NEUTRAL_RE.lastIndex = 0;
+  const hasPlace = PLACE_NAME_NEUTRAL_RE.test(trimmed);
+  PLACE_NAME_NEUTRAL_RE.lastIndex = 0;
+  if (!hasPlace) return false;
+  const withoutPlaces = stripPlaceNames(trimmed);
+  const restWords = tokenize(withoutPlaces).filter(
+    (w) => !/^(de|del|la|las|el|los|the|and|y|in|en|a|al|di)$/i.test(w)
+  );
+  return restWords.length === 0;
+}
+
 function applySpanishMarkers(text, words, scores) {
+  const signalText = stripPlaceNames(text);
+  if (!signalText || isMostlyPlaceName(text)) return;
   // Не считаем топонимы (Tenerife/Dubai…) — они есть во всех языках и ломают детекцию EN↔ES
-  if (/\b(quiero|busco|necesito|quisiera|gustaria|gustaría|apartamento|piso|invertir|inversión|inversion|presupuesto|hola|gracias|españa|espana)\b/i.test(text)) {
+  if (/\b(quiero|busco|necesito|quisiera|gustaria|gustaría|apartamento|piso|invertir|inversión|inversion|presupuesto|hola|gracias|españa|espana)\b/i.test(signalText)) {
     scores.es += 3;
   }
-  if (/\b(el|la|los|las|un|una|del|al|para|por|con|estoy|tengo|encaja|encajan)\b/i.test(text)) {
+  // Артикли el/la/de только вместе с другими ES-сигналами — иначе «Puerto de la Cruz» → es
+  if (
+    /\b(estoy|tenemos|tengo|encaja|encajan|quisiera|busco|quiero|para\s+vivir|para\s+invertir)\b/i.test(signalText) &&
+    /\b(el|la|los|las|un|una|del|al|para|por|con)\b/i.test(signalText)
+  ) {
     scores.es += 1.5;
   }
-  if (/\b\w+(ción|cion|sión|sion|mente|dad|tad)\b/i.test(text)) {
+  if (/\b\w+(ción|cion|sión|sion|mente)\b/i.test(signalText)) {
     scores.es += 2;
   }
 }
 
 function applyEnglishMarkers(text, words, scores) {
-  if (/\b(i|i'm|i've|we're|looking|want|need|investment|apartment|property|budget|please|thanks|hello)\b/i.test(text)) {
+  const signalText = stripPlaceNames(text);
+  if (!signalText || isMostlyPlaceName(text)) return;
+  if (/\b(i|i'm|i've|we're|looking|want|need|investment|apartment|property|budget|please|thanks|hello)\b/i.test(signalText)) {
     scores.en += 2;
   }
-  if (/\b(the|and|with|for|from|about|help)\b/i.test(text)) {
+  if (/\b(the|and|with|for|from|about|help)\b/i.test(signalText)) {
     scores.en += 1;
+  }
+}
+
+function applyGermanMarkers(text, scores) {
+  const signalText = stripPlaceNames(text);
+  if (!signalText || isMostlyPlaceName(text)) return;
+  if (/\b(ich|wir|suche|suchen|möchte|mochte|brauche|kaufen|wohnung|immobilie|bitte|danke|hallo|guten)\b/i.test(signalText)) {
+    scores.de += 3;
+  }
+  if (/\b(der|die|das|und|mit|für|fur|nach|bei|zum|zur)\b/i.test(signalText)) {
+    scores.de += 1.5;
+  }
+}
+
+function applyFrenchMarkers(text, scores) {
+  const signalText = stripPlaceNames(text);
+  if (!signalText || isMostlyPlaceName(text)) return;
+  if (/\b(je|nous|cherche|cherchons|voudrais|appartement|maison|bonjour|merci|budget|acheter|investir)\b/i.test(signalText)) {
+    scores.fr += 3;
+  }
+  if (/\b(pour|avec|dans|une|des|suis|avons|aimerais)\b/i.test(signalText)) {
+    scores.fr += 1.5;
   }
 }
 
@@ -248,6 +304,7 @@ function detectByFranc(text) {
 function isAmbiguousShortReply(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return true;
+  if (isMostlyPlaceName(trimmed)) return true;
   const words = tokenize(trimmed);
   if (words.length === 0) return true;
   if (words.length === 1) {
@@ -272,6 +329,7 @@ function isStrongLanguageSignal(text, detectedLang) {
   const trimmed = String(text || '').trim();
   if (!trimmed || !detectedLang) return false;
   if (isAmbiguousShortReply(trimmed)) return false;
+  if (isMostlyPlaceName(trimmed)) return false;
 
   const scriptLang = detectByScript(trimmed);
   if (scriptLang && scriptLang === detectedLang) return true;
@@ -281,10 +339,12 @@ function isStrongLanguageSignal(text, detectedLang) {
   if (/[ąćęłńóśźż]/i.test(trimmed) && detectedLang === 'pl') {
     return true;
   }
+  if (/[äöüß]/i.test(trimmed) && detectedLang === 'de') return true;
+  if (/[àâçéèêëîïôùûœæ]/i.test(trimmed) && detectedLang === 'fr') return true;
 
-  const words = tokenize(trimmed);
-  if (words.length >= 4 && trimmed.length >= 16) return true;
-  if (words.length >= 3 && trimmed.length >= 12) return true;
+  const words = tokenize(stripPlaceNames(trimmed));
+  if (words.length >= 4 && stripPlaceNames(trimmed).length >= 16) return true;
+  if (words.length >= 3 && stripPlaceNames(trimmed).length >= 12) return true;
   return false;
 }
 
@@ -308,15 +368,34 @@ function detectLanguageFromText(text) {
     return scriptLang;
   }
 
-  const scores = scoreStopWords(words);
-  applySpanishMarkers(trimmed, words, scores);
-  applyEnglishMarkers(trimmed, words, scores);
+  // Топонимы не голосуют стоп-словами (de/la/el в «Puerto de la Cruz»)
+  if (isMostlyPlaceName(trimmed)) {
+    return 'en';
+  }
+
+  const signalText = stripPlaceNames(trimmed) || trimmed;
+  const signalWords = tokenize(signalText);
+  const scores = scoreStopWords(signalWords.length ? signalWords : words);
+  // Обнуляем вклад сверхчастых артиклей без глаголов — иначе ES побеждает на топонимах
+  if (signalWords.length <= 4) {
+    const onlyArticles = signalWords.every((w) =>
+      /^(de|del|la|las|el|los|un|una|the|a|an|and|y|in|en|of)$/i.test(w)
+    );
+    if (onlyArticles) {
+      scores.es = 0;
+      scores.en = 0;
+    }
+  }
+  applySpanishMarkers(trimmed, signalWords, scores);
+  applyEnglishMarkers(trimmed, signalWords, scores);
+  applyGermanMarkers(trimmed, scores);
+  applyFrenchMarkers(trimmed, scores);
   applyRussianMarkers(trimmed, scores);
   applyPolishMarkers(trimmed, scores);
   applyDutchMarkers(trimmed, scores);
 
   const heuristicLang = pickTopScore(scores);
-  const francLang = trimmed.length >= 8 ? detectByFranc(trimmed) : null;
+  const francLang = signalText.length >= 8 ? detectByFranc(signalText) : null;
 
   if (heuristicLang && francLang) {
     if (heuristicLang === francLang) return heuristicLang;
@@ -359,5 +438,6 @@ module.exports = {
   getLanguageName,
   isAmbiguousShortReply,
   isStrongLanguageSignal,
+  isMostlyPlaceName,
   SUPPORTED_DETECT,
 };

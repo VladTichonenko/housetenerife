@@ -1,0 +1,11 @@
+{
+  "_comment": "Canonical micro-area groupIds when website title/city is wrong. Keys: property slug or HZ id.",
+  "bySlug": {
+    "krasivaya-villana-prodazhu-v-puerto-de-la-krus": ["santa_cruz"],
+    "for-sale-beautiful-villa-in-puerto-de-la-cruz": ["santa_cruz"],
+    "en-venta-hermosa-villa-en-puerto-de-la-cruz": ["santa_cruz"]
+  },
+  "byId": {
+    "HZ241010hz178": ["santa_cruz"]
+  }
+}

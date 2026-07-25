@@ -9,11 +9,11 @@ const REGIONS_REQUIRING_MICRO = ['tenerife', 'dubai', 'marbella', 'ibiza', 'mala
 
 const AREA_OPTIONS_BY_MACRO = {
   tenerife: {
-    ru: 'Costa Adeje / El Duque, Los Cristianos, Las Américas, Golf del Sur, El Médano, Puerto de la Cruz, Palm-Mar, Las Galletas, юг/север/запад',
-    en: 'Costa Adeje / El Duque, Los Cristianos, Las Américas, Golf del Sur, El Médano, Puerto de la Cruz, Palm-Mar, Las Galletas, south/north/west',
-    es: 'Costa Adeje / El Duque, Los Cristianos, Las Américas, Golf del Sur, El Médano, Puerto de la Cruz, Palm-Mar, Las Galletas, sur/norte/oeste',
-    de: 'Costa Adeje / El Duque, Los Cristianos, Las Américas, Golf del Sur, El Médano, Puerto de la Cruz, Palm-Mar, Las Galletas, Süden/Norden/Westen',
-    fr: 'Costa Adeje / El Duque, Los Cristianos, Las Américas, Golf del Sur, El Médano, Puerto de la Cruz, Palm-Mar, Las Galletas, sud/nord/ouest',
+    ru: 'Costa Adeje / El Duque, Los Cristianos, Las Américas, Golf del Sur, El Médano, Puerto de la Cruz, Palm-Mar, El Galeón, Las Galletas, юг/север/запад',
+    en: 'Costa Adeje / El Duque, Los Cristianos, Las Américas, Golf del Sur, El Médano, Puerto de la Cruz, Palm-Mar, El Galeón, Las Galletas, south/north/west',
+    es: 'Costa Adeje / El Duque, Los Cristianos, Las Américas, Golf del Sur, El Médano, Puerto de la Cruz, Palm-Mar, El Galeón, Las Galletas, sur/norte/oeste',
+    de: 'Costa Adeje / El Duque, Los Cristianos, Las Américas, Golf del Sur, El Médano, Puerto de la Cruz, Palm-Mar, El Galeón, Las Galletas, Süden/Norden/Westen',
+    fr: 'Costa Adeje / El Duque, Los Cristianos, Las Américas, Golf del Sur, El Médano, Puerto de la Cruz, Palm-Mar, El Galeón, Las Galletas, sud/nord/ouest',
   },
   dubai: {
     ru: 'Dubai Marina, Palm Jumeirah, Business Bay, Dubai Hills, JLT, Downtown',
@@ -68,7 +68,6 @@ const SPECIFIC_AREA_GROUPS = [
       'caldera del rey',
       'roque del conde',
       'abama',
-      'абона',
       'адехе',
       'коста адехе',
       'коста-адехе',
@@ -88,6 +87,22 @@ const SPECIFIC_AREA_GROUPS = [
       'la caldera',
       'barranco del ingles',
       'barranco del inglés',
+    ],
+  },
+  {
+    id: 'el_galeon',
+    macro: 'tenerife',
+    keywords: [
+      'el galeon',
+      'el galeón',
+      'galeon',
+      'galeón',
+      'галеон',
+      'галион',
+      'эль галеон',
+      'эль-галеон',
+      'tesoro del galeon',
+      'tesoro del galeón',
     ],
   },
   {
@@ -567,6 +582,8 @@ function fuzzyEqual(a, b) {
   const nb = normalizeText(b).replace(/\s+/g, '');
   if (!na || !nb) return false;
   if (na === nb) return true;
+  // Разный первый символ — почти всегда ложное (housetenerife ≈ southtenerife)
+  if (na[0] !== nb[0]) return false;
   const maxLen = Math.max(na.length, nb.length);
   const minLen = Math.min(na.length, nb.length);
   const allowed = maxEditsForLength(maxLen);
@@ -584,31 +601,71 @@ function fuzzyContainsCollapsed(haystack, needle) {
   const allowed = maxEditsForLength(n.length);
   if (!allowed) return false;
   for (let len = n.length - allowed; len <= n.length + allowed; len++) {
-    if (len < 4 || len > h.length) continue;
+    if (len < 5 || len > h.length) continue;
     for (let i = 0; i <= h.length - len; i++) {
-      if (editDistance(h.slice(i, i + len), n) <= allowed) return true;
+      const slice = h.slice(i, i + len);
+      if (slice[0] !== n[0]) continue;
+      if (editDistance(slice, n) <= allowed) return true;
     }
   }
   return false;
 }
 
+/** Служебные токены URL/сайта — не участвуют в матчинге районов. */
+const LOCATION_NOISE_TOKENS = new Set([
+  'https',
+  'http',
+  'www',
+  'housetenerife',
+  'house',
+  'eu',
+  'com',
+  'property',
+  'for',
+  'sale',
+  'en',
+  'venta',
+  'beautiful',
+  'hermosa',
+  'details',
+  'rooms',
+  'bathrooms',
+  'price',
+  'precio',
+]);
+
+const WEAK_LOCATION_PREFIXES = new Set(['la', 'el', 'los', 'las', 'de', 'del', 'san', 'santa']);
+
 /**
  * Точное совпадение ИЛИ опечатка (1–2 символа).
- * Короткие ключи (&lt;5) — только exact, чтобы не ловить ложные срабатывания.
- * Многословные фразы — только по словам (не по всему тексту), иначе «Тенерифе» ≈ «юг тенериф».
+ * Короткие ключи (&lt;5) — только exact.
+ * options.exactOnly — без fuzzy (для текстов объявлений).
  */
-function textMatchesLocationPhrase(text, phrase) {
+function textMatchesLocationPhrase(text, phrase, options = {}) {
   if (textIncludesPhrase(text, phrase)) return true;
+  if (options.exactOnly) return false;
+
   const t = normalizeText(text);
   const p = normalizeText(phrase);
   if (!p || p.length < 5) return false;
 
   const pWords = p.split(/\s+/).filter(Boolean);
-  const tWords = t.split(/\s+/).filter(Boolean);
+  const tWords = t
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((w) => !LOCATION_NOISE_TOKENS.has(w));
   const pCollapsed = pWords.join('');
 
+  // «la calma» ≈ «la caleta» / «santa cruz» ≠ «… de la cruz» — слабый префикс
+  if (pWords.length >= 2 && WEAK_LOCATION_PREFIXES.has(pWords[0])) {
+    const strong = pWords.slice(1).join(' ');
+    if (strong.length < 7) {
+      // Только точная полная фраза (не одно «cruz» из Puerto de la Cruz)
+      return textIncludesPhrase(tWords.join(' '), p);
+    }
+  }
+
   if (pWords.length >= 2) {
-    // Слово-за-слово / n-gram с допуском опечаток
     for (let i = 0; i <= tWords.length - pWords.length; i++) {
       const slice = tWords.slice(i, i + pWords.length);
       if (fuzzyEqual(slice.join(' '), p)) return true;
@@ -617,31 +674,37 @@ function textMatchesLocationPhrase(text, phrase) {
         const tw = slice[w];
         const pw = pWords[w];
         if (tw === pw) continue;
+        if (WEAK_LOCATION_PREFIXES.has(pw) && tw !== pw) {
+          ok = false;
+          break;
+        }
         if (pw.length >= 5 && fuzzyEqual(tw, pw)) continue;
         ok = false;
         break;
       }
       if (ok) return true;
     }
-    // Слитно написанный район: «санатонио» ≈ «сан антонио»
     for (const tw of tWords) {
-      if (tw.length >= 6 && fuzzyEqual(tw, pCollapsed)) return true;
+      if (tw.length >= 8 && pCollapsed.length >= 8 && fuzzyEqual(tw, pCollapsed)) return true;
     }
     return false;
   }
 
-  // Одно слово: токены или окно в тексте (адеже / санатонио как один токен уже выше)
   for (const tw of tWords) {
-    if (tw.length >= 4 && fuzzyEqual(tw, p)) return true;
+    if (tw.length >= 5 && fuzzyEqual(tw, p)) return true;
   }
-  return fuzzyContainsCollapsed(t, p);
+  return fuzzyContainsCollapsed(tWords.join(' '), p);
 }
 
 /**
  * @param {string} text
+ * @param {string} [lang]
+ * @param {{ exactOnly?: boolean }} [options] — для объявлений: только точные совпадения
  * @returns {{ groupIds: string[], broadIds: string[], keywords: string[], label: string, hasSpecific: boolean, fuzzyMatched: boolean }}
  */
-function detectMicroAreas(text, lang = 'ru') {
+function detectMicroAreas(text, lang = 'ru', options = {}) {
+  const exactOnly = Boolean(options?.exactOnly);
+  const matchOpts = exactOnly ? { exactOnly: true } : {};
   const lower = normalizeText(text);
   const groupIds = [];
   const keywords = new Set();
@@ -656,7 +719,7 @@ function detectMicroAreas(text, lang = 'ru') {
         hit = true;
         break;
       }
-      if (textMatchesLocationPhrase(lower, k)) {
+      if (!exactOnly && textMatchesLocationPhrase(lower, k, matchOpts)) {
         hit = true;
         fuzzy = true;
       }
@@ -669,10 +732,16 @@ function detectMicroAreas(text, lang = 'ru') {
   }
 
   for (const b of BROAD_AREA_HINTS) {
-    if (b.userTriggers.some((k) => textMatchesLocationPhrase(lower, k))) {
+    const triggerHit = b.userTriggers.some((k) =>
+      exactOnly ? textIncludesPhrase(lower, k) : textMatchesLocationPhrase(lower, k, matchOpts)
+    );
+    if (triggerHit) {
       broadIds.push(b.id);
       b.userTriggers.forEach((k) => keywords.add(k.toLowerCase()));
-      b.itemKeywords.forEach((k) => keywords.add(k.toLowerCase()));
+      // itemKeywords только для score — не раздуваем keywords детекции пользователя
+      if (exactOnly) {
+        b.itemKeywords.forEach((k) => keywords.add(k.toLowerCase()));
+      }
     }
   }
 
@@ -699,6 +768,7 @@ function formatMicroAreaLabel(groupIds, broadIds, lang = 'ru') {
     puerto_de_la_cruz: { ru: 'Puerto de la Cruz', en: 'Puerto de la Cruz', es: 'Puerto de la Cruz' },
     santa_cruz: { ru: 'Santa Cruz / La Laguna / Orotava', en: 'Santa Cruz / La Laguna / Orotava', es: 'Santa Cruz / La Laguna / Orotava' },
     palm_mar: { ru: 'Palm-Mar', en: 'Palm-Mar', es: 'Palm-Mar' },
+    el_galeon: { ru: 'El Galeón', en: 'El Galeón', es: 'El Galeón' },
     los_gigantes: { ru: 'Los Gigantes / Playa de la Arena', en: 'Los Gigantes / Playa de la Arena', es: 'Los Gigantes / Playa de la Arena' },
     dubai_marina: { ru: 'Dubai Marina', en: 'Dubai Marina', es: 'Dubai Marina' },
     palm_jumeirah: { ru: 'Palm Jumeirah', en: 'Palm Jumeirah', es: 'Palm Jumeirah' },
@@ -785,33 +855,150 @@ function filterMicroGroupsForMacro(groupIds, macroRegions) {
 
 /**
  * Жёсткий фильтр: объект должен попасть хотя бы в одну выбранную узкую зону.
+ * Для объявлений — только exact (без fuzzy), плюс overrides и приоритет title/URL.
  */
 function itemMatchesMicroAreas(item, groupIds, itemSearchBlobFn) {
   if (!groupIds?.length) return true;
+  const overrideIds = getItemLocationOverrideIds(item);
+  if (overrideIds?.length) {
+    return overrideIds.some((id) => groupIds.includes(id));
+  }
+
+  const titleBlob = [
+    item.title,
+    item.url,
+    ...(item.titles ? Object.values(item.titles) : []),
+    ...(item.urls ? Object.values(item.urls) : []),
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  for (const gid of groupIds) {
+    const g = getGroupById(gid);
+    if (!g) continue;
+    // Сначала title/URL — точнее, чем тело описания
+    if (g.keywords.some((k) => textIncludesPhrase(titleBlob, k))) return true;
+  }
+
   const blob = itemSearchBlobFn(item);
   for (const gid of groupIds) {
     const g = getGroupById(gid);
     if (!g) continue;
-    // textIncludesPhrase — с границами слов (иначе «gracia» ловит «gracias»)
-    if (g.keywords.some((k) => textIncludesPhrase(blob, k))) return true;
+    if (g.keywords.some((k) => textIncludesPhrase(blob, k))) {
+      // Adeje в описании + Galeón в title → не считать Costa Adeje, если Galeón не запрошен
+      if (gid === 'costa_adeje' && !groupIds.includes('el_galeon')) {
+        const galeon = getGroupById('el_galeon');
+        const titleIsGaleon =
+          galeon && galeon.keywords.some((k) => textIncludesPhrase(titleBlob, k));
+        const titleIsTouristAdeje = g.keywords
+          .filter((k) => !/^(adeje|адехе)$/i.test(k))
+          .some((k) => textIncludesPhrase(titleBlob, k));
+        if (titleIsGaleon && !titleIsTouristAdeje) continue;
+      }
+      return true;
+    }
   }
   return false;
 }
 
+/** Переопределение района для известных ошибок каталога (slug → groupIds). */
+let locationOverridesCache = null;
+function loadLocationOverrides() {
+  if (locationOverridesCache) return locationOverridesCache;
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const p = path.join(__dirname, 'data', 'location-overrides.json');
+    if (fs.existsSync(p)) {
+      locationOverridesCache = JSON.parse(fs.readFileSync(p, 'utf8'));
+    } else {
+      locationOverridesCache = { bySlug: {}, byId: {} };
+    }
+  } catch {
+    locationOverridesCache = { bySlug: {}, byId: {} };
+  }
+  return locationOverridesCache;
+}
+
+function getItemLocationOverrideIds(item) {
+  const data = loadLocationOverrides();
+  if (item?.id && data.byId?.[item.id]) return data.byId[item.id];
+  const hzFromOverview = String(item?.overview || item?.description || '').match(
+    /\b(HZ[A-Z0-9]+)\b/i
+  );
+  if (hzFromOverview && data.byId?.[hzFromOverview[1]]) {
+    return data.byId[hzFromOverview[1]];
+  }
+  if (hzFromOverview && data.byId?.[hzFromOverview[1].toUpperCase()]) {
+    return data.byId[hzFromOverview[1].toUpperCase()];
+  }
+  const slugs = new Set();
+  for (const u of [item?.url, ...(item?.urls ? Object.values(item.urls) : [])].filter(Boolean)) {
+    const m = String(u).match(/\/property\/([^/]+)/i);
+    if (m) slugs.add(m[1].toLowerCase());
+  }
+  for (const slug of slugs) {
+    if (data.bySlug?.[slug]) return data.bySlug[slug];
+  }
+  return null;
+}
+
+function detectItemMicroAreas(item, itemSearchBlobFn, lang = 'en') {
+  const overrideIds = getItemLocationOverrideIds(item);
+  if (overrideIds?.length) {
+    return {
+      groupIds: overrideIds,
+      broadIds: [],
+      keywords: [],
+      label: formatMicroAreaLabel(overrideIds, [], lang),
+      hasSpecific: true,
+      fuzzyMatched: false,
+    };
+  }
+  const titleBlob = [
+    item.title,
+    item.url,
+    ...(item.titles ? Object.values(item.titles) : []),
+    ...(item.urls ? Object.values(item.urls) : []),
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const fromTitle = detectMicroAreas(titleBlob, lang, { exactOnly: true });
+  if (fromTitle.groupIds.length) return fromTitle;
+  return detectMicroAreas(itemSearchBlobFn(item), lang, { exactOnly: true });
+}
+
 function scoreMicroAreaFit(item, detection, itemSearchBlobFn) {
-  const blob = itemSearchBlobFn(item);
+  const overrideIds = getItemLocationOverrideIds(item);
   let sc = 0;
+
+  if (overrideIds?.length) {
+    if (detection.groupIds?.some((gid) => overrideIds.includes(gid))) sc += 30;
+    else if (detection.groupIds?.length) sc -= 28;
+    return sc;
+  }
+
+  const titleBlob = [
+    item.title,
+    item.url,
+    ...(item.titles ? Object.values(item.titles) : []),
+    ...(item.urls ? Object.values(item.urls) : []),
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const blob = itemSearchBlobFn(item);
 
   for (const gid of detection.groupIds || []) {
     const g = getGroupById(gid);
     if (!g) continue;
-    if (g.keywords.some((k) => textIncludesPhrase(blob, k))) sc += 22;
+    if (g.keywords.some((k) => textIncludesPhrase(titleBlob, k))) sc += 26;
+    else if (g.keywords.some((k) => textIncludesPhrase(blob, k))) sc += 18;
   }
 
   for (const bid of detection.broadIds || []) {
     const b = BROAD_AREA_HINTS.find((x) => x.id === bid);
     if (!b) continue;
-    if (b.itemKeywords.some((k) => textIncludesPhrase(blob, k))) sc += 14;
+    if (b.itemKeywords.some((k) => textIncludesPhrase(blob, k))) sc += 10;
   }
 
   if (detection.groupIds?.length && sc === 0) sc -= 28;
@@ -834,6 +1021,7 @@ module.exports = {
   GENERIC_LOCATION_TERMS,
   normalizeText,
   detectMicroAreas,
+  detectItemMicroAreas,
   formatMicroAreaLabel,
   itemMatchesMicroAreas,
   scoreMicroAreaFit,
@@ -844,4 +1032,5 @@ module.exports = {
   getAreaOptionsPrompt,
   filterMicroGroupsForMacro,
   microDetectionMatchesMacro,
+  getItemLocationOverrideIds,
 };

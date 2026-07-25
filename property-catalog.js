@@ -4,7 +4,8 @@ const { derivePriceTarget } = require('./dialog-context');
 const {
   itemMatchesMicroAreas,
   scoreMicroAreaFit,
-  detectMicroAreas
+  detectMicroAreas,
+  detectItemMicroAreas
 } = require('./location-matching');
 const {
   getItemPropertyCategories,
@@ -263,9 +264,76 @@ function applyPropertyTypeFilter(ranked, propertyTypes) {
 
 function locationBucketForItem(item) {
   const region = getPrimaryMacroRegion(item) || 'unknown';
-  const micro = detectMicroAreas(itemSearchBlob(item));
+  const micro = detectItemMicroAreas(item, itemSearchBlob);
   if (micro.groupIds.length) return `${region}:${micro.groupIds[0]}`;
   return region;
+}
+
+/**
+ * Подборка из 3 ценовых уровней: дешевле / около бюджета / дороже (если есть).
+ * Если кандидатов мало — дополняет ближайшими по цене.
+ */
+function pickPriceTierListings(ranked, limit, priceTarget) {
+  if (!ranked?.length) return [];
+  const want = Math.min(Math.max(limit || 3, 3), 5);
+  if (!priceTarget?.anchor || ranked.length <= 3) {
+    return pickDiverseListings(ranked, want);
+  }
+
+  const anchor = priceTarget.anchor;
+  const withPrice = ranked
+    .map((r) => ({ ...r, price: parseItemPriceEur(r.item) }))
+    .filter((r) => r.price != null);
+  if (withPrice.length < 3) return pickDiverseListings(ranked, want);
+
+  const cheaper = withPrice
+    .filter((r) => r.price < anchor * 0.97)
+    .sort((a, b) => b.price - a.price);
+  const mid = withPrice
+    .filter((r) => r.price >= anchor * 0.97 && r.price <= anchor * 1.08)
+    .sort((a, b) => Math.abs(a.price - anchor) - Math.abs(b.price - anchor));
+  const dearer = withPrice
+    .filter((r) => r.price > anchor * 1.08)
+    .sort((a, b) => a.price - b.price);
+
+  const picked = [];
+  const seen = new Set();
+  const take = (list) => {
+    for (const entry of list) {
+      const key = entry.item.url || entry.item.id || entry.item.title;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      picked.push(entry);
+      return true;
+    }
+    return false;
+  };
+
+  take(cheaper);
+  take(mid.length ? mid : withPrice.sort((a, b) => Math.abs(a.price - anchor) - Math.abs(b.price - anchor)));
+  take(dearer);
+
+  // Добить до 3–5 разными районами
+  const rest = pickDiverseListings(
+    ranked.filter((r) => !seen.has(r.item.url || r.item.id || r.item.title)),
+    want
+  );
+  for (const entry of rest) {
+    if (picked.length >= want) break;
+    const key = entry.item.url || entry.item.id || entry.item.title;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    picked.push(entry);
+  }
+
+  while (picked.length < Math.min(3, ranked.length)) {
+    const next = ranked.find((r) => !seen.has(r.item.url || r.item.id || r.item.title));
+    if (!next) break;
+    seen.add(next.item.url || next.item.id || next.item.title);
+    picked.push(next);
+  }
+
+  return picked.slice(0, want);
 }
 
 /** Разнообразие: не отдавать 5 объектов из одного района подряд */
@@ -502,7 +570,7 @@ function searchForContext(query, limit = 8, options = {}) {
     ranked = filterByHardBudget(ranked, hardBudget);
   }
 
-  ranked = pickDiverseListings(ranked, limit);
+  ranked = pickPriceTierListings(ranked, limit, priceTarget);
 
   if (!ranked.length) {
     ranked = data.items

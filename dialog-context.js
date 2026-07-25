@@ -38,7 +38,7 @@ function analyzeConversation(history, lang = 'ru') {
   const lastUser = userMsgs[userMsgs.length - 1]?.text || '';
 
   const hasPurpose =
-    /инвест|invest|inversi[oó]n|anlage|investissement|доход|аренд|rental|alquiler|miete|location|бизнес|business|negocio|geschäft|для жизни|для себя|для семьи|личн(?:ой|ая)?\s+жизн|переезд|relocate|live in|residen|vivir|para vivir|wohnen|umzug|habiter|déménagement|demenagement|holiday home|segunda residencia|second home|ferien|résidence secondaire|residence secondaire/i.test(
+    /инвест|invest|inversi[oó]n|anlage|investissement|доход|аренд|rental|alquiler|miete|location|бизнес|business|negocio|geschäft|для жизни|для себя|для семьи|личн(?:ой|ая)?\s+жизн|переезд|relocate|live in|residen|vivir|para vivir|wohnen|umzug|habiter|pour\s+vivre|pour\s+investir|zum\s+wohnen|zum\s+investieren|déménagement|demenagement|holiday home|segunda residencia|second home|ferien|résidence secondaire|residence secondaire/i.test(
       lower
     );
 
@@ -395,12 +395,11 @@ function extractBudgetRange(text) {
   if (minPrice == null && maxPrice == null) {
     const bare = [...s.matchAll(/\b(\d{1,3}(?:[.,\s]\d{3})+|\d{5,7})\b/g)];
     if (bare.length) {
-      const raw = bare[bare.length - 1][1].replace(/[.\s]/g, '').replace(',', '');
-      // European 600.000 → digits; US already handled via upTo often
       const digits = bare[bare.length - 1][1].replace(/[^\d]/g, '');
       const v = parseInt(digits, 10);
       if (Number.isFinite(v) && v >= 50000) {
-        if (/(?:до|hasta|up\s*to|макс|under|below|bis)/i.test(s)) {
+        if (/(?:до|hasta|up\s*to|макс|under|below|bis|jusqu|budget|presupuesto|бюджет)/i.test(s)) {
+          // «бюджет 350000» / «budget 350k» — потолок, не коридор ±12%
           maxPrice = v;
         } else {
           minPrice = Math.round(v * 0.92);
@@ -641,11 +640,9 @@ function buildDialogMemoryBlock(state, lang = 'ru') {
     known.push(state.regionLabel || 'region');
     neverAsk.push(lang === 'es' ? 'región' : lang === 'en' ? 'region' : 'регион');
   }
-  if (state.hasLocation || !state.needsMicroArea) {
-    if (state.hasLocation) {
-      known.push(state.microAreaLabel || (lang === 'en' ? 'area' : 'район'));
-      neverAsk.push(lang === 'es' ? 'zona/área' : lang === 'en' ? 'area/district' : 'район/зона');
-    }
+  if (state.hasLocation) {
+    known.push(state.microAreaLabel || (lang === 'en' ? 'area' : 'район'));
+    neverAsk.push(lang === 'es' ? 'zona/área' : lang === 'en' ? 'area/district' : 'район/зона');
   }
   if (state.hasBudget) {
     const bl = formatBudgetLabel(state.budget, lang);
@@ -661,53 +658,58 @@ function buildDialogMemoryBlock(state, lang = 'ru') {
 
   if (!neverAsk.length) return '';
 
+  const locationLock =
+    state.hasLocation && state.microAreaLabel
+      ? lang === 'es'
+        ? ` Zona ya indicada: ${state.microAreaLabel} — no preguntes otra zona.`
+        : lang === 'en'
+          ? ` Area already given: ${state.microAreaLabel} — do not ask for another zone.`
+          : lang === 'de'
+            ? ` Zone bereits genannt: ${state.microAreaLabel} — keine andere Zone fragen.`
+            : lang === 'fr'
+              ? ` Zone déjà indiquée: ${state.microAreaLabel} — ne pas redemander la zone.`
+              : lang === 'pl'
+                ? ` Strefa już podana: ${state.microAreaLabel} — nie pytaj o inną strefę.`
+                : lang === 'nl'
+                  ? ` Zone al genoemd: ${state.microAreaLabel} — vraag geen andere zone.`
+                  : ` Район уже указан: ${state.microAreaLabel} — не спрашивай другую зону.`
+      : '';
+
+  const moreHint = state.wantsMoreLikeThese
+    ? lang === 'es'
+      ? ' El cliente pide más/similares — envía nueva selección YA con estos criterios.'
+      : lang === 'en'
+        ? ' Client wants more/similar options — send a new shortlist NOW using these criteria.'
+        : lang === 'de'
+          ? ' Kunde will mehr/ähnliche — sofort neue Auswahl mit diesen Kriterien.'
+          : lang === 'fr'
+            ? ' Le client veut plus/similaires — nouvelle sélection MAINTENANT avec ces critères.'
+            : lang === 'pl'
+              ? ' Klient prosi o więcej/podobne — od razu nowa selekcja według tych kryteriów.'
+              : lang === 'nl'
+                ? ' Klant wil meer/vergelijkbaar — meteen nieuwe selectie met deze criteria.'
+                : ' Клиент просит ещё/похожие — сразу новая подборка по этим критериям, без вопросов про бюджет/район/тип.'
+    : '';
+
   if (lang === 'es') {
-    return `**MEMORIA DEL DIÁLOGO (obligatorio):** Ya sabemos: ${known.join('; ')}. NO vuelvas a preguntar: ${neverAsk.join(', ')}.${
-      state.wantsMoreLikeThese
-        ? ' El cliente pide más/similares — envía nueva selección YA con estos criterios.'
-        : ''
-    } Pregunta solo lo que aún falta.`;
+    return `**MEMORIA DEL DIÁLOGO (obligatorio):** Ya sabemos: ${known.join('; ')}. NO vuelvas a preguntar: ${neverAsk.join(', ')}.${locationLock}${moreHint} Pregunta solo lo que aún falta.`;
   }
   if (lang === 'en') {
-    return `**DIALOG MEMORY (mandatory):** Already known: ${known.join('; ')}. Do NOT re-ask: ${neverAsk.join(', ')}.${
-      state.wantsMoreLikeThese
-        ? ' Client wants more/similar options — send a new shortlist NOW using these criteria.'
-        : ''
-    } Ask only for what is still missing.`;
+    return `**DIALOG MEMORY (mandatory):** Already known: ${known.join('; ')}. Do NOT re-ask: ${neverAsk.join(', ')}.${locationLock}${moreHint} Ask only for what is still missing.`;
   }
   if (lang === 'de') {
-    return `**DIALOGGEDÄCHTNIS (pflicht):** Bereits bekannt: ${known.join('; ')}. NICHT erneut fragen: ${neverAsk.join(', ')}.${
-      state.wantsMoreLikeThese
-        ? ' Kunde will mehr/ähnliche — sofort neue Auswahl mit diesen Kriterien.'
-        : ''
-    } Nur fragen, was noch fehlt.`;
+    return `**DIALOGGEDÄCHTNIS (pflicht):** Bereits bekannt: ${known.join('; ')}. NICHT erneut fragen: ${neverAsk.join(', ')}.${locationLock}${moreHint} Nur fragen, was noch fehlt.`;
   }
   if (lang === 'fr') {
-    return `**MÉMOIRE DU DIALOGUE (obligatoire):** Déjà connu: ${known.join('; ')}. NE PAS redemander: ${neverAsk.join(', ')}.${
-      state.wantsMoreLikeThese
-        ? ' Le client veut plus/similaires — nouvelle sélection MAINTENANT avec ces critères.'
-        : ''
-    } Demander seulement ce qui manque.`;
+    return `**MÉMOIRE DU DIALOGUE (obligatoire):** Déjà connu: ${known.join('; ')}. NE PAS redemander: ${neverAsk.join(', ')}.${locationLock}${moreHint} Demander seulement ce qui manque.`;
   }
   if (lang === 'pl') {
-    return `**PAMIĘĆ DIALOGU (obowiązkowe):** Już wiadomo: ${known.join('; ')}. NIE pytaj ponownie: ${neverAsk.join(', ')}.${
-      state.wantsMoreLikeThese
-        ? ' Klient prosi o więcej/podobne — od razu nowa selekcja według tych kryteriów.'
-        : ''
-    } Pytaj tylko o to, czego jeszcze brakuje.`;
+    return `**PAMIĘĆ DIALOGU (obowiązkowe):** Już wiadomo: ${known.join('; ')}. NIE pytaj ponownie: ${neverAsk.join(', ')}.${locationLock}${moreHint} Pytaj tylko o to, czego jeszcze brakuje.`;
   }
   if (lang === 'nl') {
-    return `**DIALOOGGEHEUGEN (verplicht):** Al bekend: ${known.join('; ')}. NIET opnieuw vragen: ${neverAsk.join(', ')}.${
-      state.wantsMoreLikeThese
-        ? ' Klant wil meer/vergelijkbaar — meteen nieuwe selectie met deze criteria.'
-        : ''
-    } Vraag alleen wat nog ontbreekt.`;
+    return `**DIALOOGGEHEUGEN (verplicht):** Al bekend: ${known.join('; ')}. NIET opnieuw vragen: ${neverAsk.join(', ')}.${locationLock}${moreHint} Vraag alleen wat nog ontbreekt.`;
   }
-  return `**ПАМЯТЬ ДИАЛОГА (обязательно):** Уже известно: ${known.join('; ')}. НЕ переспрашивай: ${neverAsk.join(', ')}.${
-    state.wantsMoreLikeThese
-      ? ' Клиент просит ещё/похожие — сразу новая подборка по этим критериям, без вопросов про бюджет/район/тип.'
-      : ''
-  } Спрашивай только то, чего ещё нет.`;
+  return `**ПАМЯТЬ ДИАЛОГА (обязательно):** Уже известно: ${known.join('; ')}. НЕ переспрашивай: ${neverAsk.join(', ')}.${locationLock}${moreHint} Спрашивай только то, чего ещё нет.`;
 }
 
 /** @deprecated use parseBudgetNumber — оставлено для совместимости тестов */
