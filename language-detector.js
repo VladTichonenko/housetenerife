@@ -78,7 +78,7 @@ const STOP_WORDS = {
     'want', 'wanted', 'need', 'needed', 'looking', 'look', 'interested', 'interest', 'help', 'please', 'thanks', 'thank', 'hello', 'hi', 'hey', 'yes', 'no', 'ok', 'okay', 'sure',
     'buy', 'buying', 'purchase', 'invest', 'investment', 'investing', 'rent', 'rental', 'live', 'living', 'relocate', 'relocation',
     'apartment', 'flat', 'house', 'villa', 'property', 'properties', 'real', 'estate', 'home', 'homes', 'listing', 'listings',
-    'budget', 'price', 'euro', 'eur', 'thousand', 'million', 'around', 'up', 'to',
+    'budget', 'price', 'euro', 'eur', 'euros', 'thousand', 'million', 'around', 'up', 'to',
     'tenerife', 'spain', 'dubai', 'marbella', 'barcelona', 'ibiza', 'canary', 'canaries',
   ]),
   es: new Set([
@@ -99,7 +99,7 @@ const STOP_WORDS = {
     'hallo', 'guten', 'tag', 'morgen', 'abend', 'danke', 'bitte', 'ja', 'nein',
     'will', 'möchte', 'mochte', 'suche', 'suchen', 'brauche', 'brauchen', 'kaufen', 'kauf', 'investition', 'investieren', 'miete', 'wohnen', 'umziehen',
     'wohnung', 'apartment', 'haus', 'villa', 'immobilie', 'immobilien', 'eigentum',
-    'budget', 'preis', 'euro', 'tausend',
+    'budget', 'preis', 'euro', 'euros', 'tausend', 'million', 'millionen',
     'teneriffa', 'spanien', 'dubai', 'marbella', 'barcelona', 'ibiza', 'kanaren',
   ]),
   fr: new Set([
@@ -299,12 +299,55 @@ function detectByFranc(text) {
  * @returns {string} ru | en | es | de | uk | …
  */
 /**
+ * Сумма/бюджет без языкового контекста — «2 million euros», «350k», «800000 €».
+ * Не должны переключать sticky-язык EN→ES из‑за слова «euros».
+ */
+function isBudgetAmountReply(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed || trimmed.length > 80) return false;
+  const lower = trimmed.toLowerCase().replace(/\s+/g, ' ');
+
+  // Явно испанская/французская/немецкая фраза про бюджет — язык есть, не neutral
+  if (
+    /\b(dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|millones?\s+de|presupuesto|hasta|aproximadamente|ser[ií]a)\b/i.test(
+      lower
+    )
+  ) {
+    return false;
+  }
+  if (/\b(je|cherche|voudrais|millions?\s+d['e])\b/i.test(lower)) return false;
+  if (/\b(ich|suche|möchte|mochte|millionen)\b/i.test(lower)) return false;
+
+  const hasDigit = /\d/.test(lower);
+  const hasEnBudgetWord =
+    /\b(million|millions|thousand|thousands|budget|approx|around|up\s*to|max|k|mln|mio)\b/i.test(
+      lower
+    );
+  const hasCurrency = /\b(euros?|eur|€|\$|usd|gbp)\b/i.test(lower) || /€/.test(trimmed);
+
+  if (hasDigit && (hasCurrency || hasEnBudgetWord)) return true;
+  if (hasEnBudgetWord && hasCurrency) return true;
+
+  // «two million euros» без цифр
+  if (
+    /^(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:million|millions|thousand|k)\s*(?:euros?|eur|€)?$/i.test(
+      lower
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Короткие реплики вроде ok / yes / да — слишком слабый сигнал, чтобы менять язык диалога.
  */
 function isAmbiguousShortReply(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return true;
   if (isMostlyPlaceName(trimmed)) return true;
+  if (isBudgetAmountReply(trimmed)) return true;
   const words = tokenize(trimmed);
   if (words.length === 0) return true;
   if (words.length === 1) {
@@ -330,6 +373,7 @@ function isStrongLanguageSignal(text, detectedLang) {
   if (!trimmed || !detectedLang) return false;
   if (isAmbiguousShortReply(trimmed)) return false;
   if (isMostlyPlaceName(trimmed)) return false;
+  if (isBudgetAmountReply(trimmed)) return false;
 
   const scriptLang = detectByScript(trimmed);
   if (scriptLang && scriptLang === detectedLang) return true;
@@ -368,8 +412,8 @@ function detectLanguageFromText(text) {
     return scriptLang;
   }
 
-  // Топонимы не голосуют стоп-словами (de/la/el в «Puerto de la Cruz»)
-  if (isMostlyPlaceName(trimmed)) {
+  // Топонимы / суммы бюджета — не голосуют стоп-словами
+  if (isMostlyPlaceName(trimmed) || isBudgetAmountReply(trimmed)) {
     return 'en';
   }
 
@@ -439,5 +483,6 @@ module.exports = {
   isAmbiguousShortReply,
   isStrongLanguageSignal,
   isMostlyPlaceName,
+  isBudgetAmountReply,
   SUPPORTED_DETECT,
 };

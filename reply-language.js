@@ -174,12 +174,28 @@ function replyMismatchesLanguage(text, lang) {
 
   if (salesLang === 'en') {
     if (cyr > 25 && lat / Math.max(letters, 1) < 0.35) return true;
+    // Испанский в английском диалоге (Ya sé, presupuesto, hipoteca, ¿…)
+    if (
+      /\b(ya\s+s[eé]|buscas|presupuesto|cu[aá]nto|efectivo|hipoteca|contado|encaja|villas?\s+en)\b/i.test(
+        body
+      ) ||
+      /¿/.test(body)
+    ) {
+      return true;
+    }
     return false;
   }
 
   if (salesLang === 'es') {
     if (cyr > 20) return true;
-    // Много английского без испанских маркеров — слабый сигнал, не форсим
+    // Английский в испанском диалоге
+    if (
+      /\b(got it|looking for|what budget|cash available|mortgage|shortlist|which option)\b/i.test(
+        body
+      )
+    ) {
+      return true;
+    }
     return false;
   }
 

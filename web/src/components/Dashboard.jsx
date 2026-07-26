@@ -2,13 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api/client';
 import Logo from './Logo';
-import { IconBot, IconBook, IconCatalog, IconClose, IconGuide, IconMenu, IconPhone, IconUsers } from './Icons';
+import { IconBot, IconBook, IconCatalog, IconClose, IconDatabase, IconGuide, IconMenu, IconPhone, IconUsers } from './Icons';
 import SessionSection from './SessionSection';
 import AssistantSection from './AssistantSection';
 import KnowledgeSection from './KnowledgeSection';
 import CatalogSection from './CatalogSection';
 import GuideSection from './GuideSection';
 import ManagerHandoffsSection from './ManagerHandoffsSection';
+import DatabaseSection from './DatabaseSection';
 
 const SECTIONS = {
   guide: { title: 'Инструкция', id: 'guide' },
@@ -16,7 +17,8 @@ const SECTIONS = {
   assistant: { title: 'Умный помощник', id: 'assistant' },
   knowledge: { title: 'База знаний', id: 'knowledge' },
   catalog: { title: 'Каталог объектов', id: 'catalog' },
-  handoffs: { title: 'Связь с менеджером', id: 'handoffs' }
+  handoffs: { title: 'Связь с менеджером', id: 'handoffs' },
+  database: { title: 'База данных', id: 'database' },
 };
 
 const NAV_ITEMS = [
@@ -25,7 +27,8 @@ const NAV_ITEMS = [
   { id: 'assistant', label: 'Умный помощник', Icon: IconBot },
   { id: 'handoffs', label: 'Связь с менеджером', Icon: IconUsers },
   { id: 'knowledge', label: 'База знаний', Icon: IconBook },
-  { id: 'catalog', label: 'Каталог', Icon: IconCatalog }
+  { id: 'catalog', label: 'Каталог', Icon: IconCatalog },
+  { id: 'database', label: 'БД', Icon: IconDatabase },
 ];
 
 export default function Dashboard({ showToast }) {
@@ -165,7 +168,7 @@ export default function Dashboard({ showToast }) {
         </button>
       </aside>
 
-      <div className={`dashboard__content${section === 'catalog' ? ' dashboard__content--wide' : ''}`}>
+      <div className={`dashboard__content${section === 'catalog' || section === 'database' ? ' dashboard__content--wide' : ''}`}>
         <header className="topbar">
           <h2 className="topbar__title">{current.title}</h2>
           {statusPill}
@@ -187,6 +190,7 @@ export default function Dashboard({ showToast }) {
           {section === 'knowledge' && <KnowledgeSection showToast={showToast} />}
           {section === 'catalog' && <CatalogSection />}
           {section === 'handoffs' && <ManagerHandoffsSection />}
+          {section === 'database' && <DatabaseSection />}
         </div>
       </div>
     </div>

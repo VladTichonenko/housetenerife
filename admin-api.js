@@ -4,6 +4,7 @@ const { getKnowledgeBase, saveKnowledgeBase } = require('./knowledge-base');
 const { listProperties } = require('./property-catalog');
 const { listHandoffs, getHandoff, assignHandoff, closeHandoff } = require('./handoff-leads');
 const { listClients, getClient } = require('./clients-store');
+const { getDbStats, DB_PATH } = require('./db');
 const {
   findManagerByCode,
   createToken,
@@ -161,6 +162,41 @@ function registerAdminRoutes(app, state) {
         q: req.query.q,
       });
       res.json({ success: true, ...result });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/admin/db/stats', requireAdmin, (req, res) => {
+    try {
+      const stats = getDbStats();
+      res.json({ success: true, stats, path: DB_PATH });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/admin/db/users', requireAdmin, (req, res) => {
+    try {
+      const result = listClients({
+        page: req.query.page,
+        limit: req.query.limit,
+        q: req.query.q,
+      });
+      res.json({ success: true, ...result });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/admin/db/users/:id', requireAdmin, (req, res) => {
+    try {
+      const item = getClient(req.params.id);
+      if (!item) {
+        return res.status(404).json({ success: false, message: 'Пользователь не найден' });
+      }
+      const messages = getMessages(req.params.id);
+      res.json({ success: true, item, messages });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
     }

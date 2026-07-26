@@ -14,7 +14,8 @@
     "enrich-i18n": "node scripts/enrich-properties-i18n.js",
     "validate-urls": "node scripts/validate-catalog-urls.js",
     "test-ai-key": "node scripts/test-ai-key.js",
-    "ingest-file-doc": "node scripts/ingest-file-doc.js"
+    "ingest-file-doc": "node scripts/ingest-file-doc.js",
+    "test:fixes": "node scripts/test-fixes-dialogs.js"
   },
   "license": "ISC",
   "engines": {
@@ -22,6 +23,7 @@
   },
   "dependencies": {
     "axios": "^1.6.0",
+    "better-sqlite3": "^13.0.1",
     "cheerio": "^1.0.0-rc.12",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",

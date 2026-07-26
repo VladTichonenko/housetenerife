@@ -63,7 +63,21 @@ const {
 const { analyzeConversation } = require('./dialog-context');
 const { recordHandoff, HANDOFF_PATH, touchHandoffActivity } = require('./handoff-leads');
 const { recordClientMessage, CLIENTS_PATH } = require('./clients-store');
-const { recordMessage: persistMessage } = require('./conversation-store');
+const {
+  recordMessage: persistMessage,
+  getMessages: getPersistedMessages,
+} = require('./conversation-store');
+const { hydrateConversationHistory } = require('./conversation-history');
+const { getDb, DB_PATH } = require('./db');
+const { migrateFromJsonIfNeeded } = require('./db-migrate');
+
+try {
+  getDb();
+  migrateFromJsonIfNeeded();
+  console.log(`🗄️ SQLite: ${DB_PATH}`);
+} catch (dbErr) {
+  console.error('❌ SQLite init:', dbErr.message);
+}
 const {
   isAiDisabled,
   getChatSettings,
@@ -96,7 +110,7 @@ const LINK_MESSAGE_DELAY_MS = Math.max(
 
 setRecordHandoff(recordHandoff);
 console.log(`📋 Лиды handoff (панель «Связь с менеджером»): ${HANDOFF_PATH}`);
-console.log(`👤 Клиенты WhatsApp: ${CLIENTS_PATH}`);
+console.log(`👤 Пользователи и чаты: SQLite (${DB_PATH}), legacy JSON: ${CLIENTS_PATH}`);
 if (telegramNotify.isConfigured()) {
   console.log('📱 Telegram: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID заданы (проверка при старте HTTP)');
 } else {
@@ -797,6 +811,27 @@ async function processBatchedIncomingMessages(messages, source) {
 // Максимальное количество сообщений в истории (чтобы не перегружать контекст)
 const MAX_HISTORY_LENGTH = 20;
 
+function ensureHistoryHydrated(chatId) {
+  try {
+    const result = hydrateConversationHistory(
+      conversationHistory,
+      chatId,
+      getPersistedMessages,
+      MAX_HISTORY_LENGTH
+    );
+    if (result.hydrated && result.count > 0) {
+      console.log(`🧠 История ${chatId} восстановлена: ${result.count} сообщений`);
+    }
+    return result;
+  } catch (e) {
+    console.warn(`⚠️ Не удалось восстановить историю ${chatId}:`, e.message);
+    if (!conversationHistory.has(String(chatId))) {
+      conversationHistory.set(String(chatId), []);
+    }
+    return { hydrated: false, count: 0 };
+  }
+}
+
 // Функция для добавления сообщения в историю
 function persistChatMessage(chatId, role, text, extra = {}) {
   if (!chatId || !text) return;
@@ -810,7 +845,8 @@ function persistChatMessage(chatId, role, text, extra = {}) {
   }
 }
 
-function addToHistory(chatId, sender, text, { persist = true } = {}) {
+function addToHistory(chatId, sender, text, { persist = true, language = null } = {}) {
+  ensureHistoryHydrated(chatId);
   if (!conversationHistory.has(chatId)) {
     conversationHistory.set(chatId, []);
   }
@@ -829,10 +865,11 @@ function addToHistory(chatId, sender, text, { persist = true } = {}) {
 
   if (!persist || !text) return;
 
+  const extra = language ? { language } : {};
   if (sender === 'user') {
-    persistChatMessage(chatId, 'user', text);
+    persistChatMessage(chatId, 'user', text, extra);
   } else if (sender === 'assistant') {
-    persistChatMessage(chatId, 'assistant', text);
+    persistChatMessage(chatId, 'assistant', text, extra);
   }
 }
 
@@ -1814,6 +1851,7 @@ async function handleIncomingMessage(msg, options = {}) {
       }
       persistChatMessage(getConversationChatId(msg, chat), 'user', '[голосовое сообщение]', {
         kind: 'voice',
+        language: earlyLang,
       });
       telegramNotify
         .notifyIncomingWhatsAppMessage({
@@ -1874,6 +1912,7 @@ async function handleIncomingMessage(msg, options = {}) {
     
     console.log('✅ [DEBUG] Сообщение прошло все проверки, начинаем обработку...');
     const chatId = getConversationChatId(msg, chat);
+    ensureHistoryHydrated(chatId);
     
     // Проверяем, это первое сообщение от пользователя?
     const isFirstMessage = !firstMessageUsers.has(chatId);
@@ -1941,9 +1980,9 @@ async function handleIncomingMessage(msg, options = {}) {
 
     if (isAiDisabled(chatId)) {
       for (const t of prependUserTexts) {
-        addToHistory(chatId, 'user', t);
+        addToHistory(chatId, 'user', t, { language: dialogLanguage });
       }
-      addToHistory(chatId, 'user', messageText);
+      addToHistory(chatId, 'user', messageText, { language: dialogLanguage });
       console.log(`🔇 AI отключён для ${chatId} — сообщение сохранено, ответ не отправляется`);
       return 'processed';
     }
@@ -1966,7 +2005,7 @@ async function handleIncomingMessage(msg, options = {}) {
           return 'processed';
         }
         const handoffLang = pendingHandoff.language || dialogLanguage;
-        addToHistory(chatId, 'user', messageText);
+        addToHistory(chatId, 'user', messageText, { language: handoffLang });
         clearPendingHandoff(chatId);
         console.log(`👤 Имя получено (${clientName}), передача менеджеру: ${chatId}`);
         await connectWithManager(msg, client, handoffLang, sendMessageSafely, {
@@ -1986,12 +2025,14 @@ async function handleIncomingMessage(msg, options = {}) {
       const offerLang = pendingCallOffer.language || dialogLanguage;
 
       if (detectNegativeResponse(messageText)) {
-        addToHistory(chatId, 'user', messageText);
+        addToHistory(chatId, 'user', messageText, { language: offerLang });
         clearPendingCallOffer(chatId);
         console.log(`📞 Клиент отказался от созвона: ${chatId}`);
         try {
           const history = getHistory(chatId);
-          const aiResponse = await withChatTyping(msg, () => askAI(history, offerLang));
+          const aiResponse = await withChatTyping(msg, () =>
+            askAI(history, offerLang, { chatId })
+          );
           const outgoing = localizeUrlsInText(aiResponse, offerLang);
           addToHistory(chatId, 'assistant', outgoing);
           await sendMessageSafely(msg, outgoing, client);
@@ -2002,7 +2043,7 @@ async function handleIncomingMessage(msg, options = {}) {
       }
 
       if (isBareCallAcceptance(messageText) || wantsManagerHandoff(messageText)) {
-        addToHistory(chatId, 'user', messageText);
+        addToHistory(chatId, 'user', messageText, { language: offerLang });
         clearPendingCallOffer(chatId);
         console.log(`📞 Клиент согласился на созвон: ${chatId}`);
         const result = await startHandoffFromCallAcceptance(
@@ -2119,9 +2160,9 @@ async function handleIncomingMessage(msg, options = {}) {
       return 'processed';
     } else {
       for (const t of prependUserTexts) {
-        addToHistory(chatId, 'user', t);
+        addToHistory(chatId, 'user', t, { language: dialogLanguage });
       }
-      addToHistory(chatId, 'user', messageText);
+      addToHistory(chatId, 'user', messageText, { language: dialogLanguage });
       
       // Получаем ответ от AI
       console.log(`🤖 Запрос к AI для ${chatId} (язык диалога: ${dialogLanguage})`);
@@ -2144,7 +2185,9 @@ async function handleIncomingMessage(msg, options = {}) {
           addToHistory(chatId, 'assistant', bridge);
         }
 
-        const aiResponse = await withChatTyping(msg, () => askAI(history, dialogLanguage));
+        const aiResponse = await withChatTyping(msg, () =>
+          askAI(history, dialogLanguage, { chatId })
+        );
         const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
 
         // Добавляем ответ AI в историю

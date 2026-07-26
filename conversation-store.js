@@ -1,7 +1,8 @@
 'use strict';
 
-const fs = require('fs');
 const path = require('path');
+const { getDb } = require('./db');
+const { ensureUserStub } = require('./clients-store');
 
 const MAX_MESSAGES_PER_CHAT = parseInt(process.env.CONVERSATION_MESSAGES_LIMIT, 10) || 500;
 
@@ -16,101 +17,155 @@ function resolveConversationPath() {
 
 const CONVERSATIONS_PATH = resolveConversationPath();
 
-function ensureDataDir() {
-  const dir = path.dirname(CONVERSATIONS_PATH);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-}
-
-function loadStore() {
-  ensureDataDir();
-  if (!fs.existsSync(CONVERSATIONS_PATH)) {
-    return { chats: {}, updatedAt: null };
-  }
-  try {
-    const raw = JSON.parse(fs.readFileSync(CONVERSATIONS_PATH, 'utf8'));
-    return {
-      chats: raw.chats && typeof raw.chats === 'object' ? raw.chats : {},
-      updatedAt: raw.updatedAt || null,
-    };
-  } catch (e) {
-    console.warn('⚠️ conversations.json:', e.message);
-    return { chats: {}, updatedAt: null };
-  }
-}
-
-function saveStore(store) {
-  ensureDataDir();
-  const next = {
-    chats: store.chats,
-    updatedAt: new Date().toISOString(),
-  };
-  fs.writeFileSync(CONVERSATIONS_PATH, JSON.stringify(next, null, 2), 'utf8');
-  return next;
-}
-
 /**
  * @param {string} chatId
- * @param {{ role: 'user'|'assistant'|'manager', text: string, managerId?: string, managerName?: string, kind?: string }} payload
+ * @param {{ role: 'user'|'assistant'|'manager', text: string, managerId?: string, managerName?: string, kind?: string, language?: string, waMessageId?: string }} payload
  */
 function recordMessage(chatId, payload = {}) {
   if (!chatId) return null;
 
+  const database = getDb();
   const id = String(chatId);
-  const store = loadStore();
-  const chat = store.chats[id] || { messages: [], lastActivityAt: null };
   const now = new Date().toISOString();
+  ensureUserStub(id, now);
+
   const message = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     role: payload.role || 'user',
     text: String(payload.text || '').slice(0, 4000),
     kind: payload.kind || 'text',
+    language: payload.language || null,
     managerId: payload.managerId || '',
     managerName: payload.managerName || '',
     at: now,
   };
 
-  chat.messages = [...(chat.messages || []), message].slice(-MAX_MESSAGES_PER_CHAT);
-  chat.lastActivityAt = now;
-  store.chats[id] = chat;
-  saveStore(store);
+  database
+    .prepare(
+      `INSERT INTO messages (
+        id, user_id, role, body, kind, language, manager_id, manager_name, wa_message_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      message.id,
+      id,
+      message.role,
+      message.text,
+      message.kind,
+      message.language,
+      message.managerId,
+      message.managerName,
+      payload.waMessageId || null,
+      message.at
+    );
+
+  database
+    .prepare(
+      `UPDATE users SET last_seen_at = ?, last_message = CASE WHEN ? = 'user' THEN ? ELSE last_message END
+       WHERE id = ?`
+    )
+    .run(now, message.role, message.text.slice(0, 500), id);
+
+  // trim old messages per chat
+  database
+    .prepare(
+      `DELETE FROM messages
+       WHERE user_id = ?
+         AND id NOT IN (
+           SELECT id FROM messages
+           WHERE user_id = ?
+           ORDER BY created_at DESC, rowid DESC
+           LIMIT ?
+         )`
+    )
+    .run(id, id, MAX_MESSAGES_PER_CHAT);
+
   return message;
 }
 
 function getMessages(chatId, { excludeAssistant = false } = {}) {
-  const store = loadStore();
-  const chat = store.chats[String(chatId)];
-  if (!chat) return [];
-  let messages = chat.messages || [];
+  const id = String(chatId);
+  let rows;
   if (excludeAssistant) {
-    messages = messages.filter((m) => m.role !== 'assistant');
+    rows = getDb()
+      .prepare(
+        `SELECT * FROM messages
+         WHERE user_id = ? AND role != 'assistant'
+         ORDER BY created_at ASC, rowid ASC`
+      )
+      .all(id);
+  } else {
+    rows = getDb()
+      .prepare(
+        `SELECT * FROM messages
+         WHERE user_id = ?
+         ORDER BY created_at ASC, rowid ASC`
+      )
+      .all(id);
   }
-  return messages;
+
+  return rows.map((m) => ({
+    id: m.id,
+    role: m.role,
+    text: m.body,
+    kind: m.kind || 'text',
+    language: m.language || null,
+    managerId: m.manager_id || '',
+    managerName: m.manager_name || '',
+    at: m.created_at,
+  }));
 }
 
 function getLastActivityAt(chatId) {
-  const store = loadStore();
-  const chat = store.chats[String(chatId)];
-  return chat?.lastActivityAt || null;
+  const row = getDb()
+    .prepare(
+      `SELECT MAX(created_at) AS last_activity_at FROM messages WHERE user_id = ?`
+    )
+    .get(String(chatId));
+  return row?.last_activity_at || null;
 }
 
 function listConversationChats({ page = 1, limit = 24, q = '' } = {}) {
-  const store = loadStore();
+  const database = getDb();
   const query = String(q || '').trim().toLowerCase();
 
-  let items = Object.entries(store.chats).map(([chatId, chat]) => {
-    const messages = chat.messages || [];
-    const userMessages = messages.filter((m) => m.role === 'user');
-    const lastUser = userMessages[userMessages.length - 1];
-    const lastVisible = [...messages].reverse().find((m) => m.role !== 'assistant');
+  let rows = database
+    .prepare(
+      `SELECT
+         m.user_id AS chatId,
+         MAX(m.created_at) AS lastActivityAt,
+         COUNT(*) AS messageCount,
+         SUM(CASE WHEN m.role = 'user' THEN 1 ELSE 0 END) AS userMessageCount
+       FROM messages m
+       GROUP BY m.user_id
+       ORDER BY MAX(m.created_at) DESC`
+    )
+    .all();
 
+  const getLastVisible = database.prepare(
+    `SELECT body, created_at, role FROM messages
+     WHERE user_id = ? AND role != 'assistant'
+     ORDER BY created_at DESC, rowid DESC
+     LIMIT 1`
+  );
+  const getLastUser = database.prepare(
+    `SELECT body, created_at FROM messages
+     WHERE user_id = ? AND role = 'user'
+     ORDER BY created_at DESC, rowid DESC
+     LIMIT 1`
+  );
+
+  let items = rows.map((row) => {
+    const lastVisible = getLastVisible.get(row.chatId);
+    const lastUser = getLastUser.get(row.chatId);
     return {
-      id: chatId,
-      chatId,
-      lastActivityAt: chat.lastActivityAt || null,
-      messageCount: messages.length,
-      userMessageCount: userMessages.length,
-      lastMessage: lastVisible?.text || lastUser?.text || '',
-      lastMessageAt: lastVisible?.at || lastUser?.at || chat.lastActivityAt,
+      id: row.chatId,
+      chatId: row.chatId,
+      lastActivityAt: row.lastActivityAt || null,
+      messageCount: row.messageCount || 0,
+      userMessageCount: row.userMessageCount || 0,
+      lastMessage: lastVisible?.body || lastUser?.body || '',
+      lastMessageAt: lastVisible?.created_at || lastUser?.created_at || row.lastActivityAt,
     };
   });
 
@@ -119,8 +174,6 @@ function listConversationChats({ page = 1, limit = 24, q = '' } = {}) {
       [item.chatId, item.lastMessage].filter(Boolean).join(' ').toLowerCase().includes(query)
     );
   }
-
-  items.sort((a, b) => new Date(b.lastActivityAt || 0) - new Date(a.lastActivityAt || 0));
 
   const p = Math.max(1, parseInt(page, 10) || 1);
   const lim = Math.min(100, Math.max(1, parseInt(limit, 10) || 24));
@@ -134,7 +187,7 @@ function listConversationChats({ page = 1, limit = 24, q = '' } = {}) {
     page: p,
     totalPages,
     limit: lim,
-    updatedAt: store.updatedAt,
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -144,4 +197,5 @@ module.exports = {
   getMessages,
   getLastActivityAt,
   listConversationChats,
+  resolveConversationPath,
 };

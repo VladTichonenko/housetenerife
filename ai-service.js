@@ -43,6 +43,17 @@ const {
   pickUserEmoji,
   limitEmojis
 } = require('./emoji-react');
+const {
+  getUserProfile,
+  updateUserProfileFromConversation,
+  formatUserProfileForPrompt,
+} = require('./user-profile');
+const { evaluateIntentGate, formatIntentGateForPrompt } = require('./intent-gate');
+const {
+  prepareAndSaveTopicContext,
+  recordTopicAssistantReply,
+  formatTopicSummaryForPrompt,
+} = require('./topic-memory');
 
 function truncateKnowledge(knowledge, maxChars) {
   const raw = JSON.stringify(knowledge, null, 2);
@@ -62,15 +73,23 @@ function localizeKnowledgeBase(kb, salesLang) {
   return next;
 }
 
-async function buildPromptParts(conversationHistory, userLanguage, tier = 'full') {
+async function buildPromptParts(
+  conversationHistory,
+  userLanguage,
+  tier = 'full',
+  runtimeContext = {}
+) {
   const salesLang = normalizeSalesLang(userLanguage);
   const limitedHistory =
     tier === 'minimal' ? conversationHistory.slice(-8) : conversationHistory.slice(-16);
+  const analysisHistory = Array.isArray(runtimeContext.analysisHistory)
+    ? runtimeContext.analysisHistory
+    : limitedHistory;
   const lastUserMessage = limitedHistory.filter((msg) => msg.sender === 'user').pop();
   const userQuery = lastUserMessage ? lastUserMessage.text : '';
 
-  const dialog = analyzeConversation(limitedHistory, salesLang);
-  const catalogQuery = buildCatalogSearchQuery(limitedHistory) || userQuery;
+  const dialog = analyzeConversation(analysisHistory, salesLang);
+  const catalogQuery = buildCatalogSearchQuery(analysisHistory) || userQuery;
   const budget = dialog.ignoreBudget
     ? { minPrice: null, maxPrice: null }
     : dialog.budget || extractBudgetRange(dialog.allUserText);
@@ -180,7 +199,22 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
     }
   }
 
-  const consultantKnowledgeRaw = getKnowledgeBaseForPrompt();
+  const knowledgeQuery = [
+    userQuery,
+    dialog.allUserText,
+    dialog.propertyTypeLabel,
+    dialog.regionLabel,
+    dialog.microAreaLabel,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const activeScenario = runtimeContext.intentGate?.scenario || 'general';
+  const consultantKnowledgeRaw = getKnowledgeBaseForPrompt({
+    query: knowledgeQuery,
+    scenario: activeScenario,
+    language: salesLang,
+    maxSections: tier === 'minimal' ? 2 : tier === 'compact' ? 3 : 4,
+  });
   const consultantKnowledge = localizeKnowledgeBase(consultantKnowledgeRaw, salesLang);
   const mortgageKnowledgeSlice = {
     disclaimer: consultantKnowledge.disclaimer,
@@ -210,6 +244,9 @@ async function buildPromptParts(conversationHistory, userLanguage, tier = 'full'
 
   const botConfig = getBotConfig();
   const localized = pickLocalizedPrompts(salesLang, botConfig);
+  const userProfileBlock = formatUserProfileForPrompt(runtimeContext.userProfile);
+  const intentGateBlock = formatIntentGateForPrompt(runtimeContext.intentGate);
+  const topicSummaryBlock = formatTopicSummaryForPrompt(runtimeContext.topicSummary);
   const dialogPathBlock =
     tier === 'minimal' ? '' : formatLocalizedDialogPath(salesLang, botConfig.dialogPath);
   const siteUrl = getCatalogSiteUrl(userLanguage);
@@ -301,7 +338,12 @@ ${blocks.managerHandoff}`;
     salesLang === 'es' ? '*Catálogo:*' : salesLang === 'en' ? '*Catalog site:*' : '*Сайт каталога:*';
 
   const fileDocBlock =
-    tier === 'full' ? getFileDocKnowledgeForPrompt(userQuery || dialog.allUserText) : '';
+    tier === 'full'
+      ? getFileDocKnowledgeForPrompt(knowledgeQuery, 12000, {
+          scenario: activeScenario,
+          maxDocs: 3,
+        })
+      : '';
 
   const lastUserText = lastUserMessage?.text || '';
   const userEmoji = pickUserEmoji(lastUserText);
@@ -325,6 +367,9 @@ ${blocks.managerHandoff}`;
 ${siteLabel} ${siteUrl}
 
 ${extraConditions}
+${userProfileBlock}
+${intentGateBlock}
+${topicSummaryBlock}
 ${dialogPathBlock}
 
 ${stageHeader}
@@ -685,9 +730,46 @@ function replyNeedsCatalogForce(reply, wantedTypes) {
  * Один запрос к ИИ (без каскада 6× повторов). При 429 — сразу запасной ключ, если задан.
  * @param {Array<{sender:string,text:string}>} conversationHistory
  * @param {string} userLanguage
+ * @param {{ chatId?: string, userProfile?: object }} [options]
  */
-async function askAI(conversationHistory, userLanguage = 'ru') {
+async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
   const salesLangEarly = normalizeSalesLang(userLanguage);
+  let dialog = analyzeConversation(conversationHistory, userLanguage);
+  let userProfile = options.userProfile || null;
+  let intentGate = null;
+  let topicSummary = null;
+  let analysisHistory = conversationHistory;
+  if (options.chatId && !String(options.chatId).endsWith('@g.us')) {
+    try {
+      const previousProfile = getUserProfile(options.chatId);
+      intentGate = evaluateIntentGate(
+        conversationHistory,
+        userLanguage,
+        previousProfile?.topicObservation
+      );
+      const topicContext = prepareAndSaveTopicContext(
+        options.chatId,
+        conversationHistory,
+        intentGate
+      );
+      conversationHistory = topicContext.history;
+      analysisHistory = topicContext.analysisHistory;
+      topicSummary = topicContext.summary;
+      dialog = analyzeConversation(analysisHistory, userLanguage);
+      userProfile = updateUserProfileFromConversation(
+        options.chatId,
+        conversationHistory,
+        dialog,
+        userLanguage,
+        { topicObservation: intentGate }
+      );
+      console.log(
+        `🧭 Gate ${options.chatId}: ${intentGate.action} / ${intentGate.scenario} / ${intentGate.reason}`
+      );
+    } catch (e) {
+      console.warn(`⚠️ Не удалось обновить профиль ${options.chatId}:`, e.message);
+    }
+  }
   const aiNotConfigured =
     salesLangEarly === 'es'
       ? 'El servicio de IA no está configurado: define AI_API_KEY y reinicia el bot.'
@@ -700,12 +782,12 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
   }
 
   try {
-    const dialog = analyzeConversation(conversationHistory, userLanguage);
     const salesLang = normalizeSalesLang(userLanguage);
     const { messages, catalogUrls } = await buildPromptParts(
       conversationHistory,
       userLanguage,
-      'full'
+      'full',
+      { userProfile, intentGate, topicSummary, analysisHistory }
     );
     let reply = await callAI(messages, 'chat');
     if (hasUnsupportedDelayedListingPromise(reply)) {
@@ -841,6 +923,13 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
       }
     }
 
+    if (options.chatId) {
+      try {
+        recordTopicAssistantReply(options.chatId, reply);
+      } catch (e) {
+        console.warn(`⚠️ Не удалось сохранить ответ в теме ${options.chatId}:`, e.message);
+      }
+    }
     return reply;
   } catch (error) {
     const status = error.response?.status;
@@ -885,20 +974,21 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
         const { messages, catalogUrls } = await buildPromptParts(
           conversationHistory,
           userLanguage,
-          'compact'
+          'compact',
+          { userProfile, intentGate, topicSummary, analysisHistory }
         );
         const retryReply = await callAI(messages, 'chat-retry');
         const salesLangRetry = normalizeSalesLang(userLanguage);
         const lastUserRetry =
           [...(conversationHistory || [])].reverse().find((m) => m.sender === 'user')?.text || '';
-        return repairPropertyUrlsInText(
+        const repairedRetry = repairPropertyUrlsInText(
           fixPhoneticTransliterations(
             sanitizeListingWhyLabels(
               mirrorUserEmojiInReply(
                 maybeAddWarmSmiley(
                   sanitizeDelayedListingPromise(retryReply),
                   salesLangRetry,
-                  analyzeConversation(conversationHistory, userLanguage).stage
+                  dialog.stage
                 ),
                 lastUserRetry,
                 { force: isEmojiOnlyMessage(lastUserRetry) }
@@ -909,10 +999,17 @@ async function askAI(conversationHistory, userLanguage = 'ru') {
           userLanguage,
           catalogUrls,
           {
-            wantedTypes:
-              analyzeConversation(conversationHistory, userLanguage).propertyTypes || []
+            wantedTypes: dialog.propertyTypes || []
           }
         );
+        if (options.chatId) {
+          try {
+            recordTopicAssistantReply(options.chatId, repairedRetry);
+          } catch (e) {
+            console.warn(`⚠️ Не удалось сохранить retry в теме ${options.chatId}:`, e.message);
+          }
+        }
+        return repairedRetry;
       } catch (retryErr) {
         console.error('ai-service retry:', retryErr.message);
       }

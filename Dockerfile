@@ -48,6 +48,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrandr2 \
     libxshmfence1 \
     libxss1 \
+    python3 \
+    make \
+    g++ \
     wget \
     xdg-utils \
   && rm -rf /var/lib/apt/lists/*

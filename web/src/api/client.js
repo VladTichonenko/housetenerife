@@ -91,6 +91,16 @@ export const api = {
     return request(`/api/admin/clients?${params}`);
   },
   getClient: (id) => request(`/api/admin/clients/${encodeURIComponent(id)}`),
+  getDbStats: () => request('/api/admin/db/stats'),
+  getDbUsers: ({ page = 1, limit = 40, q = '' } = {}) => {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+    });
+    if (q) params.set('q', q);
+    return request(`/api/admin/db/users?${params}`);
+  },
+  getDbUser: (id) => request(`/api/admin/db/users/${encodeURIComponent(id)}`),
   getConversations: ({ page = 1, limit = 24, q = '' } = {}) => {
     const params = new URLSearchParams({
       page: String(page),

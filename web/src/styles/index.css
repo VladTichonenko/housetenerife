@@ -2547,3 +2547,110 @@ body.chat-fullscreen-open {
     display: inline;
   }
 }
+
+/* === Database section === */
+.db-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px 16px;
+}
+
+.db-stats-path {
+  grid-column: 1 / -1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  word-break: break-all;
+  opacity: 0.85;
+}
+
+.db-table-wrap {
+  overflow-x: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.db-table-wrap--loading {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.db-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.db-table th,
+.db-table td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.db-table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.db-table__row {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.db-table__row:hover {
+  background: rgba(13, 110, 110, 0.06);
+}
+
+.db-table__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 28px 14px !important;
+}
+
+.db-badge {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: rgba(13, 110, 110, 0.12);
+  color: var(--color-primary);
+  vertical-align: middle;
+}
+
+.db-user-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.db-user-meta a {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.pager__info {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+

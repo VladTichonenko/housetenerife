@@ -10,8 +10,15 @@ web/dist/
 # Runtime data (лиды, не коммитить — на Railway хранить на Volume)
 data/handoff-leads.json
 data/whatsapp-clients.json
+data/user-profiles.json
+data/topic-memory.json
 data/telegram-alerts.json
 data/telegram-known-chats.json
+data/bot.db
+data/bot.db-*
+*.db
+*.db-wal
+*.db-shm
 
 # Secrets and local env
 .env

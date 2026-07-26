@@ -27,7 +27,9 @@ async function offerSoftCallViaAi(ctx) {
 
   if (userLine) addToHistory(chatId, 'user', userLine);
 
-  const aiResponse = await withChatTyping(msg, () => askAI(getHistory(chatId), dialogLanguage));
+  const aiResponse = await withChatTyping(msg, () =>
+    askAI(getHistory(chatId), dialogLanguage, { chatId })
+  );
   const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
   addToHistory(chatId, 'assistant', outgoing);
   await sendMessageSafely(msg, outgoing, client);
