@@ -1,7 +1,7 @@
 # =============================================================================
 # Stage 1: сборка React-панели (Vite → web/dist)
 # =============================================================================
-FROM node:20-bookworm-slim AS web-build
+FROM node:22-bookworm-slim AS web-build
 
 WORKDIR /build/web
 
@@ -19,7 +19,7 @@ RUN npm run build \
 # Stage 2: WhatsApp-бот + готовая панель /admin
 # Puppeteer ставит совместимый Chrome при npm ci (не apt chromium)
 # =============================================================================
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -71,6 +71,10 @@ RUN npm ci --omit=dev \
 COPY . .
 
 RUN node scripts/ingest-file-doc.js || test -f data/file-doc-knowledge.json
+
+# Падаем на build, а не на Railway healthcheck, если native SQLite не загружается.
+RUN node -e "const {getDb,closeDb}=require('./db'); getDb(); closeDb(); console.log('✅ SQLite native module loaded');" \
+  && rm -f data/bot.db data/bot.db-wal data/bot.db-shm
 
 # Панель из stage 1 — всегда свежая после git push
 COPY --from=web-build /build/web/dist ./web/dist
