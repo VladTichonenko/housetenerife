@@ -36,6 +36,21 @@ function resolvePuppeteerExecutablePath() {
   return undefined;
 }
 
+function resolveProtocolTimeoutMs() {
+  const configured = parseInt(process.env.PROTOCOL_TIMEOUT_MS, 10);
+  return Number.isFinite(configured) && configured >= 30000 ? configured : 300000;
+}
+
+function isPuppeteerProtocolTimeout(error) {
+  const message = String(error?.message || error || '');
+  return (
+    /protocoltimeout/i.test(String(error?.name || '')) ||
+    /Runtime\.callFunctionOn timed out/i.test(message) ||
+    /protocolTimeout.*timed out/i.test(message) ||
+    /waiting for .* protocol/i.test(message)
+  );
+}
+
 function getPuppeteerLaunchOptions() {
   const executablePath = resolvePuppeteerExecutablePath();
   const container = isContainerRuntime();
@@ -69,7 +84,7 @@ function getPuppeteerLaunchOptions() {
   return {
     headless: true,
     executablePath,
-    protocolTimeout: parseInt(process.env.PROTOCOL_TIMEOUT_MS, 10) || 180000,
+    protocolTimeout: resolveProtocolTimeoutMs(),
     args,
   };
 }
@@ -78,6 +93,7 @@ function logPuppeteerDiagnostics() {
   const opts = getPuppeteerLaunchOptions();
   const singleProcess = process.env.PUPPETEER_SINGLE_PROCESS === '1';
   console.log(`🌐 Chromium: ${opts.executablePath || 'не найден (puppeteer скачает при npm ci)'}`);
+  console.log(`⏱️ Puppeteer protocol timeout: ${Math.round(opts.protocolTimeout / 1000)} с`);
   if (isContainerRuntime()) {
     console.log(
       singleProcess
@@ -95,6 +111,8 @@ function logPuppeteerDiagnostics() {
 module.exports = {
   isContainerRuntime,
   resolvePuppeteerExecutablePath,
+  resolveProtocolTimeoutMs,
+  isPuppeteerProtocolTimeout,
   getPuppeteerLaunchOptions,
   logPuppeteerDiagnostics,
 };

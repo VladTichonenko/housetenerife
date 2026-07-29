@@ -89,7 +89,11 @@ const { offerSoftCallViaAi } = require('./index-handoff');
 const { localizeUrlsInText } = require('./property-share');
 const propertyPreviewRouter = require('./property-preview');
 const telegramNotify = require('./telegram-notify');
-const { getPuppeteerLaunchOptions, logPuppeteerDiagnostics } = require('./puppeteer-env');
+const {
+  getPuppeteerLaunchOptions,
+  logPuppeteerDiagnostics,
+  isPuppeteerProtocolTimeout,
+} = require('./puppeteer-env');
 
 const REPLY_IN_GROUPS =
   process.env.WHATSAPP_REPLY_IN_GROUPS !== '0' &&
@@ -1685,14 +1689,32 @@ async function getServiceStatus() {
 
 // Следим за сессией WhatsApp — если событие disconnected не пришло, алерт всё равно уйдёт
 function startWhatsAppSessionWatchdog() {
-  const intervalMs = parseInt(process.env.WA_SESSION_WATCH_MS, 10) || 15000;
+  const intervalMs = parseInt(process.env.WA_SESSION_WATCH_MS, 10) || 60000;
+  const probeTimeoutMs = parseInt(process.env.WA_SESSION_PROBE_TIMEOUT_MS, 10) || 30000;
   let watchErrors = 0;
-  const maxWatchErrors = 3;
+  const maxWatchErrors = parseInt(process.env.WA_SESSION_MAX_ERRORS, 10) || 3;
+  let probeInFlight = null;
+  let lastTransientLogAt = 0;
 
   trackedSetInterval(async () => {
     if (isManualLogoutInProgress || isReconnecting) return;
+    // Не запускаем новый CDP-вызов, пока предыдущий getState ещё не завершился.
+    // Иначе при нагрузке несколько Runtime.callFunctionOn зависают одновременно.
+    if (probeInFlight) return;
+
+    const stateProbe = Promise.resolve().then(() => client.getState());
+    probeInFlight = stateProbe;
     try {
-      const state = await client.getState();
+      const state = await Promise.race([
+        stateProbe,
+        new Promise((_, reject) =>
+          setTimeout(() => {
+            const timeoutError = new Error(`watchdog probe timed out after ${probeTimeoutMs}ms`);
+            timeoutError.code = 'WA_WATCH_PROBE_TIMEOUT';
+            reject(timeoutError);
+          }, probeTimeoutMs)
+        ),
+      ]);
       watchErrors = 0;
 
       if (state === 'CONNECTED' && !botReady) {
@@ -1718,6 +1740,27 @@ function startWhatsAppSessionWatchdog() {
         botReady = false;
       }
     } catch (err) {
+      const browserConnected =
+        typeof client.pupBrowser?.isConnected === 'function'
+          ? client.pupBrowser.isConnected()
+          : true;
+      const transientTimeout =
+        err?.code === 'WA_WATCH_PROBE_TIMEOUT' || isPuppeteerProtocolTimeout(err);
+
+      // Таймаут evaluate при живом Chromium — признак нагрузки/залипшего CDP,
+      // но не доказательство отключения WhatsApp. Не отправляем ложный алерт.
+      if (transientTimeout && browserConnected) {
+        watchErrors = 0;
+        const now = Date.now();
+        if (now - lastTransientLogAt >= 5 * 60 * 1000) {
+          console.warn(
+            `👁️ WhatsApp session watch: медленный ответ Chromium (${err.message}), сессию не отключаем`
+          );
+          lastTransientLogAt = now;
+        }
+        return;
+      }
+
       watchErrors++;
       if (watchErrors >= maxWatchErrors && botReady) {
         console.warn(`👁️ WhatsApp session watch (${watchErrors}x):`, err.message);
@@ -1728,12 +1771,25 @@ function startWhatsAppSessionWatchdog() {
         botReady = false;
         waWatchState = 'ERROR';
         watchErrors = 0;
+        reconnectClient().catch((reconnectError) =>
+          console.error('❌ Watchdog reconnect:', reconnectError.message)
+        );
       } else if (watchErrors === 1) {
         console.warn('👁️ WhatsApp session watch (разовая ошибка, игнорируем):', err.message);
       }
+    } finally {
+      // После локального 30-секундного таймаута исходный CDP promise может ещё
+      // выполняться. Снимаем блокировку только когда завершится именно он.
+      stateProbe
+        .finally(() => {
+          if (probeInFlight === stateProbe) probeInFlight = null;
+        })
+        .catch(() => {});
     }
   }, intervalMs);
-  console.log(`👁️ WhatsApp session watch каждые ${intervalMs / 1000} с (Telegram-алерты)`);
+  console.log(
+    `👁️ WhatsApp session watch каждые ${intervalMs / 1000} с, probe timeout ${probeTimeoutMs / 1000} с`
+  );
 }
 
 // Функция обработки сообщения (вынесена для переиспользования)
