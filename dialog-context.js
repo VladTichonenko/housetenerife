@@ -67,9 +67,15 @@ function analyzeConversation(history, lang = 'ru') {
     /покаж|подбер|вариант|объект|каталог|ссылк|похож|ещё\s*(?:раз|вариант|объект|опци)|еще\s*(?:раз|вариант|объект|опци)|другие\s*(?:вариант|опци|объект)|по\s+моим\s+параметр|кроме\s+цен|show me|send me|options|listings|properties|shortlist|similar|more\s+options|another|mu[eé]strame|ens[eé]ñame|opciones|fichas|propiedades|selecci[oó]n|parecid|otras?\s+opcion|zeig|optionen|objekte|vorschl[aä]ge|montre|montrez|options|fiches|biens|s[ée]lection/i.test(
       lower
     );
+  const lastUserLower = lastUser.toLowerCase();
+  /** Явная просьба дать ссылки на объекты (не «посмотреть сайт»). */
+  const wantsPropertyLinks =
+    /(?:дай|дайте|скинь|скиньте|пришли|пришлите|отправь|отправьте|покажи|покажите|нужн[аы]|хочу|можно).{0,40}ссылк|(?:ссылк|линк).{0,30}(?:на\s+(?:них|не[её]|объект|вариант|этот|эти|карт)|пожалуйста)|ссылк[аиуеы]?\s*$|send(?:\s+me)?\s+(?:the\s+)?links?|give(?:\s+me)?\s+(?:the\s+)?links?|links?\s+(?:to|for)\s+(?:them|it|the|these|those)|muéstrame\s+los\s+enlaces|dame\s+(?:los\s+)?enlaces|env[ií]ame\s+(?:los\s+)?enlaces|Zeig(?:e)?\s+(?:mir\s+)?(?:die\s+)?Links?|donne(?:z)?[- ]moi\s+les\s+liens/i.test(
+      lastUserLower
+    );
   const wantsMoreLikeThese =
     /похож|ещё\s*(?:так|раз|вариант|объект)|еще\s*(?:так|раз|вариант)|другие\s*(?:вариант|опци)|по\s+моим\s+параметр|similar|more\s+(?:like|options|listings)|otra\s+opci|otras?\s+(?:opcion|ficha)|parecid|ähnliche|aehnliche|weitere\s+option|plus\s+d.?options|similaires|autres?\s+(?:options|fiches)/i.test(
-      lastUser.toLowerCase()
+      lastUserLower
     );
   const userTurns = userMsgs.length;
 
@@ -129,6 +135,17 @@ function analyzeConversation(history, lang = 'ru') {
     hasPurpose &&
     hasRegion &&
     !needsMicroArea &&
+    (hasBudget || ignoreBudget)
+  ) {
+    stage = 'SHOW_LISTINGS';
+  }
+
+  // «Дай ссылки» по уже названным параметрам — сразу карточки с URL, без отсылки на общий сайт
+  if (
+    wantsPropertyLinks &&
+    hasType &&
+    hasPurpose &&
+    hasRegion &&
     (hasBudget || ignoreBudget)
   ) {
     stage = 'SHOW_LISTINGS';
@@ -219,6 +236,7 @@ function analyzeConversation(history, lang = 'ru') {
     propertyTypeLabel,
     wantsListings,
     wantsMoreLikeThese,
+    wantsPropertyLinks,
     ignoreBudget,
     budget,
     budgetLabel: ignoreBudget
@@ -267,7 +285,7 @@ const stageInstructions = {
 • *Название* — €цена
   [одна живая фраза-выгода под цель клиента — БЕЗ заголовка «Почему вам» / «Why for you»]
   ссылка
-Закрой: «Какой вариант ближе — или скорректируем бюджет/район?» Не предлагай дешевле бюджета без запроса. Критерии из памяти диалога НЕ переспрашивай.`,
+Если клиент просит ссылки — вставь URL из блока каталога в этом же ответе. Запрещено отвечать только «посмотрите на сайте» / общим разделом без карточек. Закрой: «Какой вариант ближе — или скорректируем бюджет/район?» Не предлагай дешевле бюджета без запроса. Критерии из памяти диалога НЕ переспрашивай.`,
 
   REFINE: `Ответь по последней реплике. Если клиент просит ещё/похожие — сразу новая подборка 3–5 объектов из каталога по УЖЕ известным критериям (не спрашивай бюджет/район/тип снова). Формат: название, цена, одна фраза-выгода без ярлыка «Почему вам», ссылка. Если клиент сомневается — предложи альтернативу. Один вопрос в конце.`,
 

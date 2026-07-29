@@ -1,12 +1,17 @@
 'use strict';
 
+function readNonNegativeEnv(name, fallback) {
+  const value = Number.parseInt(process.env[name], 10);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 const REPLY_WAIT_MS = Math.max(
   0,
-  parseInt(process.env.BOT_REPLY_WAIT_MS, 10) || 20000
+  readNonNegativeEnv('BOT_REPLY_WAIT_MS', 3000)
 );
 const REPLY_BATCH_WAIT_MS = Math.max(
   REPLY_WAIT_MS,
-  parseInt(process.env.BOT_REPLY_BATCH_WAIT_MS, 10) || 30000
+  readNonNegativeEnv('BOT_REPLY_BATCH_WAIT_MS', 6000)
 );
 
 /**
@@ -35,7 +40,8 @@ function isMessageQueuedInBatch(msgOrId) {
 }
 
 /**
- * Откладывает обработку сообщений чата: 20 с на одиночное, 30 с суммарно при пачке.
+ * Откладывает обработку сообщений чата: короткая пауза на одиночное,
+ * чуть большее окно при пачке.
  * Несколько сообщений за окно → один flush → один ответ бота.
  *
  * @param {string} chatId

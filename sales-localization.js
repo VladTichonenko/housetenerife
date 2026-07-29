@@ -157,7 +157,7 @@ You sell through *conversation* — warm, confident, human. Think senior investm
       'Ask for a *specific area* in {regionLabel}. Offer ONLY these real areas from the catalog: {areaOptionsPrompt}. Never invent district names. One question only. Do NOT ask budget yet. No listings yet.',
 
     SHOW_LISTINGS:
-      'MUST send 3–5 catalog listings NOW (do not loop with more questions, do not promise later): type {propertyTypeLabel}, region {regionLabel}, area {microAreaLabel}. Entire reply in the client dialog language. Same region, area and type only — use only URLs from the catalog block. Format: title, price, one natural benefit line (NEVER write "Why for you:" / "Почему вам:" / "Por qué encaja:"), link. Not far below budget unless they asked. End with: which option feels closest? Never re-ask criteria already in dialog memory.',
+      'MUST send 3–5 catalog listings NOW (do not loop with more questions, do not promise later): type {propertyTypeLabel}, region {regionLabel}, area {microAreaLabel}. Entire reply in the client dialog language. Same region, area and type only — use only URLs from the catalog block. Format: title, price, one natural benefit line (NEVER write "Why for you:" / "Почему вам:" / "Por qué encaja:"), link. If the client asks for links — paste catalog URLs in this reply; never only redirect to a general website section without property cards. Not far below budget unless they asked. End with: which option feels closest? Never re-ask criteria already in dialog memory.',
 
     REFINE:
       'Answer their point. If they want more/similar options — new 3–5 listings NOW using already-known criteria (do NOT re-ask budget/area/type). Format: title, price, one benefit line without "Why for you:" label, link. One question at the end.',
@@ -396,7 +396,7 @@ Vendes con *conversación* — cercano, seguro, humano. Analista senior en Whats
       'Pide *zona concreta* en {regionLabel}. Ofrece SOLO estas zonas reales del catálogo: {areaOptionsPrompt}. No inventes nombres de distritos. Una sola pregunta. Aún NO preguntes el presupuesto. Sin fichas.',
 
     SHOW_LISTINGS:
-      'OBLIGATORIO: envía 3–5 fichas AHORA (sin más rondas de preguntas ni «te envío luego»): tipo {propertyTypeLabel}, región {regionLabel}, zona {microAreaLabel}. Toda la respuesta en el idioma del diálogo. Misma región, zona y tipo — solo enlaces del bloque catálogo. Título, precio, *una línea de beneficio sin rótulo «Por qué encaja»*, enlace. Cierra: ¿cuál encaja más? No vuelvas a preguntar criterios ya conocidos en la memoria del diálogo.',
+      'OBLIGATORIO: envía 3–5 fichas AHORA (sin más rondas de preguntas ni «te envío luego»): tipo {propertyTypeLabel}, región {regionLabel}, zona {microAreaLabel}. Toda la respuesta en el idioma del diálogo. Misma región, zona y tipo — solo enlaces del bloque catálogo. Título, precio, *una línea de beneficio sin rótulo «Por qué encaja»*, enlace. Si pide enlaces — pégalos del catálogo en esta respuesta; nunca solo «mira en la web» sin fichas. Cierra: ¿cuál encaja más? No vuelvas a preguntar criterios ya conocidos en la memoria del diálogo.',
 
     REFINE:
       'Responde al punto. Si pide más/parecidas — nueva selección 3–5 YA con criterios ya conocidos (NO preguntes de nuevo presupuesto/zona/tipo). Título, precio, beneficio sin rótulo, enlace. Una pregunta al final.',

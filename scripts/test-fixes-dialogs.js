@@ -31,7 +31,20 @@ const { searchForContext, load, parseItemPriceEur } = require('../property-catal
 const {
   repairPropertyUrlsInText,
   hasDuplicatePropertyUrls,
+  stripNonCatalogUrls,
 } = require('../property-share');
+const {
+  detectRegionPreference,
+  getPrimaryMacroRegion,
+} = require('../catalog-regions');
+const {
+  classifyObservedState,
+  isDefinitiveLogoutReason,
+} = require('../whatsapp-session-state');
+const {
+  REPLY_WAIT_MS,
+  REPLY_BATCH_WAIT_MS,
+} = require('../reply-batch');
 const {
   expandSoftPropertyTypes,
   itemMatchesPropertyTypes,
@@ -677,6 +690,114 @@ function runDeterministicTests() {
     Boolean(docsPrompt) && !/SYSTEM PROMPT|пронэмт по веткам/i.test(docsPrompt)
   );
 
+  console.log('\n=== 16. Равноправные регионы и ссылки Ibiza ===\n');
+  const spainRegion = detectRegionPreference('Ищу недвижимость в Испании', 'ru');
+  const canaryRegion = detectRegionPreference('Ищу недвижимость на Канарах', 'ru');
+  check('regions: Испания не выбирает Tenerife', !spainRegion.hasRegion);
+  check(
+    'regions: Канары по-прежнему распознаются как Tenerife',
+    canaryRegion.regions.join() === 'tenerife'
+  );
+
+  const ibizaBudget = { minPrice: null, maxPrice: 500000 };
+  const ibizaCtx = searchForContext(
+    'villa Ibiza para vivir hasta 500000 euros',
+    5,
+    {
+      lang: 'es',
+      maxPrice: ibizaBudget.maxPrice,
+      priceTarget: derivePriceTarget(ibizaBudget),
+      propertyTypes: ['villas'],
+      macroRegions: ['ibiza'],
+      contextText: 'villa Ibiza para vivir hasta 500000 euros',
+      allowBudgetFallback: true,
+    }
+  );
+  const ibizaItems = (ibizaCtx.urls || [])
+    .map((url) =>
+      catalog.items.find((item) =>
+        [item.url, ...Object.values(item.urls || {})].filter(Boolean).includes(url)
+      )
+    )
+    .filter(Boolean);
+  check('ibiza: каталог возвращает реальные ссылки', ibizaCtx.found && ibizaCtx.urls.length > 0);
+  check('ibiza: включён прозрачный fallback выше бюджета', ibizaCtx.usedBudgetFallback);
+  check(
+    'ibiza: не подмешиваются другие регионы',
+    ibizaItems.length === ibizaCtx.urls.length &&
+      ibizaItems.every((item) => getPrimaryMacroRegion(item) === 'ibiza')
+  );
+
+  console.log('\n=== 16b. Ссылки по запросу + Marina Botafoch ===\n');
+  check(
+    'Marina Botafoch ≠ Los Cristianos/Arona',
+    detectMicroAreas('Marina Botafoch', 'ru').groupIds.join() === 'ibiza_town'
+  );
+  check(
+    'Marina Botafoch → регион Ibiza',
+    detectRegionPreference('Marina Botafoch', 'ru').regions.join() === 'ibiza'
+  );
+  const linkHist = [
+    { sender: 'user', text: 'Ищу апартаменты на Ибице для жизни, бюджет около 320000' },
+    { sender: 'bot', text: 'В каком районе Ибицы смотрите?' },
+    { sender: 'user', text: 'Marina Botafoch' },
+    { sender: 'bot', text: 'Apartments in Marina-Botafoch — €320,000' },
+    { sender: 'user', text: 'а дай пожалуйста на них ссылки' },
+  ];
+  const dLinks = analyzeConversation(linkHist, 'ru');
+  check('links: wantsPropertyLinks', dLinks.wantsPropertyLinks);
+  check('links: stage SHOW_LISTINGS', dLinks.stage === 'SHOW_LISTINGS');
+  check('links: регион только Ibiza', dLinks.macroRegions.join() === 'ibiza');
+  const aptIbizaCtx = searchForContext(dLinks.allUserText, 5, {
+    lang: 'ru',
+    maxPrice: dLinks.budget.maxPrice,
+    priceTarget: derivePriceTarget(dLinks.budget),
+    propertyTypes: dLinks.propertyTypes,
+    macroRegions: dLinks.macroRegions,
+    microAreaGroupIds: dLinks.microAreaGroupIds,
+    microDetection: dLinks.microAreas,
+    contextText: dLinks.allUserText,
+    allowBudgetFallback: true,
+    allowTypeFamilyFallback: true,
+  });
+  check(
+    'links: каталог отдаёт реальные URL даже без апартаментов на Ibiza',
+    aptIbizaCtx.found && aptIbizaCtx.urls.length > 0
+  );
+  check(
+    'links: URL только housetenerife.eu/property/',
+    (aptIbizaCtx.urls || []).every((u) => /housetenerife\.eu.*\/property\//i.test(u))
+  );
+  check(
+    'ibiza: сохраняется тип villas',
+    ibizaItems.every((item) => itemMatchesPropertyTypes(item, ['villas']))
+  );
+  check(
+    'ibiza: prompt предупреждает о превышении бюджета',
+    /superan el presupuesto/i.test(ibizaCtx.text)
+  );
+
+  const externalLinks =
+    'Opciones: [Idealista](https://www.idealista.com/ibiza/) https://fotocasa.es/villas ' +
+    `${ibizaCtx.urls[0]}`;
+  const catalogOnly = stripNonCatalogUrls(externalLinks);
+  check(
+    'links: внешние порталы удаляются',
+    !/idealista\.com|fotocasa\.es/i.test(catalogOnly)
+  );
+  check(
+    'links: реальная карточка House Tenerife сохраняется',
+    catalogOnly.includes(ibizaCtx.urls[0])
+  );
+
+  console.log('\n=== 17. Сессия и скорость ответа ===\n');
+  check('session: UNLAUNCHED — промежуточное состояние', classifyObservedState('UNLAUNCHED') === 'transient');
+  check('session: UNPAIRED ждёт QR/disconnected', classifyObservedState('UNPAIRED') === 'transient');
+  check('session: только LOGOUT окончательно завершает авторизацию', isDefinitiveLogoutReason('LOGOUT'));
+  check('session: DISCONNECTED не маскируется как LOGOUT', !isDefinitiveLogoutReason('DISCONNECTED'));
+  check('batch: одиночное сообщение ждёт не более 3 с', REPLY_WAIT_MS <= 3000, REPLY_WAIT_MS);
+  check('batch: пачка ждёт не более 6 с', REPLY_BATCH_WAIT_MS <= 6000, REPLY_BATCH_WAIT_MS);
+
   console.log(`\n--- Итого: ${passed} passed, ${failed} failed ---\n`);
   return failed === 0;
 }
@@ -782,6 +903,26 @@ const MANUAL_DIALOGS = [
     steps: [
       { who: 'user', text: 'Апартамент Costa Adeje для жизни, бюджет 350000' },
       { who: 'bot', expect: '3–5 вариантов с разным ценником: один дешевле ~300k, один около 350k, один чуть выше (если есть в каталоге). ❌ НЕ один единственный вариант.' },
+    ],
+  },
+  {
+    id: '10-ibiza-links',
+    title: '10. Ibiza: реальные ссылки и честный бюджетный fallback',
+    lang: 'es',
+    steps: [
+      { who: 'user', text: 'Busco una villa en Ibiza para vivir, presupuesto hasta 500.000 euros' },
+      { who: 'bot', expect: 'Если вилл до €500k нет — честно сообщает об этом и показывает ближайшие виллы только на Ibiza со ссылками housetenerife.eu/property/…; без Idealista/Fotocasa/Habitaclia.' },
+    ],
+  },
+  {
+    id: '11-fast-batch',
+    title: '11. Быстрый ответ на серию сообщений',
+    lang: 'ru',
+    steps: [
+      { who: 'user', text: 'Хочу купить виллу' },
+      { who: 'user', text: 'На Ibiza, для жизни' },
+      { who: 'user', text: 'Бюджет до 2 млн евро' },
+      { who: 'bot', expect: 'Один объединённый ответ примерно через 6 секунд после первого сообщения, без 20–30-секундного ожидания.' },
     ],
   },
 ];

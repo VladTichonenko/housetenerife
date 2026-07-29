@@ -29,7 +29,8 @@ const {
   hasMismatchedPropertyTypeUrls,
   collectRecentPropertyUrls,
   findItemByUrl,
-  getShareUrl
+  getShareUrl,
+  stripNonCatalogUrls
 } = require('./property-share');
 const { itemMatchesPropertyTypes } = require('./property-types');
 const {
@@ -127,7 +128,9 @@ async function buildPromptParts(
       microAreaGroupIds: dialog.microAreaGroupIds || [],
       microDetection: dialog.microAreas,
       lang: userLanguage,
-      contextText: dialog.allUserText
+      contextText: dialog.allUserText,
+      allowBudgetFallback: showingListings,
+      allowTypeFamilyFallback: showingListings || dialog.wantsPropertyLinks
     });
   } else {
     try {
@@ -178,21 +181,25 @@ async function buildPromptParts(
   }
 
   let webBlock = '';
-  if (tier === 'full' && shouldAugmentWithWeb(userQuery)) {
-    const webSuffix =
+  if (tier === 'full' && !showingListings && shouldAugmentWithWeb(userQuery)) {
+    const webSuffix = [
+      dialog.regionLabel || '',
       salesLang === 'es'
-        ? 'compra inmueble España Canarias'
+        ? 'compra inmueble'
         : salesLang === 'en'
-          ? 'property purchase Spain Canary Islands'
+          ? 'property purchase'
           : salesLang === 'de'
-            ? 'Immobilienkauf Spanien Kanaren'
+            ? 'Immobilienkauf'
             : salesLang === 'fr'
-              ? 'achat immobilier Espagne Canaries'
+              ? 'achat immobilier'
               : salesLang === 'pl'
-                ? 'zakup nieruchomości Hiszpania Wyspy Kanaryjskie'
+                ? 'zakup nieruchomości'
                 : salesLang === 'nl'
-                  ? 'vastgoed kopen Spanje Canarische Eilanden'
-                  : 'покупка недвижимости Испания Канары';
+                  ? 'vastgoed kopen'
+                  : 'покупка недвижимости'
+    ]
+      .filter(Boolean)
+      .join(' ');
     const extra = await webSearchSnippets(`${userQuery} ${webSuffix}`);
     if (extra) {
       webBlock = `\n\n**КРАТКАЯ ВЫДЕРЖКА ИЗ ВЕБ-ПОИСКА:**\n${extra}\n`;
@@ -313,7 +320,8 @@ ${blocks.conversation}`;
           ? 'клиент снял ограничение по цене — показывай подходящие по типу и району объекты из блока без фильтра «около бюджета».'
           : 'не предлагай варианты сильно дешевле бюджета клиента — только около названной суммы или чуть дороже (премиум/больше метраж), если клиент не просил именно дешевле.'
       }
-**Ссылки:** копируй URL из блока каталога БУКВАЛЬНО (формат https://housetenerife.eu/…/property/slug/). Запрещено выдумывать /objekt/123, /object/ID и любые другие пути.
+**Ссылки:** копируй URL из блока каталога БУКВАЛЬНО (формат https://housetenerife.eu/…/property/slug/). Запрещено выдумывать /objekt/123, /object/ID и любые другие пути. Не давай ссылки на Idealista, Fotocasa, Habitaclia и любые внешние порталы — только карточки House Tenerife из блока.
+Если клиент просит ссылки на объекты — ОБЯЗАТЕЛЬНО вставь в ответ URL из блока каталога по его параметрам (тип/регион/бюджет/район). Запрещено отвечать только «посмотрите на сайте / в разделе недвижимости» без конкретных карточек. Не описывай объекты без их URL.
 На этапах FIRST_CONTACT / NEED_* — объекты не вываливай. Регионы каталога: ${dialog.regionOptions} (housetenerife.eu).
 Подборка только когда ясны *цель*, тип, бюджет, регион и конкретная зона/район; ссылки только из блока ниже.
 Никогда не пиши клиенту, что отправишь подборку позже. Системная задержка ссылок уже есть: твоя задача — сформировать подборку сразу в текущем ответе.
@@ -324,7 +332,7 @@ ${blocks.conversation}`;
       : `**PROPERTY CATALOG (${catalog.totalInDb || 'full'} listings on site; block below = best matches):**
 ${blocks.catalog}
 **Pricing:** stay around budget or slightly above — not much cheaper unless they asked.
-**Links:** copy URLs from the catalog block EXACTLY (https://housetenerife.eu/…/property/slug/). Never invent /objekt/123, /object/ID, or any other path.
+**Links:** copy URLs from the catalog block EXACTLY (https://housetenerife.eu/…/property/slug/). Never invent /objekt/123, /object/ID, or any other path. Never link Idealista, Fotocasa, Habitaclia, or other external portals in a listing response. If the client asks for links — you MUST paste catalog URLs matching their criteria in this reply; never only send them to a general website section without property cards. Never describe listings without their URLs.
 ${blocks.mortgage}
 ${blocks.propertyFinance}
 ${blocks.managerHandoff}`;
@@ -413,7 +421,10 @@ ${fileDocBlock ? `\n${fileDocBlock}\n` : ''}${webBlock}
   return {
     messages,
     catalogUrls: Array.isArray(catalog.urls) ? catalog.urls : [],
-    catalogFound: Boolean(catalog.found)
+    catalogFound: Boolean(catalog.found),
+    catalogUsedBudgetFallback: Boolean(catalog.usedBudgetFallback),
+    catalogUsedAreaFallback: Boolean(catalog.usedAreaFallback),
+    catalogUsedLastResortTypeFallback: Boolean(catalog.usedLastResortTypeFallback)
   };
 }
 
@@ -624,7 +635,7 @@ async function callAI(messages, tierLabel) {
 }
 
 /** Подборка строго из каталога, если модель снова путает тип или дублирует ссылки. */
-function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = []) {
+function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fallbackMeta = {}) {
   const salesLang = normalizeSalesLang(lang);
   const wanted = dialog.propertyTypes || [];
   const avoidKeys = new Set(
@@ -634,32 +645,51 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = []) {
         .replace(/\/+$/, '')
     )
   );
-  const lines = [];
-  const seen = new Set();
 
-  const ranked = [...(urls || [])].sort((a, b) => {
-    const aAvoid = avoidKeys.has(String(a || '').toLowerCase().replace(/\/+$/, '')) ? 1 : 0;
-    const bAvoid = avoidKeys.has(String(b || '').toLowerCase().replace(/\/+$/, '')) ? 1 : 0;
-    return aAvoid - bAvoid;
-  });
+  const collectLines = (typeFilter) => {
+    const lines = [];
+    const seen = new Set();
+    const ranked = [...(urls || [])].sort((a, b) => {
+      const aAvoid = avoidKeys.has(String(a || '').toLowerCase().replace(/\/+$/, '')) ? 1 : 0;
+      const bAvoid = avoidKeys.has(String(b || '').toLowerCase().replace(/\/+$/, '')) ? 1 : 0;
+      return aAvoid - bAvoid;
+    });
 
-  for (const raw of ranked) {
-    const item = findItemByUrl(raw);
-    if (!item) continue;
-    if (wanted.length && !itemMatchesPropertyTypes(item, wanted)) continue;
-    const share = getShareUrl(item, lang);
-    if (!share || seen.has(share)) continue;
-    seen.add(share);
-    const loc = getLocalizedItem(item, lang);
-    const desc = String(loc.description || '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 160);
-    const price = loc.price || '';
-    lines.push(
-      `• *${loc.title || 'Object'}*${price ? ` — ${price}` : ''}\n${desc}${desc ? '\n' : ''}${share}`
-    );
-    if (lines.length >= 5) break;
+    for (const raw of ranked) {
+      const item = findItemByUrl(raw);
+      if (!item) continue;
+      if (typeFilter.length && !itemMatchesPropertyTypes(item, typeFilter)) continue;
+      const share = getShareUrl(item, lang);
+      if (!share || seen.has(share)) continue;
+      seen.add(share);
+      const loc = getLocalizedItem(item, lang);
+      const desc = String(loc.description || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 160);
+      const price = loc.price || '';
+      lines.push(
+        `• *${loc.title || 'Object'}*${price ? ` — ${price}` : ''}\n${desc}${desc ? '\n' : ''}${share}`
+      );
+      if (lines.length >= 5) break;
+    }
+    return lines;
+  };
+
+  let lines = collectLines(wanted);
+  let usedTypeFamilyFallback = Boolean(fallbackMeta.usedLastResortTypeFallback);
+  if (!lines.length && wanted.length) {
+    const { expandLastResortPropertyTypes } = require('./property-types');
+    const broadened = [
+      ...wanted,
+      ...expandLastResortPropertyTypes(wanted),
+      ...require('./property-types').expandSoftPropertyTypes(wanted)
+    ];
+    lines = collectLines([...new Set(broadened)]);
+    if (lines.length) usedTypeFamilyFallback = true;
+  }
+  if (!lines.length) {
+    lines = collectLines([]);
   }
 
   if (!lines.length) return '';
@@ -697,6 +727,42 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = []) {
     intro = `Hier zijn passende opties${typeLabel ? ` (${typeLabel})` : ''}${area ? ` in ${area}` : ''}${budgetNote}:`;
   } else {
     intro = `Вот варианты${typeLabel ? ` (${typeLabel})` : ''}${area ? ` в ${area}` : ''}${budgetNote}:`;
+  }
+
+  if (usedTypeFamilyFallback) {
+    const typeWarn =
+      salesLang === 'es'
+        ? 'En esta región no hay fichas del tipo exacto pedido; estas son las alternativas residenciales más cercanas del catálogo:'
+        : salesLang === 'en'
+          ? 'There are no exact-type listings in this region; these are the nearest residential alternatives from the catalog:'
+          : salesLang === 'de'
+            ? 'In dieser Region gibt es keine Objekte des exakten Typs; dies sind die nächsten Wohn-Alternativen aus dem Katalog:'
+            : salesLang === 'fr'
+              ? 'Pas de fiches du type exact dans cette région ; voici les alternatives résidentielles les plus proches du catalogue :'
+              : salesLang === 'pl'
+                ? 'W tym regionie nie ma ofert dokładnego typu; to najbliższe alternatywy mieszkaniowe z katalogu:'
+                : salesLang === 'nl'
+                  ? 'In deze regio zijn er geen objecten van het exacte type; dit zijn de dichtstbijzijnde woonalternatieven uit de catalogus:'
+                  : 'В этом регионе нет объектов точного запрошенного типа; вот ближайшее жильё из каталога:';
+    intro = `${typeWarn}\n\n${intro}`;
+  }
+
+  if (fallbackMeta.usedBudgetFallback) {
+    const warning =
+      salesLang === 'es'
+        ? 'En el presupuesto indicado no hay opciones disponibles; estas son las más cercanas del mismo tipo y región, pero superan el presupuesto.'
+        : salesLang === 'en'
+          ? 'There are no available options within the stated budget; these are the nearest in the same region and type, but they are over budget.'
+          : salesLang === 'de'
+            ? 'Im genannten Budget gibt es keine verfügbaren Optionen; diese sind in Region und Typ am nächsten, liegen aber darüber.'
+            : salesLang === 'fr'
+              ? 'Aucune option disponible dans le budget indiqué ; voici les plus proches du même type et de la même région, mais au-dessus du budget.'
+              : salesLang === 'pl'
+                ? 'Brak dostępnych opcji w podanym budżecie; to najbliższe oferty tego samego typu i regionu, ale powyżej budżetu.'
+                : salesLang === 'nl'
+                  ? 'Binnen het opgegeven budget zijn geen opties beschikbaar; dit zijn de dichtstbijzijnde van hetzelfde type en in dezelfde regio, maar boven budget.'
+                  : 'В указанном бюджете доступных вариантов нет; это ближайшие объекты того же типа и региона, но они выше бюджета.';
+    intro = `${warning}\n\n${intro}`;
   }
 
   const closer =
@@ -783,7 +849,13 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
 
   try {
     const salesLang = normalizeSalesLang(userLanguage);
-    const { messages, catalogUrls } = await buildPromptParts(
+    const {
+      messages,
+      catalogUrls,
+      catalogUsedBudgetFallback,
+      catalogUsedAreaFallback,
+      catalogUsedLastResortTypeFallback
+    } = await buildPromptParts(
       conversationHistory,
       userLanguage,
       'full',
@@ -807,9 +879,15 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
     }
     const listingStage =
       dialog.stage === 'SHOW_LISTINGS' ||
+      dialog.wantsPropertyLinks ||
       (dialog.stage === 'REFINE' && dialog.wantsListings);
     const recentUrls = collectRecentPropertyUrls(conversationHistory);
     let urlsForRepair = Array.isArray(catalogUrls) ? [...catalogUrls] : [];
+    const fallbackMeta = {
+      usedBudgetFallback: Boolean(catalogUsedBudgetFallback),
+      usedAreaFallback: Boolean(catalogUsedAreaFallback),
+      usedLastResortTypeFallback: Boolean(catalogUsedLastResortTypeFallback)
+    };
     const replyHasPropertyLink = /housetenerife\.eu[^.\s]*\/property\//i.test(reply);
     // Чужой тип / дубли / выдумки — даже если этап ещё не SHOW_LISTINGS (модель часто тащит старую ссылку из истории)
     const badTypeOrLinks =
@@ -817,7 +895,21 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       replyHasPropertyLink &&
       replyNeedsCatalogForce(reply, dialog.propertyTypes);
 
-    if ((hasInventedHtLinks(reply) || badTypeOrLinks || (listingStage && !urlsForRepair.length)) && !urlsForRepair.length) {
+    // «Дай ссылки» / подборка без карточек — нельзя отсылать только на общий сайт
+    const websiteOnlyNoCards =
+      (dialog.wantsPropertyLinks || listingStage) &&
+      !hasValidCatalogPropertyLinks(reply) &&
+      /(?:на\s+наш(?:ем)?\s+сайт|на\s+сайте|раздел\s+с\s+недвижим|housetenerife\.eu(?!\/(?:ru|es|en|de|fr|pl|nl)?\/property)|look(?:ing)?\s+(?:at\s+)?(?:our\s+)?(?:web)?site|on\s+our\s+(?:web)?site|en\s+nuestro\s+sitio|auf\s+unserer\s+(?:web)?seite|sur\s+notre\s+site)/i.test(
+        reply
+      );
+
+    if (
+      (hasInventedHtLinks(reply) ||
+        badTypeOrLinks ||
+        websiteOnlyNoCards ||
+        ((listingStage || dialog.wantsPropertyLinks) && !urlsForRepair.length)) &&
+      !urlsForRepair.length
+    ) {
       const budget = dialog.ignoreBudget
         ? { minPrice: null, maxPrice: null }
         : extractBudgetRange(dialog.allUserText);
@@ -834,15 +926,20 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
           microAreaGroupIds: dialog.microAreaGroupIds || [],
           microDetection: dialog.microAreas,
           lang: userLanguage,
-          contextText: dialog.allUserText
+          contextText: dialog.allUserText,
+          allowBudgetFallback: true,
+          allowTypeFamilyFallback: true
         }
       );
       urlsForRepair = Array.isArray(fallback.urls) ? fallback.urls : [];
+      fallbackMeta.usedBudgetFallback = Boolean(fallback.usedBudgetFallback);
+      fallbackMeta.usedAreaFallback = Boolean(fallback.usedAreaFallback);
+      fallbackMeta.usedLastResortTypeFallback = Boolean(fallback.usedLastResortTypeFallback);
     }
 
     const needsListingLinks =
       urlsForRepair.length > 0 &&
-      (listingStage || badTypeOrLinks) &&
+      (listingStage || badTypeOrLinks || websiteOnlyNoCards || dialog.wantsPropertyLinks) &&
       replyNeedsCatalogForce(reply, dialog.propertyTypes);
 
     if (needsListingLinks) {
@@ -850,7 +947,8 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         urlsForRepair,
         userLanguage,
         dialog,
-        recentUrls
+        recentUrls,
+        fallbackMeta
       );
       if (safe) {
         console.warn('⚠️ AI подборка с битыми/чужими/дублирующими ссылками — ответ из каталога');
@@ -904,18 +1002,22 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       urlsForRepair,
       { wantedTypes: dialog.propertyTypes || [], avoidUrls: recentUrls }
     );
+    if (listingStage) {
+      reply = stripNonCatalogUrls(reply);
+    }
 
     // Финальный предохранитель: тип/дубли после починки
     if (
       urlsForRepair.length > 0 &&
-      (listingStage || badTypeOrLinks) &&
+      (listingStage || badTypeOrLinks || websiteOnlyNoCards || dialog.wantsPropertyLinks) &&
       replyNeedsCatalogForce(reply, dialog.propertyTypes)
     ) {
       const safe = buildDeterministicListingsReply(
         urlsForRepair,
         userLanguage,
         dialog,
-        recentUrls
+        recentUrls,
+        fallbackMeta
       );
       if (safe) {
         console.warn('⚠️ Подборка заменена на каталог (тип/дубли ссылок)');

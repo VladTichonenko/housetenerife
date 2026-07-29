@@ -30,11 +30,11 @@ const AREA_OPTIONS_BY_MACRO = {
     fr: 'Puerto Banús, Golden Mile, Nueva Andalucía, Estepona, Benahavís',
   },
   ibiza: {
-    ru: 'Sant Antoni (San Antonio), Santa Eulalia, Es Cubells, Cala Jondal, Ibiza Town / Jesús',
-    en: 'Sant Antoni (San Antonio), Santa Eulalia, Es Cubells, Cala Jondal, Ibiza Town / Jesús',
-    es: 'Sant Antoni (San Antonio), Santa Eulalia, Es Cubells, Cala Jondal, Ibiza ciudad / Jesús',
-    de: 'Sant Antoni (San Antonio), Santa Eulalia, Es Cubells, Cala Jondal, Ibiza Town / Jesús',
-    fr: 'Sant Antoni (San Antonio), Santa Eulalia, Es Cubells, Cala Jondal, Ibiza Town / Jesús',
+    ru: 'Sant Antoni (San Antonio), Santa Eulalia, Ibiza Town / Marina Botafoch / Talamanca, Es Cubells, Cala Jondal',
+    en: 'Sant Antoni (San Antonio), Santa Eulalia, Ibiza Town / Marina Botafoch / Talamanca, Es Cubells, Cala Jondal',
+    es: 'Sant Antoni (San Antonio), Santa Eulalia, Ibiza ciudad / Marina Botafoch / Talamanca, Es Cubells, Cala Jondal',
+    de: 'Sant Antoni (San Antonio), Santa Eulalia, Ibiza Town / Marina Botafoch / Talamanca, Es Cubells, Cala Jondal',
+    fr: 'Sant Antoni (San Antonio), Santa Eulalia, Ibiza Town / Marina Botafoch / Talamanca, Es Cubells, Cala Jondal',
   },
   malaga: {
     ru: 'Малага центр, Torremolinos, Fuengirola, Axarquía',
@@ -393,6 +393,14 @@ const SPECIFIC_AREA_GROUPS = [
       'сан рафаэль',
       'san agustin',
       'san agustín',
+      'marina botafoch',
+      'marina-botafoch',
+      'botafoch',
+      'ботафоч',
+      'ботафош',
+      'марина ботафоч',
+      'talamanca',
+      'таламанка',
     ],
   },
   {
@@ -693,7 +701,13 @@ function textMatchesLocationPhrase(text, phrase, options = {}) {
   for (const tw of tWords) {
     if (tw.length >= 5 && fuzzyEqual(tw, p)) return true;
   }
-  return fuzzyContainsCollapsed(tWords.join(' '), p);
+  // Однословные топонимы НЕ ищем «внутри» склеенной фразы:
+  // иначе marina→arina≈arona (Los Cristianos) и т.п.
+  // collapsed — только для длинных ключей (≥8), когда слово могло слиться без пробела.
+  if (p.length >= 8) {
+    return Boolean(fuzzyContainsCollapsed(tWords.join(' '), p));
+  }
+  return false;
 }
 
 /**

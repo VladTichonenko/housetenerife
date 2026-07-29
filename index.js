@@ -10,6 +10,10 @@ const { getLanguageFromPhone, getTranslation, getCountryFromPhone } = require('.
 const { askAI } = require('./ai-service');
 const { enqueueForChat } = require('./chat-queue');
 const {
+  classifyObservedState,
+  isDefinitiveLogoutReason,
+} = require('./whatsapp-session-state');
+const {
   scheduleReplyBatch,
   REPLY_WAIT_MS,
   REPLY_BATCH_WAIT_MS,
@@ -109,7 +113,7 @@ const BOT_REPLY_DELAY_MS = Math.max(
 /** Фиксированная пауза перед сообщением со ссылками (не рандом 90–180 с). Env: LINK_MESSAGE_DELAY_MS */
 const LINK_MESSAGE_DELAY_MS = Math.max(
   0,
-  parseInt(process.env.LINK_MESSAGE_DELAY_MS, 10) || 15000
+  parseInt(process.env.LINK_MESSAGE_DELAY_MS, 10) || 3000
 );
 
 setRecordHandoff(recordHandoff);
@@ -1225,8 +1229,9 @@ client.on('ready', async () => {
 // Обработка изменения состояния клиента
 client.on('change_state', async (state) => {
   console.log(`🔄 Изменение состояния клиента: ${state}`);
-  
-  if (state === 'CONNECTED' && !botReady) {
+
+  const observed = classifyObservedState(state);
+  if (observed === 'connected' && !botReady) {
     console.log('✅ Бот готов к работе! (определено через change_state)');
     console.log('📱 WhatsApp бот запущен и готов получать сообщения');
     botReady = true;
@@ -1242,13 +1247,13 @@ client.on('change_state', async (state) => {
       clearTimeout(logoutTimeout);
       logoutTimeout = null;
     }
-  } else if (state === 'UNPAIRED' || state === 'UNLAUNCHED') {
+  } else if (observed === 'transient') {
+    // WhatsApp Web кратковременно отдаёт UNLAUNCHED/UNPAIRED при reload/injection.
+    // Настоящий logout подтверждают событие disconnected: LOGOUT или новый QR.
+    console.log(`⏳ Промежуточное состояние WhatsApp: ${state}, сессию не завершаем`);
+  } else if (observed === 'disconnected') {
     botReady = false;
-    telegramNotify.notifyWhatsAppConnection('logout', { reason: state, force: true });
-    console.log('⚠️ Бот не готов к работе (состояние: ' + state + ')');
-  } else if (state === 'DISCONNECTED') {
-    botReady = false;
-    telegramNotify.notifyWhatsAppConnection('disconnected', { reason: state, force: true });
+    telegramNotify.notifyWhatsAppConnection('disconnected', { reason: state });
     console.log('⚠️ Бот не готов к работе (состояние: ' + state + ')');
   }
 });
@@ -1414,9 +1419,9 @@ client.on('disconnected', (reason) => {
   const now = Date.now();
   console.log('⚠️ Бот отключен:', reason);
   botReady = false;
-  telegramNotify.notifyWhatsAppConnection(reason === 'LOGOUT' ? 'logout' : 'disconnected', {
+  telegramNotify.notifyWhatsAppConnection(isDefinitiveLogoutReason(reason) ? 'logout' : 'disconnected', {
     reason: String(reason),
-    force: reason === 'LOGOUT'
+    force: isDefinitiveLogoutReason(reason)
   });
   
   // Проверяем частоту отключений
@@ -1756,10 +1761,13 @@ function startWhatsAppSessionWatchdog() {
       console.log(`👁️ WhatsApp session: ${prev} → ${state}`);
 
       const wasOnline = botReady || prev === 'CONNECTED';
-      if (wasOnline && state !== 'CONNECTED') {
-        const alertState =
-          state === 'UNPAIRED' || state === 'UNLAUNCHED' ? 'logout' : 'disconnected';
-        await telegramNotify.notifyWhatsAppConnection(alertState, { reason: state, force: true });
+      const observed = classifyObservedState(state);
+      if (observed === 'transient') {
+        console.log(`👁️ Промежуточное состояние ${state}: ждём событие QR/disconnected`);
+        return;
+      }
+      if (wasOnline && observed === 'disconnected') {
+        await telegramNotify.notifyWhatsAppConnection('disconnected', { reason: state });
         botReady = false;
       }
     } catch (err) {

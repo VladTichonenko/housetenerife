@@ -199,6 +199,48 @@ function hasInventedHtLinks(text) {
   });
 }
 
+/**
+ * В подборке объектов оставляет только реальные карточки каталога House Tenerife
+ * и внутренние proxy-ссылки /p/HZ… для локализованного preview.
+ */
+function stripNonCatalogUrls(text) {
+  if (!text || typeof text !== 'string') return text;
+  const publicBase = getPublicBase();
+  let publicOrigin = '';
+  try {
+    publicOrigin = publicBase ? new URL(publicBase).origin : '';
+  } catch {
+    publicOrigin = '';
+  }
+
+  const isAllowed = (raw) => {
+    const cleaned = String(raw || '').replace(/[.,;:!?)]+$/g, '');
+    if (isCatalogPropertyUrl(cleaned)) return true;
+    try {
+      const parsed = new URL(cleaned);
+      return (
+        Boolean(publicOrigin) &&
+        parsed.origin === publicOrigin &&
+        /^\/p\/HZ[\w-]+/i.test(parsed.pathname)
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  const markdownUrlRe = /\[([^\]]+)\]\((https?:\/\/[^\s<>)]+)\)/gi;
+  let out = String(text).replace(markdownUrlRe, (match, label, url) =>
+    isAllowed(url) ? match : String(label || '').trim()
+  );
+  const anyUrlRe = /https?:\/\/[^\s<>\])"'{}]+/gi;
+  out = out.replace(anyUrlRe, (raw) => (isAllowed(raw) ? raw : ''));
+  return out
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
 function normalizeShareUrlKey(url) {
   try {
     const u = new URL(stripInvalidEnPrefix(url));
@@ -386,6 +428,7 @@ module.exports = {
   getShareUrl,
   localizeUrlsInText,
   repairPropertyUrlsInText,
+  stripNonCatalogUrls,
   hasValidCatalogPropertyLinks,
   hasInventedHtLinks,
   hasDuplicatePropertyUrls,

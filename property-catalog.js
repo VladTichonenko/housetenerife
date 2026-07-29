@@ -12,7 +12,8 @@ const {
   itemMatchesPropertyTypes,
   scorePropertyTypeFit,
   formatDetectedTypes,
-  expandSoftPropertyTypes
+  expandSoftPropertyTypes,
+  expandLastResortPropertyTypes
 } = require('./property-types');
 const {
   getPrimaryMacroRegion,
@@ -247,19 +248,38 @@ function filterByPropertyTypes(ranked, propertyTypes) {
 }
 
 /**
- * Жёсткий тип → при пустоте мягкий fallback только внутри «семьи» типов.
+ * Жёсткий тип → при пустоте мягкий fallback только внутри «семьи».
+ * При allowLastResort — крайняя подмена жилья (апартаменты↔дома/виллы), если в регионе 0 точного типа.
  * Никогда не подмешивает бизнес к апартаментам/виллам и наоборот.
  */
-function applyPropertyTypeFilter(ranked, propertyTypes) {
-  if (!propertyTypes?.length) return { ranked, usedSoftFallback: false };
+function applyPropertyTypeFilter(ranked, propertyTypes, options = {}) {
+  if (!propertyTypes?.length) {
+    return { ranked, usedSoftFallback: false, usedLastResortTypeFallback: false };
+  }
   const exact = filterByPropertyTypes(ranked, propertyTypes);
-  if (exact.length) return { ranked: exact, usedSoftFallback: false };
+  if (exact.length) {
+    return { ranked: exact, usedSoftFallback: false, usedLastResortTypeFallback: false };
+  }
 
   const softTypes = expandSoftPropertyTypes(propertyTypes);
-  if (!softTypes.length) return { ranked: [], usedSoftFallback: false };
-  const soft = filterByPropertyTypes(ranked, softTypes);
-  if (soft.length) return { ranked: soft, usedSoftFallback: true };
-  return { ranked: [], usedSoftFallback: false };
+  if (softTypes.length) {
+    const soft = filterByPropertyTypes(ranked, softTypes);
+    if (soft.length) {
+      return { ranked: soft, usedSoftFallback: true, usedLastResortTypeFallback: false };
+    }
+  }
+
+  if (options.allowLastResort) {
+    const lastTypes = expandLastResortPropertyTypes(propertyTypes);
+    if (lastTypes.length) {
+      const last = filterByPropertyTypes(ranked, lastTypes);
+      if (last.length) {
+        return { ranked: last, usedSoftFallback: true, usedLastResortTypeFallback: true };
+      }
+    }
+  }
+
+  return { ranked: [], usedSoftFallback: false, usedLastResortTypeFallback: false };
 }
 
 function locationBucketForItem(item) {
@@ -510,6 +530,8 @@ function searchForContext(query, limit = 8, options = {}) {
   };
 
   let ranked = data.items.map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }));
+  let usedAreaFallback = false;
+  let usedBudgetFallback = false;
 
   if (!tokens.length && (scoreOpts.minPrice || scoreOpts.maxPrice || priceTarget)) {
     ranked = ranked.filter((x) => x.s > 0);
@@ -534,28 +556,54 @@ function searchForContext(query, limit = 8, options = {}) {
   // пустой тип в регионе → мягкий fallback только внутри семьи (жильё↔жильё).
   if (macroRegions.length) {
     const regional = filterByMacroRegions(ranked, macroRegions);
-    if (regional.length) ranked = regional;
+    ranked = regional;
   }
 
   let usedSoftTypeFallback = false;
+  let usedLastResortTypeFallback = false;
+  const allowLastResortType =
+    Boolean(options.allowBudgetFallback) || Boolean(options.allowTypeFamilyFallback);
   if (propertyTypes.length) {
-    const typed = applyPropertyTypeFilter(ranked, propertyTypes);
+    const typed = applyPropertyTypeFilter(ranked, propertyTypes, {
+      allowLastResort: allowLastResortType
+    });
     ranked = typed.ranked;
     usedSoftTypeFallback = typed.usedSoftFallback;
+    usedLastResortTypeFallback = typed.usedLastResortTypeFallback;
   }
 
   if (microAreaGroupIds.length) {
-    ranked = filterByMicroAreas(ranked, microAreaGroupIds);
+    const regionalTypePool = ranked;
+    const exactArea = filterByMicroAreas(ranked, microAreaGroupIds);
+    if (exactArea.length) {
+      ranked = exactArea;
+    } else if (
+      macroRegions.length &&
+      !macroRegions.includes('tenerife') &&
+      regionalTypePool.length
+    ) {
+      // Для небольших региональных выборок (Ibiza и др.) лучше показать
+      // соседние зоны того же региона, чем оставить клиента без карточек.
+      ranked = regionalTypePool;
+      usedAreaFallback = true;
+    } else {
+      ranked = exactArea;
+    }
     // После района тип мог «размыться» через soft micro fallback — снова зафиксировать тип
     if (propertyTypes.length && ranked.length) {
-      const typedAgain = applyPropertyTypeFilter(ranked, propertyTypes);
+      const typedAgain = applyPropertyTypeFilter(ranked, propertyTypes, {
+        allowLastResort: allowLastResortType
+      });
       if (typedAgain.ranked.length) {
         ranked = typedAgain.ranked;
         usedSoftTypeFallback = usedSoftTypeFallback || typedAgain.usedSoftFallback;
+        usedLastResortTypeFallback =
+          usedLastResortTypeFallback || typedAgain.usedLastResortTypeFallback;
       }
     }
   }
 
+  const budgetFallbackPool = ranked.slice();
   if (priceTarget) {
     const priceFiltered = filterByPriceTarget(ranked, priceTarget);
     if (priceFiltered.length) ranked = priceFiltered;
@@ -567,7 +615,17 @@ function searchForContext(query, limit = 8, options = {}) {
     maxPrice: options.maxPrice ?? null
   };
   if (hardBudget.minPrice != null || hardBudget.maxPrice != null) {
-    ranked = filterByHardBudget(ranked, hardBudget);
+    const withinBudget = filterByHardBudget(ranked, hardBudget);
+    if (withinBudget.length) {
+      ranked = withinBudget;
+    } else if (options.allowBudgetFallback && budgetFallbackPool.length) {
+      // Нет карточек в бюджете: сохраняем регион и тип, показываем ближайшие
+      // реальные варианты и явно сообщаем модели о превышении бюджета.
+      ranked = sortByPriceProximity(budgetFallbackPool, priceTarget?.anchor);
+      usedBudgetFallback = true;
+    } else {
+      ranked = [];
+    }
   }
 
   ranked = pickPriceTierListings(ranked, limit, priceTarget);
@@ -578,24 +636,58 @@ function searchForContext(query, limit = 8, options = {}) {
       .sort((a, b) => b.s - a.s);
     if (macroRegions.length) {
       const regional = filterByMacroRegions(ranked, macroRegions);
-      if (regional.length) ranked = regional;
+      ranked = regional;
     }
     if (propertyTypes.length) {
-      const typed = applyPropertyTypeFilter(ranked, propertyTypes);
+      const typed = applyPropertyTypeFilter(ranked, propertyTypes, {
+        allowLastResort: allowLastResortType
+      });
       ranked = typed.ranked;
       usedSoftTypeFallback = typed.usedSoftFallback;
+      usedLastResortTypeFallback = typed.usedLastResortTypeFallback;
     }
-    if (microAreaGroupIds.length) ranked = filterByMicroAreas(ranked, microAreaGroupIds);
+    if (microAreaGroupIds.length) {
+      const regionalTypePool = ranked;
+      const exactArea = filterByMicroAreas(ranked, microAreaGroupIds);
+      if (exactArea.length) {
+        ranked = exactArea;
+      } else if (
+        macroRegions.length &&
+        !macroRegions.includes('tenerife') &&
+        regionalTypePool.length
+      ) {
+        ranked = regionalTypePool;
+        usedAreaFallback = true;
+      } else {
+        ranked = exactArea;
+      }
+    }
     if (propertyTypes.length && ranked.length) {
-      const typedAgain = applyPropertyTypeFilter(ranked, propertyTypes);
-      if (typedAgain.ranked.length) ranked = typedAgain.ranked;
+      const typedAgain = applyPropertyTypeFilter(ranked, propertyTypes, {
+        allowLastResort: allowLastResortType
+      });
+      if (typedAgain.ranked.length) {
+        ranked = typedAgain.ranked;
+        usedSoftTypeFallback = usedSoftTypeFallback || typedAgain.usedSoftFallback;
+        usedLastResortTypeFallback =
+          usedLastResortTypeFallback || typedAgain.usedLastResortTypeFallback;
+      }
     }
     if (priceTarget) {
       const priceFiltered = filterByPriceTarget(ranked, priceTarget);
       if (priceFiltered.length) ranked = priceFiltered;
     }
     if (hardBudget.minPrice != null || hardBudget.maxPrice != null) {
-      ranked = filterByHardBudget(ranked, hardBudget);
+      const beforeBudget = ranked.slice();
+      const withinBudget = filterByHardBudget(ranked, hardBudget);
+      if (withinBudget.length) {
+        ranked = withinBudget;
+      } else if (options.allowBudgetFallback && beforeBudget.length) {
+        ranked = sortByPriceProximity(beforeBudget, priceTarget?.anchor);
+        usedBudgetFallback = true;
+      } else {
+        ranked = [];
+      }
     }
     ranked = ranked.slice(0, Math.max(limit, 1));
   }
@@ -642,43 +734,82 @@ function searchForContext(query, limit = 8, options = {}) {
                   : '';
 
   const typeHint =
-    usedSoftTypeFallback && lang === 'en'
-      ? ' NOTE: exact type scarce here — close residential alternatives only (never mix business into homes). Tell the client briefly.'
-      : usedSoftTypeFallback && lang === 'es'
-        ? ' NOTA: poco stock del tipo exacto — solo alternativas residenciales cercanas (nunca mezclar negocio con vivienda). Dilo brevemente.'
-        : usedSoftTypeFallback && lang === 'de'
-          ? ' HINWEIS: wenig exakter Typ — nur nahe Wohn-Alternativen (nie Business unter Wohnungen mischen). Kurz erwähnen.'
-          : usedSoftTypeFallback && lang === 'fr'
-            ? ' NOTE: peu de stock du type exact — seulement alternatives résidentielles proches (jamais mélanger business et logement). À dire brièvement.'
-            : usedSoftTypeFallback && lang === 'pl'
-              ? ' UWAGA: mało dokładnego typu — tylko bliskie alternatywy mieszkaniowe (nigdy nie mieszaj biznesu z mieszkaniami). Krótko powiedz klientowi.'
-              : usedSoftTypeFallback && lang === 'nl'
-                ? ' LET OP: weinig exact type — alleen nabije woonalternatieven (nooit business met woningen mengen). Kort vermelden.'
-                : usedSoftTypeFallback
-                  ? ' ВАЖНО: точного типа в зоне мало — только близкие жилые альтернативы (никогда не подмешивай бизнес к апартаментам/виллам). Кратко скажи клиенту.'
-                  : '';
+    usedLastResortTypeFallback && lang === 'en'
+      ? ' IMPORTANT: no exact property type in this region — showing nearest residential alternatives WITH catalog URLs. Say honestly that exact type is unavailable.'
+      : usedLastResortTypeFallback && lang === 'es'
+        ? ' IMPORTANTE: no hay el tipo exacto en esta región — alternativas residenciales cercanas CON enlaces del catálogo. Di con claridad que el tipo exacto no está disponible.'
+        : usedLastResortTypeFallback && lang === 'de'
+          ? ' WICHTIG: exakter Typ in dieser Region fehlt — nächste Wohn-Alternativen MIT Katalog-URLs. Klar sagen, dass der exakte Typ fehlt.'
+          : usedLastResortTypeFallback && lang === 'fr'
+            ? ' IMPORTANT: pas le type exact dans cette région — alternatives résidentielles proches AVEC URLs catalogue. Dire clairement que le type exact manque.'
+            : usedLastResortTypeFallback && lang === 'pl'
+              ? ' WAŻNE: brak dokładnego typu w regionie — najbliższe alternatywy mieszkaniowe Z URL katalogu. Jasno powiedz, że dokładnego typu brak.'
+              : usedLastResortTypeFallback && lang === 'nl'
+                ? ' BELANGRIJK: geen exact type in deze regio — dichtstbijzijnde woonalternatieven MET catalogus-URL’s. Zeg eerlijk dat het exacte type ontbreekt.'
+                : usedLastResortTypeFallback
+                  ? ' ВАЖНО: в этом регионе нет объектов нужного типа — ниже ближайшее жильё того же региона со ссылками из каталога. Честно скажи, что точного типа сейчас нет.'
+                  : usedSoftTypeFallback && lang === 'en'
+                    ? ' NOTE: exact type scarce here — close residential alternatives only (never mix business into homes). Tell the client briefly.'
+                    : usedSoftTypeFallback && lang === 'es'
+                      ? ' NOTA: poco stock del tipo exacto — solo alternativas residenciales cercanas (nunca mezclar negocio con vivienda). Dilo brevemente.'
+                      : usedSoftTypeFallback && lang === 'de'
+                        ? ' HINWEIS: wenig exakter Typ — nur nahe Wohn-Alternativen (nie Business unter Wohnungen mischen). Kurz erwähnen.'
+                        : usedSoftTypeFallback && lang === 'fr'
+                          ? ' NOTE: peu de stock du type exact — seulement alternatives résidentielles proches (jamais mélanger business et logement). À dire brièvement.'
+                          : usedSoftTypeFallback && lang === 'pl'
+                            ? ' UWAGA: mało dokładnego typu — tylko bliskie alternatywy mieszkaniowe (nigdy nie mieszaj biznesu z mieszkaniami). Krótko powiedz klientowi.'
+                            : usedSoftTypeFallback && lang === 'nl'
+                              ? ' LET OP: weinig exact type — alleen nabije woonalternatieven (nooit business met woningen mengen). Kort vermelden.'
+                              : usedSoftTypeFallback
+                                ? ' ВАЖНО: точного типа в зоне мало — только близкие жилые альтернативы (никогда не подмешивай бизнес к апартаментам/виллам). Кратко скажи клиенту.'
+                                : '';
+
+  const budgetFallbackHints = {
+    ru: ' ВАЖНО: в этом бюджете нет объектов нужного типа и региона; ниже ближайшие доступные. Прямо скажи, что они выше бюджета.',
+    en: ' IMPORTANT: no same-type listings in this region fit the budget; these are the nearest available. Clearly say they are over budget.',
+    es: ' IMPORTANTE: no hay opciones del mismo tipo y región dentro del presupuesto; estas son las más cercanas. Indica claramente que superan el presupuesto.',
+    de: ' WICHTIG: Keine passenden Objekte dieses Typs in der Region liegen im Budget; dies sind die nächstgelegenen. Budgetüberschreitung klar nennen.',
+    fr: ' IMPORTANT : aucun bien de ce type dans cette région ne respecte le budget ; voici les plus proches. Indiquer clairement le dépassement.',
+    pl: ' WAŻNE: brak ofert tego typu w regionie w podanym budżecie; to najbliższe dostępne opcje. Wyraźnie zaznacz przekroczenie budżetu.',
+    nl: ' BELANGRIJK: geen objecten van dit type in deze regio passen binnen het budget; dit zijn de dichtstbijzijnde. Benoem duidelijk de overschrijding.'
+  };
+  const areaFallbackHints = {
+    ru: ' В точной зоне мало предложений; показаны соседние районы только того же региона.',
+    en: ' Exact-area stock is scarce; nearby areas in the same region are shown.',
+    es: ' La zona exacta tiene poca oferta; se muestran zonas cercanas dentro de la misma región.',
+    de: ' In der exakten Zone gibt es wenig Angebot; gezeigt werden nahe Zonen derselben Region.',
+    fr: ' Peu de biens dans la zone exacte ; les zones voisines de la même région sont affichées.',
+    pl: ' W dokładnej strefie jest mało ofert; pokazano pobliskie strefy tego samego regionu.',
+    nl: ' In de exacte zone is weinig aanbod; nabije zones binnen dezelfde regio worden getoond.'
+  };
+  const fallbackHint = usedBudgetFallback ? budgetFallbackHints[lang] || budgetFallbackHints.ru : '';
+  const areaHint = usedAreaFallback ? areaFallbackHints[lang] || areaFallbackHints.ru : '';
 
   const header =
     lang === 'en'
-      ? `[Full catalog: ${totalInDb} listings; search picked ${lines.length} diverse matches below — use only these URLs.${priceHint}${typeHint}]`
+      ? `[Full catalog: ${totalInDb} listings; search picked ${lines.length} diverse matches below — use only these URLs.${priceHint}${typeHint}${fallbackHint}${areaHint}]`
       : lang === 'es'
-        ? `[Catálogo completo: ${totalInDb} anuncios; abajo ${lines.length} opciones variadas — solo estos enlaces.${priceHint}${typeHint}]`
+        ? `[Catálogo completo: ${totalInDb} anuncios; abajo ${lines.length} opciones variadas — solo estos enlaces.${priceHint}${typeHint}${fallbackHint}${areaHint}]`
         : lang === 'de'
-          ? `[Vollständiger Katalog: ${totalInDb} Objekte; unten ${lines.length} passende Varianten — nur diese URLs verwenden.${priceHint}${typeHint}]`
+          ? `[Vollständiger Katalog: ${totalInDb} Objekte; unten ${lines.length} passende Varianten — nur diese URLs verwenden.${priceHint}${typeHint}${fallbackHint}${areaHint}]`
           : lang === 'fr'
-            ? `[Catalogue complet: ${totalInDb} annonces; ci-dessous ${lines.length} options — utiliser uniquement ces liens.${priceHint}${typeHint}]`
+            ? `[Catalogue complet: ${totalInDb} annonces; ci-dessous ${lines.length} options — utiliser uniquement ces liens.${priceHint}${typeHint}${fallbackHint}${areaHint}]`
             : lang === 'pl'
-              ? `[Pełny katalog: ${totalInDb} ofert; poniżej ${lines.length} dopasowanych wariantów — używaj tylko tych URL.${priceHint}${typeHint}]`
+              ? `[Pełny katalog: ${totalInDb} ofert; poniżej ${lines.length} dopasowanych wariantów — używaj tylko tych URL.${priceHint}${typeHint}${fallbackHint}${areaHint}]`
               : lang === 'nl'
-                ? `[Volledige catalogus: ${totalInDb} objecten; hieronder ${lines.length} passende opties — gebruik alleen deze URL’s.${priceHint}${typeHint}]`
-                : `[Полный каталог: ${totalInDb} объектов; ниже ${lines.length} разных вариантов по запросу — другие ссылки не выдумывай.${priceHint}${typeHint}]`;
+                ? `[Volledige catalogus: ${totalInDb} objecten; hieronder ${lines.length} passende opties — gebruik alleen deze URL’s.${priceHint}${typeHint}${fallbackHint}${areaHint}]`
+                : `[Полный каталог: ${totalInDb} объектов; ниже ${lines.length} разных вариантов по запросу — другие ссылки не выдумывай.${priceHint}${typeHint}${fallbackHint}${areaHint}]`;
 
   return {
     found: true,
     text: `${header}\n\n${lines.join('\n\n')}`,
     syncedAt: data.syncedAt || null,
     totalInDb,
-    urls: shareUrls
+    urls: shareUrls,
+    usedBudgetFallback,
+    usedAreaFallback,
+    usedSoftTypeFallback,
+    usedLastResortTypeFallback
   };
 }
 

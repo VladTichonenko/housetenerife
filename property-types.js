@@ -81,10 +81,25 @@ const TYPE_OPTIONS_PROMPT = {
 
 /** Если точного типа нет в зоне — мягкий fallback только внутри «семьи» (не бизнес↔жильё). */
 const SOFT_TYPE_FALLBACK = {
-  // Апартаменты не подменяем домами/виллами — частая жалоба клиентов
+  // Апартаменты обычно не подменяем домами/виллами — частая жалоба клиентов
   apartments: [],
   houses: ['apartments'],
   villas: ['houses'],
+  land: [],
+  commercial: ['business'],
+  business: ['commercial'],
+  investment: []
+};
+
+/**
+ * Крайний случай: в регионе вообще нет запрошенного типа (напр. Ibiza без апартаментов).
+ * Тогда можно показать другое жильё того же региона — с явной пометкой в каталоге.
+ * Бизнес и жильё никогда не смешиваем.
+ */
+const LAST_RESORT_TYPE_FALLBACK = {
+  apartments: ['houses', 'villas'],
+  houses: ['apartments', 'villas'],
+  villas: ['houses', 'apartments'],
   land: [],
   commercial: ['business'],
   business: ['commercial'],
@@ -353,7 +368,10 @@ function itemMatchesPropertyTypes(item, wantedTypes) {
     return true;
   }
 
-  return wantedTypes.every((t) => itemCats.includes(t));
+  // Несколько допустимых типов (soft/last-resort или «апартаменты или виллы») — OR, не AND
+  const primary = getPrimaryPropertyCategory(item);
+  if (primary && wantedTypes.includes(primary)) return true;
+  return wantedTypes.some((t) => itemCats.includes(t));
 }
 
 function scorePropertyTypeFit(item, wantedTypes) {
@@ -382,6 +400,17 @@ function expandSoftPropertyTypes(wantedTypes) {
   return [...out];
 }
 
+/** Крайний fallback типа, когда в регионе 0 объектов нужного типа. */
+function expandLastResortPropertyTypes(wantedTypes) {
+  if (!wantedTypes?.length) return [];
+  const out = new Set();
+  for (const t of wantedTypes) {
+    for (const s of LAST_RESORT_TYPE_FALLBACK[t] || []) out.add(s);
+  }
+  for (const t of wantedTypes) out.delete(t);
+  return [...out];
+}
+
 function formatPropertyTypeOptions(lang = 'ru') {
   const l = TYPE_OPTIONS_PROMPT[lang] ? lang : 'ru';
   return TYPE_OPTIONS_PROMPT[l];
@@ -396,6 +425,7 @@ module.exports = {
   TYPE_LABELS,
   TYPE_OPTIONS_PROMPT,
   SOFT_TYPE_FALLBACK,
+  LAST_RESORT_TYPE_FALLBACK,
   extractPropertyTypeFromOverview,
   getItemPropertyCategories,
   getPrimaryPropertyCategory,
@@ -403,6 +433,7 @@ module.exports = {
   itemMatchesPropertyTypes,
   scorePropertyTypeFit,
   expandSoftPropertyTypes,
+  expandLastResortPropertyTypes,
   formatPropertyTypeOptions,
   formatDetectedTypes
 };

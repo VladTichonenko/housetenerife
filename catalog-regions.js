@@ -107,6 +107,13 @@ const MACRO_REGIONS = {
       'sant josep',
       'cala jondal',
       'cala conta',
+      'marina botafoch',
+      'botafoch',
+      'ботафоч',
+      'talamanca',
+      'таламанка',
+      'ibiza town',
+      'eivissa town',
       'es cubells',
       'es cavallet',
       'cap martinet',
@@ -295,7 +302,9 @@ function detectRegionPreference(text, lang = 'ru') {
     if (g?.macro) regions.add(g.macro);
   }
 
-  if (/испани|spain|канар/i.test(lower) && !regions.size) regions.add('tenerife');
+  // «Испания» — это не синоним Тенерифе: в каталоге также есть Ibiza,
+  // Marbella/Costa del Sol, Málaga и Barcelona.
+  if (/канар|canary|canarias/i.test(lower) && !regions.size) regions.add('tenerife');
   if (/оаэ|эмират|uae/i.test(lower)) regions.add('dubai');
 
   const list = [...regions];
