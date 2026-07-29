@@ -110,6 +110,29 @@ const PHONETIC_GARBAGE_RE = new RegExp(
   'iu'
 );
 
+/** CJK / хангыль — слабые модели иногда вставляют иероглифы в RU/EN/ES ответ. */
+const UNEXPECTED_SCRIPT_RE =
+  /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af\u0600-\u06ff]/gu;
+
+function hasUnexpectedScripts(text) {
+  return UNEXPECTED_SCRIPT_RE.test(String(text || ''));
+}
+
+/**
+ * Убирает иероглифы/хангыль/арабицу из ответа европейского диалога.
+ * «которые明显 не подходят» → «которые не подходят».
+ */
+function stripUnexpectedScripts(text) {
+  if (!text || !hasUnexpectedScripts(text)) return text;
+  return String(text)
+    .replace(UNEXPECTED_SCRIPT_RE, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/ +\./g, '.')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function stripUrlsAndBrands(text) {
   return String(text || '')
     .replace(/https?:\/\/[^\s]+/gi, ' ')
@@ -153,12 +176,15 @@ function hasPhoneticGarbage(text) {
 }
 
 /**
- * Ответ явно не на языке диалога (кириллица vs латиница) или с фонетическим мусором.
+ * Ответ явно не на языке диалога (кириллица vs латиница), с иероглифами или фонетическим мусором.
  */
 function replyMismatchesLanguage(text, lang) {
   const salesLang = normalizeSalesLang(lang);
   const body = stripUrlsAndBrands(text);
   if (!body.trim()) return false;
+
+  // Китайские/японские/корейские символы в европейском диалоге — всегда ошибка модели
+  if (hasUnexpectedScripts(body)) return true;
 
   const cyr = (body.match(/[а-яё]/gi) || []).length;
   const lat = (body.match(/[a-z]/gi) || []).length;
@@ -213,6 +239,7 @@ function languageRewriteInstruction(lang) {
     return (
       'Перепиши последний ответ СТРОГО на нормальном русском языке. ' +
       'Запрещена транслитерация английских слов кириллицей (не «Арор», а «Ошибка»; не «баджет», а «бюджет»; не «проперти», а «объект»). ' +
+      'Запрещены китайские, японские и корейские иероглифы и любые другие алфавиты — только русский + латиница в названиях районов/URL. ' +
       'Названия районов и городов пиши латиницей ТОЧНО как в каталоге: Los Cristianos, Costa Adeje, Las Américas, Golf del Sur, Sant Antoni — без «Лос Кристианос», «Коста Адеже» и т.п. ' +
       'Без смеси языков. Кратко, WhatsApp-стиль, как живой риелтор.'
     );
@@ -220,40 +247,40 @@ function languageRewriteInstruction(lang) {
   if (code === 'es') {
     return (
       'Reescribe la última respuesta ESTRICTAMENTE en español natural. ' +
-      'Sin mezclar ruso ni inglés, sin transliteraciones. Estilo WhatsApp, tono humano.'
+      'Sin mezclar ruso, inglés ni caracteres chinos/japoneses/coreanos. Estilo WhatsApp, tono humano.'
     );
   }
   if (code === 'de') {
     return (
       'Schreibe die letzte Antwort STRENG auf natürlichem Deutsch um. ' +
-      'Kein Russisch oder Englisch mischen. Ortsnamen lateinisch genau wie im Katalog ' +
+      'Kein Russisch, Englisch oder chinesische/japanische Schriftzeichen. Ortsnamen lateinisch genau wie im Katalog ' +
       '(Los Cristianos, Costa Adeje, Sant Antoni). WhatsApp-Stil, menschlicher Ton.'
     );
   }
   if (code === 'fr') {
     return (
       'Réécris la dernière réponse STRICTEMENT en français naturel. ' +
-      'Sans mélanger russe ou anglais. Toponymes en latin exacts comme au catalogue ' +
+      'Sans mélanger russe, anglais ni caractères chinois/japonais. Toponymes en latin exacts comme au catalogue ' +
       '(Los Cristianos, Costa Adeje, Sant Antoni). Style WhatsApp, ton humain.'
     );
   }
   if (code === 'pl') {
     return (
       'Przepisz ostatnią odpowiedź ŚCIŚLE na naturalny polski. ' +
-      'Bez mieszania rosyjskiego ani angielskiego. Toponimy łacińsko dokładnie jak w katalogu ' +
+      'Bez mieszania rosyjskiego, angielskiego ani znaków chińskich/japońskich. Toponimy łacińsko dokładnie jak w katalogu ' +
       '(Los Cristianos, Costa Adeje, Sant Antoni). Styl WhatsApp, ludzki ton.'
     );
   }
   if (code === 'nl') {
     return (
       'Herschrijf het laatste antwoord STRENG in natuurlijk Nederlands. ' +
-      'Geen Russisch of Engels erdoorheen. Plaatsnamen Latijns precies zoals in de catalogus ' +
+      'Geen Russisch, Engels of Chinese/Japanse tekens. Plaatsnamen Latijns precies zoals in de catalogus ' +
       '(Los Cristianos, Costa Adeje, Sant Antoni). WhatsApp-stijl, menselijke toon.'
     );
   }
   return (
     'Rewrite the last reply STRICTLY in natural English. ' +
-    'No Russian/Spanish mixed in, no awkward machine translation. WhatsApp style, human tone.'
+    'No Russian/Spanish mixed in, no Chinese/Japanese/Korean characters, no awkward machine translation. WhatsApp style, human tone.'
   );
 }
 
@@ -269,6 +296,8 @@ module.exports = {
   fixPhoneticTransliterations,
   fixPlaceNameSpellings,
   hasPhoneticGarbage,
+  hasUnexpectedScripts,
+  stripUnexpectedScripts,
   replyMismatchesLanguage,
   languageRewriteInstruction,
   detectUserMessageLang,

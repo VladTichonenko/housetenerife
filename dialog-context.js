@@ -4,6 +4,7 @@ const {
 } = require('./property-types');
 const {
   detectRegionPreference,
+  resolveActiveRegionPreference,
   REGION_OPTIONS_PROMPT,
   formatRegionLabel
 } = require('./catalog-regions');
@@ -50,12 +51,14 @@ function analyzeConversation(history, lang = 'ru') {
     wantsIgnoreBudget(lastUser) || (!lastHasBudget && wantsIgnoreBudget(allUserText));
   const hasBudget = budgetHasSignal(allUserText, budget) || ignoreBudget || lastHasBudget;
 
-  const microAreas = detectMicroAreas(allUserText, salesLang);
-  const hasLocation = microAreas.hasSpecific || microAreas.broadIds.length > 0;
-  const regionPref = detectRegionPreference(allUserText, salesLang);
+  const regionPref = resolveActiveRegionPreference(history, salesLang);
   const hasRegion = regionPref.hasRegion;
   const macroRegions = regionPref.regions;
   const regionLabel = regionPref.label;
+  // Районы — только из реплик после последнего выбора региона (не тащим Adeje с Тенерифе на Ибицу)
+  const regionContextText = regionPref.contextText || allUserText;
+  const microAreas = detectMicroAreas(regionContextText, salesLang);
+  const hasLocation = microAreas.hasSpecific || microAreas.broadIds.length > 0;
   const typePrefLast = detectPropertyTypePreference(lastUser, salesLang);
   const typePrefAll = detectPropertyTypePreference(allUserText, salesLang);
   // Последняя реплика важнее: «вилла» ранее не должна затирать «готовый бизнес» сейчас

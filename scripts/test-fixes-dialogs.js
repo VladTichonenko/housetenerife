@@ -299,6 +299,18 @@ function runDeterministicTests() {
   check('DE: hasPurpose', dDe.hasPurpose);
   check('DE: SHOW_LISTINGS', dDe.stage === 'SHOW_LISTINGS');
 
+  console.log('\n=== 8c. Без китайских иероглифов в RU ===\n');
+  const {
+    replyMismatchesLanguage,
+    stripUnexpectedScripts,
+  } = require('../reply-language');
+  const cjkSample =
+    'Чтобы не показывать варианты, которые明显 не подходят, подскажите бюджет.';
+  check('cjk: mismatch детектится', replyMismatchesLanguage(cjkSample, 'ru'));
+  const cleaned = stripUnexpectedScripts(cjkSample);
+  check('cjk: иероглифы удаляются', !/[\u3400-\u9fff]/u.test(cleaned));
+  check('cjk: русский текст остаётся', /не подходят/.test(cleaned) && /бюджет/.test(cleaned));
+
   console.log('\n=== 9. Три ценовых уровня ===\n');
   const ctxTier = searchForContext(dApt.allUserText, 5, {
     lang: 'ru',
@@ -727,6 +739,66 @@ function runDeterministicTests() {
     ibizaItems.length === ibizaCtx.urls.length &&
       ibizaItems.every((item) => getPrimaryMacroRegion(item) === 'ibiza')
   );
+
+  console.log('\n=== 16c. Смена региона: Тенерифе → Ибица ===\n');
+  const switchHist = [
+    { sender: 'user', text: 'Хочу купить на Тенерифе для жизни' },
+    { sender: 'bot', text: 'Какой тип?' },
+    { sender: 'user', text: 'апартаменты бюджет 300000 Costa Adeje' },
+    { sender: 'bot', text: 'Вот варианты на Тенерифе' },
+    { sender: 'user', text: 'хорошо, теперь давайте вернемся к ибице' },
+    { sender: 'bot', text: 'Какой тип объекта на Ибице?' },
+    {
+      sender: 'user',
+      text: 'давайте посмотрим бизнес апартаменты, покажите пожалуйста объекты которые у вас есть',
+    },
+  ];
+  const dSwitch = analyzeConversation(switchHist, 'ru');
+  check(
+    'switch: активный регион только Ibiza',
+    dSwitch.macroRegions.join() === 'ibiza',
+    dSwitch.macroRegions.join(',')
+  );
+  check('switch: label без Тенерифе', !/тенериф|tenerife/i.test(dSwitch.regionLabel || ''));
+  check(
+    'switch: районы Тенерифе не тянутся',
+    !(dSwitch.microAreaGroupIds || []).some((id) =>
+      ['costa_adeje', 'los_cristianos', 'las_americas'].includes(id)
+    ),
+    (dSwitch.microAreaGroupIds || []).join(',')
+  );
+  const switchCtx = searchForContext(dSwitch.allUserText, 5, {
+    lang: 'ru',
+    maxPrice: dSwitch.budget.maxPrice,
+    priceTarget: derivePriceTarget(dSwitch.budget),
+    propertyTypes: dSwitch.propertyTypes,
+    macroRegions: dSwitch.macroRegions,
+    microAreaGroupIds: dSwitch.microAreaGroupIds,
+    microDetection: dSwitch.microAreas,
+    contextText: dSwitch.allUserText,
+    allowBudgetFallback: true,
+    allowTypeFamilyFallback: true,
+  });
+  const switchItems = (switchCtx.urls || [])
+    .map((url) =>
+      catalog.items.find((item) =>
+        [item.url, ...Object.values(item.urls || {})].filter(Boolean).includes(url)
+      )
+    )
+    .filter(Boolean);
+  check('switch: каталог что-то нашёл на Ibiza', switchCtx.found && switchCtx.urls.length > 0);
+  check(
+    'switch: все карточки только Ibiza',
+    switchItems.length === switchCtx.urls.length &&
+      switchItems.every((item) => getPrimaryMacroRegion(item) === 'ibiza'),
+    switchItems.map((i) => getPrimaryMacroRegion(i)).join(',')
+  );
+
+  const directIbiza = analyzeConversation(
+    user('покажите бизнес апартаменты которые у вас есть на ибице'),
+    'ru'
+  );
+  check('direct ibiza: только Ibiza', directIbiza.macroRegions.join() === 'ibiza');
 
   console.log('\n=== 16b. Ссылки по запросу + Marina Botafoch ===\n');
   check(

@@ -313,6 +313,47 @@ function detectRegionPreference(text, lang = 'ru') {
   return { regions: list, hasRegion: list.length > 0, label };
 }
 
+/**
+ * Активный регион диалога: берём из самой свежей реплики клиента, где регион назван.
+ * «Вернёмся к Ибице» после Тенерифе → только Ibiza (старый регион не смешиваем).
+ * Если в одной реплике названы два региона («сравни Тенерифе и Ибицу») — оба остаются.
+ *
+ * @param {Array<{sender?:string,text?:string}>} history
+ * @param {string} [lang]
+ * @returns {{ regions: string[], hasRegion: boolean, label: string, contextText: string }}
+ */
+function resolveActiveRegionPreference(history, lang = 'ru') {
+  const userMsgs = (history || [])
+    .filter((m) => m && m.sender === 'user' && String(m.text || '').trim())
+    .map((m) => String(m.text || ''));
+
+  if (!userMsgs.length) {
+    return { regions: [], hasRegion: false, label: '', contextText: '' };
+  }
+
+  for (let i = userMsgs.length - 1; i >= 0; i--) {
+    const pref = detectRegionPreference(userMsgs[i], lang);
+    if (pref.hasRegion) {
+      const contextText = userMsgs.slice(i).join('\n');
+      return {
+        regions: pref.regions,
+        hasRegion: true,
+        label: pref.label,
+        contextText
+      };
+    }
+  }
+
+  const all = userMsgs.join('\n');
+  const pref = detectRegionPreference(all, lang);
+  return {
+    regions: pref.regions,
+    hasRegion: pref.hasRegion,
+    label: pref.label,
+    contextText: all
+  };
+}
+
 function itemMatchesRegions(item, wantedRegions) {
   if (!wantedRegions?.length) return true;
   const itemRegions = getItemMacroRegions(item);
@@ -379,6 +420,7 @@ module.exports = {
   getItemMacroRegions,
   getPrimaryMacroRegion,
   detectRegionPreference,
+  resolveActiveRegionPreference,
   itemMatchesRegions,
   scoreRegionFit,
   formatRegionLabel

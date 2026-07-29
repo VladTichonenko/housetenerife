@@ -2,11 +2,38 @@
 
 const axios = require('axios');
 
-const AI_API_URL =
-  process.env.AI_API_URL || 'https://api.intelligence.io.solutions/api/v1/chat/completions';
-const AI_MODEL =
-  process.env.AI_MODEL || 'meta-llama/Llama-3.3-70B-Instruct';
+const DEFAULT_GPT_MODEL = 'openai/gpt-4.1-mini';
+const DEFAULT_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+const AI_API_URL = process.env.AI_API_URL || DEFAULT_API_URL;
 const AI_API_KEY = process.env.AI_API_KEY;
+
+/**
+ * Разрешены только GPT-модели (OpenAI через OpenRouter или напрямую).
+ * Любой DeepSeek / Llama / openrouter/free → принудительно openai/gpt-4.1-mini.
+ */
+function isGptModel(model) {
+  const m = String(model || '').trim().toLowerCase();
+  if (!m) return false;
+  return (
+    m.startsWith('openai/gpt-') ||
+    m.startsWith('gpt-') ||
+    /^openai\/chatgpt/i.test(m)
+  );
+}
+
+function resolveGptModel(raw, label = 'AI_MODEL') {
+  const requested = String(raw || '').trim();
+  if (isGptModel(requested)) return requested;
+  if (requested) {
+    console.warn(
+      `⚠️ ${label}="${requested}" — не GPT. Бот использует только GPT → ${DEFAULT_GPT_MODEL}`
+    );
+  }
+  return DEFAULT_GPT_MODEL;
+}
+
+const AI_MODEL = resolveGptModel(process.env.AI_MODEL || DEFAULT_GPT_MODEL);
 
 const MAX_ATTEMPTS = Math.min(15, Math.max(1, parseInt(process.env.AI_MAX_RETRIES, 10) || 8));
 const CHAT_MAX_ATTEMPTS = Math.min(3, Math.max(1, parseInt(process.env.AI_CHAT_MAX_RETRIES, 10) || 1));
@@ -24,7 +51,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function getProviders() {
   const apiUrl = process.env.AI_API_URL || AI_API_URL;
   const apiKey = process.env.AI_API_KEY || AI_API_KEY;
-  const model = process.env.AI_MODEL || AI_MODEL;
+  const model = resolveGptModel(process.env.AI_MODEL || AI_MODEL);
   const list = [
     {
       name: 'primary',
@@ -40,9 +67,12 @@ function getProviders() {
       url:
         process.env.AI_FALLBACK_API_URL ||
         apiUrl ||
-        'https://api.intelligence.io.solutions/api/v1/chat/completions',
+        DEFAULT_API_URL,
       key: fbKey,
-      model: process.env.AI_FALLBACK_MODEL || model
+      model: resolveGptModel(
+        process.env.AI_FALLBACK_MODEL || model,
+        'AI_FALLBACK_MODEL'
+      )
     });
   }
   return list;
@@ -238,7 +268,7 @@ async function chatCompletions(payload, options = {}) {
     let lastError;
     for (const provider of providers) {
       try {
-        const model = payload.model || provider.model;
+        const model = resolveGptModel(payload.model || provider.model);
         return await postWithRetries(
           { ...payload, model },
           { provider, maxAttempts, allow429Retry, timeout, label }
@@ -263,7 +293,10 @@ async function chatCompletions(payload, options = {}) {
 module.exports = {
   chatCompletions,
   isRateLimited,
+  isGptModel,
+  resolveGptModel,
   AI_API_URL,
   AI_API_KEY,
-  AI_MODEL
+  AI_MODEL,
+  DEFAULT_GPT_MODEL
 };

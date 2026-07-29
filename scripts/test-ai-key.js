@@ -1,15 +1,16 @@
 /**
- * Проверка ключа io.net Intelligence (локально).
+ * Проверка AI_API_KEY / модели (локально).
  *   node scripts/test-ai-key.js
  * Нужен AI_API_KEY в .env
  */
 require('dotenv').config();
 const axios = require('axios');
+const { resolveGptModel, DEFAULT_GPT_MODEL } = require('../ai-client');
 
 const URL =
-  process.env.AI_API_URL || 'https://api.intelligence.io.solutions/api/v1/chat/completions';
+  process.env.AI_API_URL || 'https://openrouter.ai/api/v1/chat/completions';
 const KEY = process.env.AI_API_KEY;
-const MODEL = process.env.AI_MODEL || 'openrouter/free';
+const MODEL = resolveGptModel(process.env.AI_MODEL || DEFAULT_GPT_MODEL);
 
 function headers(style) {
   const h =

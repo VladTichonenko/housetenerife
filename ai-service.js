@@ -1,4 +1,4 @@
-const { chatCompletions, AI_MODEL, AI_API_KEY } = require('./ai-client');
+const { chatCompletions, AI_MODEL, AI_API_KEY, resolveGptModel } = require('./ai-client');
 const { searchForContext, getCatalogSiteUrl, getLocalizedItem } = require('./property-catalog');
 const { webSearchSnippets, shouldAugmentWithWeb } = require('./web-search');
 const { getBotConfig } = require('./bot-config');
@@ -36,7 +36,8 @@ const { itemMatchesPropertyTypes } = require('./property-types');
 const {
   fixPhoneticTransliterations,
   replyMismatchesLanguage,
-  languageRewriteInstruction
+  languageRewriteInstruction,
+  stripUnexpectedScripts
 } = require('./reply-language');
 const {
   mirrorUserEmojiInReply,
@@ -313,7 +314,7 @@ ${blocks.conversation}`;
       : salesLang === 'ru'
       ? `**КАТАЛОГ ОБЪЕКТОВ:**
 Поиск идёт по всей базе (${catalog.totalInDb || 'все'} объектов на сайте); в блоке ниже — лучшие совпадения по критериям переписки. Если блок каталога не пустой — ЗАПРЕЩЕНО писать «нет объектов / ничего нет / в этом районе нет». Показывай то, что есть; если мало — предложи соседний бюджет/зону или сайт. Не утверждай, что «других нет» — предложи уточнить бюджет/район или каталог на сайте.
-На этапах SHOW_LISTINGS / REFINE — покажи 3–5 РАЗНЫХ объектов из блока ниже (название, цена, ссылка, одна фраза почему подходит). Только тот регион${dialog.microAreaLabel ? ` и район (${dialog.microAreaLabel})` : ''}, что выбрал клиент — не подмешивай Adeje, если просили Los Cristianos, и наоборот.
+На этапах SHOW_LISTINGS / REFINE — покажи 3–5 РАЗНЫХ объектов из блока ниже (название, цена, ссылка, одна фраза почему подходит). Только тот регион (${dialog.regionLabel || 'из критериев'})${dialog.microAreaLabel ? ` и район (${dialog.microAreaLabel})` : ''}, что выбрал клиент сейчас — не подмешивай Тенерифе/Дубай/другие, если просили Ибицу (и наоборот). Не подмешивай Adeje, если просили Los Cristianos.
 **Тип объекта:** строго соблюдай запрошенный тип (${dialog.propertyTypeLabel || 'из критериев'}). Если просили виллы — только виллы (не апартаменты и не «виллы и апартаменты»). Если просили апартаменты — не давай виллы и тем более бизнес/рестораны. Если просили готовый бизнес — только бизнес/ресторан/бар из каталога; ЗАПРЕЩЕНО подменять апартаментами «под аренду». Копируй из блока каталога пары «название + URL» как есть — не подставляй одну ссылку к разным объектам и не повторяй ссылку из предыдущих сообщений чата.
 **Цена:** ${
         dialog.ignoreBudget
@@ -609,13 +610,7 @@ function formatModelReply(data) {
 }
 
 async function callAI(messages, tierLabel) {
-  const model = process.env.AI_MODEL || AI_MODEL;
-  if (model === 'openrouter/free') {
-    console.warn(
-      '⚠️ AI_MODEL=openrouter/free — качество нестабильно (случайные слабые модели). ' +
-        'Рекомендуем: deepseek/deepseek-chat-v3-0324 или meta-llama/llama-3.3-70b-instruct'
-    );
-  }
+  const model = resolveGptModel(process.env.AI_MODEL || AI_MODEL);
   const temperature = Math.min(
     1,
     Math.max(0, parseFloat(process.env.AI_TEMPERATURE || '0.55') || 0.55)
@@ -654,10 +649,13 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fal
       const bAvoid = avoidKeys.has(String(b || '').toLowerCase().replace(/\/+$/, '')) ? 1 : 0;
       return aAvoid - bAvoid;
     });
+    const { itemMatchesRegions } = require('./catalog-regions');
+    const wantedRegions = dialog.macroRegions || [];
 
     for (const raw of ranked) {
       const item = findItemByUrl(raw);
       if (!item) continue;
+      if (wantedRegions.length && !itemMatchesRegions(item, wantedRegions)) continue;
       if (typeFilter.length && !itemMatchesPropertyTypes(item, typeFilter)) continue;
       const share = getShareUrl(item, lang);
       if (!share || seen.has(share)) continue;
@@ -889,11 +887,26 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       usedLastResortTypeFallback: Boolean(catalogUsedLastResortTypeFallback)
     };
     const replyHasPropertyLink = /housetenerife\.eu[^.\s]*\/property\//i.test(reply);
-    // Чужой тип / дубли / выдумки — даже если этап ещё не SHOW_LISTINGS (модель часто тащит старую ссылку из истории)
-    const badTypeOrLinks =
-      Boolean(dialog.propertyTypes?.length) &&
+  // Чужой тип / дубли / выдумки / чужой регион — даже если этап ещё не SHOW_LISTINGS
+    const replyHasWrongRegion =
+      Boolean(dialog.macroRegions?.length) &&
       replyHasPropertyLink &&
-      replyNeedsCatalogForce(reply, dialog.propertyTypes);
+      (() => {
+        const { itemMatchesRegions } = require('./catalog-regions');
+        const re = /https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[^\s<>\])"'}]+/gi;
+        const urls = String(reply).match(re) || [];
+        if (!urls.length) return false;
+        return urls.some((u) => {
+          const item = findItemByUrl(u);
+          return item && !itemMatchesRegions(item, dialog.macroRegions);
+        });
+      })();
+
+    const badTypeOrLinks =
+      (Boolean(dialog.propertyTypes?.length) &&
+        replyHasPropertyLink &&
+        replyNeedsCatalogForce(reply, dialog.propertyTypes)) ||
+      replyHasWrongRegion;
 
     // «Дай ссылки» / подборка без карточек — нельзя отсылать только на общий сайт
     const websiteOnlyNoCards =
@@ -940,7 +953,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
     const needsListingLinks =
       urlsForRepair.length > 0 &&
       (listingStage || badTypeOrLinks || websiteOnlyNoCards || dialog.wantsPropertyLinks) &&
-      replyNeedsCatalogForce(reply, dialog.propertyTypes);
+      (replyNeedsCatalogForce(reply, dialog.propertyTypes) || replyHasWrongRegion);
 
     if (needsListingLinks) {
       const safe = buildDeterministicListingsReply(
@@ -985,6 +998,8 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         'chat-lang-rewrite'
       );
     }
+    // Страховка: убрать иероглифы, если модель снова вставила CJK
+    reply = stripUnexpectedScripts(reply);
     const lastUserMsg =
       [...(conversationHistory || [])].reverse().find((m) => m.sender === 'user')?.text || '';
     reply = repairPropertyUrlsInText(
@@ -1006,11 +1021,22 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       reply = stripNonCatalogUrls(reply);
     }
 
-    // Финальный предохранитель: тип/дубли после починки
+    // Финальный предохранитель: тип/дубли/чужой регион после починки
     if (
       urlsForRepair.length > 0 &&
       (listingStage || badTypeOrLinks || websiteOnlyNoCards || dialog.wantsPropertyLinks) &&
-      replyNeedsCatalogForce(reply, dialog.propertyTypes)
+      (replyNeedsCatalogForce(reply, dialog.propertyTypes) ||
+        (() => {
+          if (!dialog.macroRegions?.length) return false;
+          const { itemMatchesRegions } = require('./catalog-regions');
+          const re =
+            /https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[^\s<>\])"'}]+/gi;
+          const urls = String(reply).match(re) || [];
+          return urls.some((u) => {
+            const item = findItemByUrl(u);
+            return item && !itemMatchesRegions(item, dialog.macroRegions);
+          });
+        })())
     ) {
       const safe = buildDeterministicListingsReply(
         urlsForRepair,
@@ -1053,8 +1079,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
           ? 'Sin crédito en la cuenta de IA (402). Prueba OpenRouter free.'
           : salesLangEarly === 'en'
             ? 'AI account has no credit (402). Try OpenRouter free.'
-            : 'На счёте DeepSeek нет средств (402). Для бесплатного ИИ зарегистрируйтесь на openrouter.ai, ' +
-              'создайте ключ и в Railway укажите AI_API_URL=https://openrouter.ai/api/v1/chat/completions и AI_MODEL=openrouter/free.'
+            : 'На счёте ИИ нет средств (402). Пополните OpenRouter и проверьте AI_API_KEY / AI_MODEL=openai/gpt-4.1-mini в Railway Variables.'
       );
     }
     if (status === 429 || error.code === 'AI_RATE_LIMIT') {
@@ -1062,7 +1087,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         ? 'Límite de peticiones a la IA (429). Espera un minuto.'
         : salesLangEarly === 'en'
           ? 'AI rate limit (429). Wait a minute or switch provider.'
-          : 'Лимит запросов к ИИ (429). Подождите минуту или смените провайдера (OpenRouter free).';
+          : 'Лимит запросов к ИИ (429). Подождите минуту или проверьте баланс OpenRouter (GPT).';
     }
 
     // Только при таймауте/сети — один компактный повтор
@@ -1088,7 +1113,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
             sanitizeListingWhyLabels(
               mirrorUserEmojiInReply(
                 maybeAddWarmSmiley(
-                  sanitizeDelayedListingPromise(retryReply),
+                  sanitizeDelayedListingPromise(stripUnexpectedScripts(retryReply)),
                   salesLangRetry,
                   dialog.stage
                 ),
@@ -1127,7 +1152,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
 
 /** Короткая проверка для Telegram /ai и мониторинга. */
 async function checkAIHealth() {
-  const model = process.env.AI_MODEL || AI_MODEL;
+  const model = resolveGptModel(process.env.AI_MODEL || AI_MODEL);
   const apiKey = process.env.AI_API_KEY || AI_API_KEY;
   const started = Date.now();
 
@@ -1181,7 +1206,7 @@ async function checkAIHealth() {
     ok: false,
     code: 'EMPTY_REPLY',
     message:
-      'Модель вернула пустой ответ. Попробуйте AI_MODEL=openrouter/free или перезапустите npm start.',
+      'Модель вернула пустой ответ. Проверьте AI_MODEL=openai/gpt-4.1-mini и перезапустите сервис.',
     model,
     latencyMs: Date.now() - started
   };
