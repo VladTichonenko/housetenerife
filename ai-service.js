@@ -179,6 +179,15 @@ async function buildPromptParts(
     if (tier === 'full' && !showingListings && hints) {
       catalogBlock += hints.waitForShortlist;
     }
+  } else if (showingListings || dialog.wantsPropertyLinks) {
+    // Пустой каталог: запрет выдумывать объекты с ценами без URL
+    const emptyHint =
+      salesLang === 'es'
+        ? `\n\n**CATÁLOGO VACÍO para estos criterios** (${dialog.propertyTypeLabel || 'tipo'} / ${dialog.regionLabel || 'región'}). PROHIBIDO inventar apartamentos, precios o nombres. Di honestamente que ahora no hay fichas en el catálogo House Tenerife para estos parámetros y pregunta qué ajustar (zona/presupuesto/tipo). Sin enlaces inventados.\n`
+        : salesLang === 'en'
+          ? `\n\n**EMPTY CATALOG for these criteria** (${dialog.propertyTypeLabel || 'type'} / ${dialog.regionLabel || 'region'}). NEVER invent apartments, prices or names. Honestly say there are no House Tenerife listings for these parameters now and ask what to adjust (area/budget/type). No invented links.\n`
+          : `\n\n**КАТАЛОГ ПУСТ по этим критериям** (${dialog.propertyTypeLabel || 'тип'} / ${dialog.regionLabel || 'регион'}). ЗАПРЕЩЕНО выдумывать объекты, цены и названия. Честно скажи, что в каталоге House Tenerife сейчас нет карточек под эти параметры, и спроси что скорректировать (район/бюджет/тип). Без выдуманных ссылок.\n`;
+    catalogBlock = emptyHint;
   }
 
   let webBlock = '';
@@ -790,6 +799,72 @@ function replyNeedsCatalogForce(reply, wantedTypes) {
   );
 }
 
+/** Подборка с ценами/типами жилья, но без реальных URL каталога — галлюцинация модели. */
+function replyLooksLikeInventedListings(reply) {
+  if (!reply || hasValidCatalogPropertyLinks(reply)) return false;
+  const priceHits = (String(reply).match(/(?:€|eur)\s*[\d.,]+|[\d.,]+\s*(?:€|eur)/gi) || [])
+    .length;
+  const listingHints =
+    /apartament|апартамент|квартир|villa|вилл|piso|wohnung|appartement|maison|дом\b|house\b|penthouse|студи/i.test(
+      reply
+    );
+  return priceHits >= 2 && listingHints;
+}
+
+function buildHonestNoCatalogReply(lang, dialog) {
+  const salesLang = normalizeSalesLang(lang);
+  const typeLabel = dialog.propertyTypeLabel || '';
+  const area = dialog.microAreaLabel || dialog.regionLabel || '';
+  if (salesLang === 'es') {
+    return (
+      `Ahora mismo en el catálogo de House Tenerife no hay fichas${typeLabel ? ` de ${typeLabel}` : ''}` +
+      `${area ? ` en ${area}` : ''} con enlace disponible bajo esos parámetros.\n\n` +
+      `¿Ajustamos zona, presupuesto o tipo — o miramos otra región del catálogo?`
+    );
+  }
+  if (salesLang === 'en') {
+    return (
+      `Right now the House Tenerife catalog has no${typeLabel ? ` ${typeLabel}` : ''} listings` +
+      `${area ? ` in ${area}` : ''} with links for those parameters.\n\n` +
+      `Shall we adjust area, budget or type — or look at another catalog region?`
+    );
+  }
+  if (salesLang === 'de') {
+    return (
+      `Im House-Tenerife-Katalog gibt es derzeit keine${typeLabel ? ` ${typeLabel}-` : ' '}` +
+      `Objekte${area ? ` in ${area}` : ''} mit Link zu diesen Parametern.\n\n` +
+      `Zone, Budget oder Typ anpassen — oder eine andere Katalogregion ansehen?`
+    );
+  }
+  if (salesLang === 'fr') {
+    return (
+      `Pour l’instant le catalogue House Tenerife n’a pas de fiches` +
+      `${typeLabel ? ` (${typeLabel})` : ''}${area ? ` à ${area}` : ''} avec lien pour ces critères.\n\n` +
+      `On ajuste zone, budget ou type — ou une autre région du catalogue ?`
+    );
+  }
+  if (salesLang === 'pl') {
+    return (
+      `W katalogu House Tenerife nie ma teraz ofert` +
+      `${typeLabel ? ` (${typeLabel})` : ''}${area ? ` w ${area}` : ''} z linkiem dla tych parametrów.\n\n` +
+      `Skorygujemy strefę, budżet lub typ — albo inną region katalogu?`
+    );
+  }
+  if (salesLang === 'nl') {
+    return (
+      `In de House Tenerife-catalogus zijn er nu geen` +
+      `${typeLabel ? ` ${typeLabel}` : ''} objecten` +
+      `${area ? ` in ${area}` : ''} met link voor die parameters.\n\n` +
+      `Zone, budget of type aanpassen — of een andere catalogusregio bekijken?`
+    );
+  }
+  return (
+    `В каталоге House Tenerife сейчас нет карточек` +
+    `${typeLabel ? ` (${typeLabel})` : ''}${area ? ` в ${area}` : ''} со ссылкой под эти параметры.\n\n` +
+    `Скорректируем район, бюджет или тип — или посмотрим другой регион каталога?`
+  );
+}
+
 /**
  * Один запрос к ИИ (без каскада 6× повторов). При 429 — сразу запасной ключ, если задан.
  * @param {Array<{sender:string,text:string}>} conversationHistory
@@ -916,10 +991,23 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         reply
       );
 
+    const inventedListings =
+      (listingStage || dialog.wantsPropertyLinks || dialog.wantsListings) &&
+      replyLooksLikeInventedListings(reply);
+
+    const admitsNoLinks =
+      (dialog.wantsPropertyLinks || listingStage) &&
+      !hasValidCatalogPropertyLinks(reply) &&
+      /(?:no\s+dispongo|no\s+tengo\s+(?:fichas|enlaces)|sin\s+enlaces|don'?t\s+have\s+(?:the\s+)?links?|no\s+links?\s+available|нет\s+(?:точных\s+)?(?:ссылок|карточек)|не\s+могу\s+(?:дать|скинуть)\s+ссылк)/i.test(
+        reply
+      );
+
     if (
       (hasInventedHtLinks(reply) ||
         badTypeOrLinks ||
         websiteOnlyNoCards ||
+        inventedListings ||
+        admitsNoLinks ||
         ((listingStage || dialog.wantsPropertyLinks) && !urlsForRepair.length)) &&
       !urlsForRepair.length
     ) {
@@ -952,8 +1040,16 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
 
     const needsListingLinks =
       urlsForRepair.length > 0 &&
-      (listingStage || badTypeOrLinks || websiteOnlyNoCards || dialog.wantsPropertyLinks) &&
-      (replyNeedsCatalogForce(reply, dialog.propertyTypes) || replyHasWrongRegion);
+      (listingStage ||
+        badTypeOrLinks ||
+        websiteOnlyNoCards ||
+        inventedListings ||
+        admitsNoLinks ||
+        dialog.wantsPropertyLinks) &&
+      (replyNeedsCatalogForce(reply, dialog.propertyTypes) ||
+        replyHasWrongRegion ||
+        inventedListings ||
+        admitsNoLinks);
 
     if (needsListingLinks) {
       const safe = buildDeterministicListingsReply(
@@ -984,6 +1080,16 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
           'chat-force-listings'
         );
       }
+    } else if (
+      (listingStage || dialog.wantsPropertyLinks || inventedListings || admitsNoLinks) &&
+      !urlsForRepair.length &&
+      (inventedListings ||
+        admitsNoLinks ||
+        dialog.wantsPropertyLinks ||
+        (listingStage && !hasValidCatalogPropertyLinks(reply)))
+    ) {
+      console.warn('⚠️ Каталог пуст по критериям — честный ответ без выдуманных объектов');
+      reply = buildHonestNoCatalogReply(userLanguage, dialog);
     }
     if (replyMismatchesLanguage(reply, salesLang)) {
       console.warn(

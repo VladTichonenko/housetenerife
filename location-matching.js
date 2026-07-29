@@ -459,6 +459,10 @@ const SPECIFIC_AREA_GROUPS = [
     id: 'barcelona_city',
     macro: 'barcelona',
     keywords: [
+      'barcelona',
+      'барселона',
+      'барселоне',
+      'барселоны',
       'eixample',
       'эйшампле',
       'эшампле',

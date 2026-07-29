@@ -73,7 +73,7 @@ function analyzeConversation(history, lang = 'ru') {
   const lastUserLower = lastUser.toLowerCase();
   /** Явная просьба дать ссылки на объекты (не «посмотреть сайт»). */
   const wantsPropertyLinks =
-    /(?:дай|дайте|скинь|скиньте|пришли|пришлите|отправь|отправьте|покажи|покажите|нужн[аы]|хочу|можно).{0,40}ссылк|(?:ссылк|линк).{0,30}(?:на\s+(?:них|не[её]|объект|вариант|этот|эти|карт)|пожалуйста)|ссылк[аиуеы]?\s*$|send(?:\s+me)?\s+(?:the\s+)?links?|give(?:\s+me)?\s+(?:the\s+)?links?|links?\s+(?:to|for)\s+(?:them|it|the|these|those)|muéstrame\s+los\s+enlaces|dame\s+(?:los\s+)?enlaces|env[ií]ame\s+(?:los\s+)?enlaces|Zeig(?:e)?\s+(?:mir\s+)?(?:die\s+)?Links?|donne(?:z)?[- ]moi\s+les\s+liens/i.test(
+    /(?:дай|дайте|скинь|скиньте|пришли|пришлите|отправь|отправьте|покажи|покажите|нужн[аы]|хочу|можно).{0,40}ссылк|(?:ссылк|линк).{0,30}(?:на\s+(?:них|не[её]|объект|вариант|этот|эти|карт)|пожалуйста)|ссылк[аиуеы]?\s*$|send(?:\s+me)?\s+(?:the\s+)?links?|give(?:\s+me)?\s+(?:the\s+)?links?|links?\s+(?:to|for)\s+(?:them|it|the|these|those)|proporcion(?:a|e|ar)?\s+(?:me\s+)?(?:los\s+)?enlaces?|muéstrame\s+los\s+enlaces|dame\s+(?:los\s+)?(?:enlaces?|links?)|env[ií]ame\s+(?:los\s+)?enlaces?|enlaces?\s+a\s+(?:estos|esas|ellos|ellas|las|los|dichos)|los\s+enlaces\s+(?:por\s+favor)?|Zeig(?:e)?\s+(?:mir\s+)?(?:die\s+)?Links?|donne(?:z)?[- ]moi\s+les\s+liens|les\s+liens\s+(?:s'?il\s+vous\s+pla[iî]t)?/i.test(
       lastUserLower
     );
   const wantsMoreLikeThese =

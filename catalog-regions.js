@@ -164,10 +164,15 @@ const MACRO_REGIONS = {
     labels: { ru: 'Барселона', en: 'Barcelona', es: 'Barcelona', de: 'Barcelona', fr: 'Barcelone', pl: 'Barcelona', nl: 'Barcelona' },
     keywords: [
       'barcelona',
-      'барселон',
+      'барселона',
+      'барселоне',
+      'барселоны',
+      'barcelone',
       'catalonia',
-      'каталон',
       'cataluña',
+      'catalunya',
+      'каталония',
+      'каталонии',
       'eixample',
       'sitges',
       'garraf',
@@ -227,20 +232,39 @@ function inferMacroFromUrls(item) {
 }
 
 function getItemMacroRegions(item) {
+  // URL/path — самый надёжный сигнал (не путать «каталонский стиль» с регионом Barcelona)
+  const fromUrl = inferMacroFromUrls(item);
+  if (fromUrl.length === 1) return fromUrl;
+
   const blob = itemSearchBlob(item).toLowerCase();
   const found = [];
   for (const [id, def] of Object.entries(MACRO_REGIONS)) {
-    if (def.keywords.some((k) => blob.includes(k.toLowerCase()))) found.push(id);
+    if (
+      def.keywords.some((k) => {
+        const kk = String(k || '').toLowerCase();
+        if (!kk || !blob.includes(kk)) return false;
+        // «каталонском стиле» ≠ регион Barcelona
+        if (
+          id === 'barcelona' &&
+          /каталон|catalon/i.test(kk) &&
+          !/\b(?:barcelona|барселон|catalunya|cataluña|каталони)/i.test(blob)
+        ) {
+          return false;
+        }
+        return true;
+      })
+    ) {
+      found.push(id);
+    }
   }
-  if (!found.length) {
-    const fromUrl = inferMacroFromUrls(item);
-    if (fromUrl.length) return fromUrl;
-    return [];
-  }
+  if (!found.length && fromUrl.length) return fromUrl;
   return found;
 }
 
 function getPrimaryMacroRegion(item) {
+  const fromUrl = inferMacroFromUrls(item);
+  if (fromUrl.length === 1) return fromUrl[0];
+
   const all = getItemMacroRegions(item);
   const nonTenerife = all.filter((id) => id !== 'tenerife');
   if (nonTenerife.length === 1) return nonTenerife[0];
@@ -248,10 +272,9 @@ function getPrimaryMacroRegion(item) {
   const overview = itemSearchBlob(item).slice(0, 800).toLowerCase();
   for (const id of ['dubai', 'ibiza', 'barcelona', 'malaga', 'marbella', 'tenerife']) {
     const def = MACRO_REGIONS[id];
-    if (def.keywords.some((k) => overview.includes(k.toLowerCase()))) return id;
+    if (def.keywords.some((k) => overview.includes(String(k).toLowerCase()))) return id;
   }
-  const fromUrl = inferMacroFromUrls(item);
-  if (fromUrl.length === 1) return fromUrl[0];
+  if (fromUrl.length) return fromUrl[0];
   if (nonTenerife.length) return nonTenerife[0];
   if (all.length) return all[0];
   return null;

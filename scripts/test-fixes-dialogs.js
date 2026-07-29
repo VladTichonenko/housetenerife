@@ -800,6 +800,43 @@ function runDeterministicTests() {
   );
   check('direct ibiza: только Ibiza', directIbiza.macroRegions.join() === 'ibiza');
 
+  console.log('\n=== 16d. ES каталог + запрос ссылок Barcelona ===\n');
+  const restaurant = catalog.items.find((i) =>
+    /las-amerikas-360|las-americas-360/i.test(
+      [i.url, ...Object.values(i.urls || {})].join(' ')
+    )
+  );
+  check(
+    'regions: ресторан Las Américas = Tenerife, не Barcelona',
+    restaurant && getPrimaryMacroRegion(restaurant) === 'tenerife',
+    restaurant && getPrimaryMacroRegion(restaurant)
+  );
+  const esLinkHist = [
+    {
+      sender: 'user',
+      text: 'Muéstrame apartamentos en Barcelona para vivir, presupuesto 600000 euros.',
+    },
+    { sender: 'bot', text: 'Opciones inventadas…' },
+    { sender: 'user', text: 'Por favor, proporcione enlaces a estos objetos.' },
+  ];
+  const dEsLinks = analyzeConversation(esLinkHist, 'es');
+  check('es links: wantsPropertyLinks', dEsLinks.wantsPropertyLinks);
+  check('es links: регион Barcelona', dEsLinks.macroRegions.join() === 'barcelona');
+  const esAdeje = searchForContext('apartamentos Costa Adeje 350000', 3, {
+    lang: 'es',
+    propertyTypes: ['apartments'],
+    macroRegions: ['tenerife'],
+    maxPrice: 400000,
+    priceTarget: derivePriceTarget({ maxPrice: 350000 }),
+    allowBudgetFallback: true,
+  });
+  check('es catalog: есть URL', esAdeje.found && esAdeje.urls.length > 0);
+  check(
+    'es catalog: заголовок не кириллицей',
+    esAdeje.found && !/[а-яё]{6,}/i.test((esAdeje.text || '').split('\n')[2] || ''),
+    (esAdeje.text || '').split('\n')[2]
+  );
+
   console.log('\n=== 16b. Ссылки по запросу + Marina Botafoch ===\n');
   check(
     'Marina Botafoch ≠ Los Cristianos/Arona',

@@ -104,21 +104,62 @@ const FALLBACK_CHAIN = {
 function pickLocalized(map, langChain) {
   if (!map || typeof map !== 'object') return '';
   for (const code of langChain) {
-    if (map[code]) return map[code];
+    const v = map[code];
+    if (v != null && String(v).trim()) return String(v);
   }
-  return Object.values(map).find(Boolean) || '';
+  return Object.values(map).find((v) => v != null && String(v).trim()) || '';
+}
+
+/** Заголовок из EN/ES slug, если в JSON нет локализованного titles.* */
+function titleFromPropertyUrl(url) {
+  try {
+    const m = String(url || '').match(/\/property\/([^/?#]+)/i);
+    if (!m) return '';
+    const slug = decodeURIComponent(m[1])
+      .replace(/\/+$/, '')
+      .replace(/-\d{2,5}$/, '') // trailing listing id
+      .replace(/[-_]+/g, ' ')
+      .trim();
+    if (!slug || /[а-яё]/i.test(slug)) return '';
+    return slug.replace(/\b\w/g, (c) => c.toUpperCase());
+  } catch {
+    return '';
+  }
+}
+
+function looksCyrillicHeavy(text) {
+  const s = String(text || '');
+  const cyr = (s.match(/[а-яё]/gi) || []).length;
+  const lat = (s.match(/[a-z]/gi) || []).length;
+  return cyr >= 8 && cyr > lat;
 }
 
 function getLocalizedItem(item, lang) {
   const l = normalizeLang(lang);
   const chain = FALLBACK_CHAIN[l] || ['ru'];
   const url = pickLocalized(item.urls, chain) || item.url || '';
+  let title = pickLocalized(item.titles, chain) || item.title || '';
+  let description = pickLocalized(item.descriptions, chain) || item.description || '';
+  const overview = pickLocalized(item.overviews, chain) || item.overview || '';
+
+  // Для ES/EN/DE/… не отдаём русские названия, если есть латинский slug URL
+  if (l !== 'ru' && looksCyrillicHeavy(title)) {
+    const fromSlug = titleFromPropertyUrl(url) || titleFromPropertyUrl(item.urls?.en) || titleFromPropertyUrl(item.url);
+    if (fromSlug) title = fromSlug;
+  }
+  if (l !== 'ru' && looksCyrillicHeavy(description)) {
+    // Краткое описание из overview на латинице или пусто — модель не должна слать клиенту русский абзац
+    const ov = String(overview || '');
+    if (ov && !looksCyrillicHeavy(ov)) description = ov.slice(0, 220);
+    else description = '';
+  }
+
   return {
     ...item,
     url,
-    title: pickLocalized(item.titles, chain) || item.title || '',
-    description: pickLocalized(item.descriptions, chain) || item.description || '',
-    overview: pickLocalized(item.overviews, chain) || item.overview || ''
+    title,
+    description,
+    overview
   };
 }
 
