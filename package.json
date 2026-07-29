@@ -15,7 +15,8 @@
     "validate-urls": "node scripts/validate-catalog-urls.js",
     "test-ai-key": "node scripts/test-ai-key.js",
     "ingest-file-doc": "node scripts/ingest-file-doc.js",
-    "test:fixes": "node scripts/test-fixes-dialogs.js"
+    "test:fixes": "node scripts/test-fixes-dialogs.js",
+    "postinstall": "patch-package"
   },
   "license": "ISC",
   "engines": {
@@ -31,10 +32,11 @@
     "franc-min": "^6.2.0",
     "libphonenumber-js": "^1.12.34",
     "mammoth": "^1.12.0",
+    "patch-package": "8.0.1",
     "pdf-parse": "^2.4.5",
     "puppeteer": "^24.43.1",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "^1.34.6"
+    "whatsapp-web.js": "1.34.7"
   }
 }

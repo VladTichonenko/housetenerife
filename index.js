@@ -566,6 +566,10 @@ function startMessagePolling() {
   let pollingCounter = 0;
   let consecutivePollingErrors = 0;
   let lastPollingError = null;
+  let pollingInFlight = false;
+  let nextPollAt = 0;
+  let softErrorStreak = 0;
+  let lastSoftErrorLogAt = 0;
 
   console.log(
     `🔄 Polling входящих каждые ${pollMs / 1000} с (резерв к событиям message/message_create; только ЛС${process.env.POLLING_INCLUDE_GROUPS === '1' ? ', группы включены' : ''})`
@@ -573,6 +577,8 @@ function startMessagePolling() {
 
   global.pollingInterval = trackedSetInterval(async () => {
     if (!botReady) return;
+    if (pollingInFlight || Date.now() < nextPollAt) return;
+    pollingInFlight = true;
 
     pollingCounter++;
     if (pollingCounter % 20 === 0) {
@@ -628,6 +634,8 @@ function startMessagePolling() {
       }
 
       consecutivePollingErrors = 0;
+      softErrorStreak = 0;
+      nextPollAt = 0;
       lastPollingError = null;
       if (pollingCounter % 20 === 0 && dispatched > 0) {
         console.log(`📊 [POLLING] отправлено на обработку: ${dispatched}`);
@@ -637,8 +645,21 @@ function startMessagePolling() {
       consecutivePollingErrors++;
       const soft = isChatLoadError(pollError) || isTransientChatLookupError(pollError);
       if (soft) {
-        // Ошибки Store/@lid не считаем смертью сессии — иначе шторм reconnect
-        console.warn(`⚠️ [POLLING] мягкая ошибка Store (${pollError.message}), без reconnect`);
+        // Ошибки Store/@lid не считаем смертью сессии и не атакуем Chromium
+        // повторным getChats каждые 3 секунды.
+        softErrorStreak++;
+        const backoffMs = Math.min(
+          Math.max(pollMs, 5000) * Math.pow(2, Math.min(softErrorStreak - 1, 4)),
+          60000
+        );
+        nextPollAt = Date.now() + backoffMs;
+        const now = Date.now();
+        if (softErrorStreak === 1 || now - lastSoftErrorLogAt >= 5 * 60 * 1000) {
+          console.warn(
+            `⚠️ [POLLING] Store недоступен (${pollError.message}); повтор через ${Math.round(backoffMs / 1000)} с`
+          );
+          lastSoftErrorLogAt = now;
+        }
         consecutivePollingErrors = 0;
       } else {
         console.error('❌ [POLLING]:', pollError.message);
@@ -665,6 +686,8 @@ function startMessagePolling() {
           );
         }
       }
+    } finally {
+      pollingInFlight = false;
     }
 
     if (pollingCounter % 100 === 0) {
