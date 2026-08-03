@@ -111,9 +111,13 @@ function getScenarioPriorities(scenario, query) {
 
   if (scenario === 'mortgage_docs') {
     add('mortgage_process', 30);
+    add('mortgage_assistance', 28);
+    add('mortgage_lending_official', 26);
+    add('mortgage_rates_official', 22);
     add('purchase_documents', 24);
+    add('company_services', 12);
     add('topics', 8);
-    add('official_sources', 5);
+    add('official_sources', 14);
   } else if (scenario === 'support_other') {
     add('contacts', 18);
     add('company_services', 12);
@@ -126,9 +130,14 @@ function getScenarioPriorities(scenario, query) {
   }
 
   const text = String(query || '').toLowerCase();
-  if (/ипотек|кредит|mortgage|hipoteca|hypothek|hypotheek/i.test(text)) {
+  if (/ипотек|кредит|mortgage|hipoteca|hypothek|hypotheek|ставк|eur[ií]bor|процент|fein|fiae|ley\s*5\/?2019/i.test(text)) {
     add('mortgage_process', 35);
+    add('mortgage_assistance', 32);
+    add('mortgage_lending_official', 30);
+    add('mortgage_rates_official', 28);
     add('purchase_documents', 25);
+    add('company_services', 14);
+    add('official_sources', 16);
   }
   if (/документ|паспорт|\bnie\b|document|papeles|unterlagen/i.test(text)) {
     add('purchase_documents', 28);

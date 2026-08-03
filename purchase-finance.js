@@ -103,7 +103,7 @@ function extractFundsAvailableNow(text, opts = {}) {
     /(?:на\s+руках|сейчас\s+(?:есть|могу|готов)|готов\s+внести|накоплен|собственн(?:ые|ых)\s+средств|внесу\s+сразу|имею\s+сейчас|own\s+funds|cash\s+ready|cash\s+available|money\s+available|ready\s+to\s+pay|внесу|готов\s+оплат|efectivo\s+disponible|dinero\s+ahora|tengo\s+ahora)/i;
 
   const budgetOnly =
-    /(?:бюджет|ищу\s+до|максимум\s+до|до\s+\d|подборк|вариант.*(?:до|до\s*€)|ориентир\s+до)/i;
+    /(?:бюджет|budget|presupuesto|budgetrahmen|ищу\s+до|максимум\s+до|до\s+\d|подборк|вариант.*(?:до|до\s*€)|ориентир\s+до|hasta\s+\d|up\s*to\s+\d|bis\s+\d)/i;
 
   const tryExtract = (chunk) => {
     const c = String(chunk || '').toLowerCase();
@@ -152,7 +152,7 @@ function detectMortgagePreference(text) {
   const s = String(text || '').toLowerCase();
 
   const noMortgage =
-    /без\s+(?:ипотек|кредит)|наличными|своими\s+средств|не\s+нужен\s+(?:кредит|ипотек)|cash\s+only|полная\s+оплата|100\s*%|только\s+сво/i.test(
+    /без\s+(?:ипотек|кредит)|наличными|своими\s+средств|не\s+нужен\s+(?:кредит|ипотек)|cash\s+only|полная\s+оплата|100\s*%|только\s+сво|все\s+(?:своими|наличн|деньг)|полностью\s+(?:своими|наличн)|all\s+cash|sin\s+hipoteca|ohne\s+hypothek|sans\s+cr[eé]dit/i.test(
       s
     );
   const yesMortgage =
@@ -160,12 +160,72 @@ function detectMortgagePreference(text) {
       s
     ) ||
     /(?:ипотек|кредит|mortgage).{0,25}(?:нужн|да|интерес|рассматрива|остальное)/i.test(s) ||
-    /(?:ипотек|кредит|mortgage)/i.test(s);
+    /(?:часть\s*(?:\+|и|плюс)|частичн|первый\s+взнос|down\s+payment).{0,25}(?:ипотек|кредит|mortgage|банк)/i.test(
+      s
+    ) ||
+    /(?:ипотек|кредит|mortgage|hipoteca|hypothek|hypotheek)/i.test(s);
 
   if (noMortgage && !yesMortgage) return { answered: true, needsMortgage: false };
   if (yesMortgage && !noMortgage) return { answered: true, needsMortgage: true };
   if (noMortgage && yesMortgage) return { answered: true, needsMortgage: null };
   return { answered: false, needsMortgage: null };
+}
+
+/**
+ * Ответ на «сколько есть сейчас / все / часть / ипотека» — до подборки.
+ * @param {string} text
+ * @param {{ lastUserMessage?: string }} [opts]
+ */
+function analyzeFinanceCapability(text, opts = {}) {
+  const full = String(text || '');
+  const last = String(opts.lastUserMessage || '').trim();
+  const combined = [full, last].filter(Boolean).join('\n');
+
+  const allCash =
+    /(?:все\s+(?:своими|наличн|деньг)|полностью\s+(?:своими|наличн)|100\s*%|без\s+(?:ипотек|кредит)|наличными|только\s+сво|cash\s+only|all\s+cash|tout\s+cash|todo\s+(?:en\s+)?efectivo|volle\s+bar|sin\s+hipoteca|sans\s+(?:cr[eé]dit|hypoth[eè]que)|ohne\s+hypothek|полная\s+оплата)/i.test(
+      combined
+    );
+  const partial =
+    /(?:часть\s*(?:\+|и|плюс)|частичн|часть\s+своими|часть\s+деньг|первый\s+взнос|down\s+payment|часть.{0,30}(?:ипотек|кредит|mortgage)|partie\s*\+|teilweise)/i.test(
+      combined
+    );
+
+  let fundsNow = extractFundsAvailableNow(combined, { lastUserMessage: last });
+  if ((allCash || partial) && (fundsNow === null || fundsNow === false)) {
+    fundsNow = true;
+  }
+
+  const mortgage = detectMortgagePreference(combined);
+  let hasMortgageAnswered = mortgage.answered;
+  let needsMortgage = mortgage.needsMortgage;
+
+  if (allCash && !partial) {
+    hasMortgageAnswered = true;
+    needsMortgage = false;
+  } else if (partial && !mortgage.answered) {
+    hasMortgageAnswered = true;
+    needsMortgage = true;
+  }
+
+  const hasFundsNow = fundsNow !== null && fundsNow !== false;
+  const fundsNowLabel =
+    typeof fundsNow === 'number'
+      ? `~€${fundsNow.toLocaleString('en-US')}`
+      : hasFundsNow
+        ? allCash
+          ? 'все своими'
+          : partial
+            ? 'часть + кредит'
+            : 'указано'
+        : '';
+
+  return {
+    hasFundsNow,
+    fundsNow,
+    fundsNowLabel,
+    hasMortgageAnswered,
+    needsMortgage,
+  };
 }
 
 function detectMortgageStepsQuestion(text) {
@@ -204,28 +264,42 @@ const {
  * @param {Array<{sender:string,text:string}>} history
  * @param {string} [allUserText]
  * @param {string} [lang]
+ * @param {{ requireBeforeListings?: boolean }} [opts]
  */
-function analyzePurchaseFinance(history, allUserText, lang = 'ru') {
+function analyzePurchaseFinance(history, allUserText, lang = 'ru', opts = {}) {
   const userMsgs = (history || []).filter((m) => m.sender === 'user');
   const lastUser = userMsgs[userMsgs.length - 1]?.text || '';
   const text = allUserText || userMsgs.map((m) => m.text).join('\n');
   const scopedText = getFinanceScopedUserText(history);
 
   const hasPropertyInterest = detectPropertyInterest(history, text);
-  const fundsNow = extractFundsAvailableNow(scopedText, { lastUserMessage: lastUser });
-  const hasFundsNow = fundsNow !== null && fundsNow !== false;
-  const fundsNowLabel =
-    typeof fundsNow === 'number' ? `~€${fundsNow.toLocaleString('en-US')}` : hasFundsNow ? 'указано' : '';
+  const requireBeforeListings = Boolean(opts.requireBeforeListings);
 
-  const mortgage = detectMortgagePreference(scopedText || lastUser);
+  // До подборки — смотрим всю переписку; после интереса к объекту — scoped после ссылок
+  const capabilitySource =
+    requireBeforeListings || !hasPropertyInterest ? text : scopedText || text;
+  const capability = analyzeFinanceCapability(capabilitySource, {
+    lastUserMessage: lastUser,
+  });
+
+  const {
+    hasFundsNow,
+    fundsNow,
+    fundsNowLabel,
+    hasMortgageAnswered,
+    needsMortgage,
+  } = capability;
+
   const documentsDiscussed = detectDocumentsDiscussed(text);
 
   let financeStage = null;
+
+  // Документы / закрытие — только после интереса к конкретному объекту
   if (hasPropertyInterest) {
     if (!hasFundsNow) financeStage = 'NEED_FUNDS_NOW';
-    else if (!mortgage.answered) financeStage = 'NEED_MORTGAGE';
+    else if (!hasMortgageAnswered) financeStage = 'NEED_MORTGAGE';
     else if (!documentsDiscussed) {
-      financeStage = mortgage.needsMortgage ? 'FINANCE_DOCUMENTS' : 'FINANCE_DOCUMENTS_CASH';
+      financeStage = needsMortgage ? 'FINANCE_DOCUMENTS' : 'FINANCE_DOCUMENTS_CASH';
     } else financeStage = 'PROPERTY_CLOSING';
   }
 
@@ -234,26 +308,33 @@ function analyzePurchaseFinance(history, allUserText, lang = 'ru') {
     hasFundsNow,
     fundsNow,
     fundsNowLabel,
-    hasMortgageAnswered: mortgage.answered,
-    needsMortgage: mortgage.needsMortgage,
+    hasMortgageAnswered,
+    needsMortgage,
     documentsDiscussed,
-    financeStage
+    financeStage,
+    financeReadyForListings: hasFundsNow && hasMortgageAnswered,
   };
 }
 
 const FINANCE_STAGE_INSTRUCTIONS = {
-  NEED_FUNDS_NOW: `Клиент выбрал/заинтересовался конкретным объектом (часто прислал ссылку). Если в промпте есть блок «ОБЪЕКТ ПО ССЫЛКЕ КЛИЕНТА» — сначала коротко расскажи про объект по этим данным (цена, тип, район, 2–3 плюса), затем один вопрос: сколько денег есть *сейчас* на руках (накопления, не общий «бюджет мечты») — в €. Можно: «сразу», «часть + кредит позже». Без длинной лекции.`,
+  NEED_FUNDS_NOW: `Сейчас этап финансов ДО подборки (или клиент уже выбрал объект). Один вопрос: сколько денег есть *сейчас* на руках — можно ответить «все своими», «часть + ипотека» или сумму в €. Это не общий бюджет поиска. Без длинной лекции. Объекты пока НЕ показывай.`,
 
-  NEED_MORTGAGE: `Объект выбран, сумма на руках понятна. Сначала один вопрос: ипотека/кредит в Испании или свои средства? Если клиент спрашивает «как получить ипотеку» — дай 5–7 шагов из mortgage_process, затем этот вопрос. Не выдумывай ставки и LTV.`,
+  NEED_MORTGAGE: `Сумма/форма оплаты на руках понятна. Один вопрос — нужна ипотека/кредит в Испании или свои средства? Если нужна ипотека — скажи, что House Tenerife помогает с оформлением (банк, документы, NIE, счёт) и предложи коротко разобрать на созвоне; не отправляй клиента «самому в банк» и не рекламируй юристов. Если спрашивают ставки/шаги — mortgage_process + mortgage_lending_official + mortgage_rates_official (Euríbor BdE / Ley 5/2019). Не выдумывай оферту банка. Объекты пока НЕ показывай, если этап до подборки.`,
 
-  FINANCE_DOCUMENTS: `Клиенту нужна ипотека/кредит. Если ещё не объяснял процесс — 5–7 шагов из mortgage_process (нумерованный список). Затем кратко документы из purchase_documents (mortgage_purchase_typical): NIE, паспорт, справка о доходах, выписка, одобрение банка. Один вопрос: есть ли справка о доходах. House Tenerife — сопровождение ипотеки (пакет €3 000). Без ставок и гарантий одобрения.`,
+  FINANCE_DOCUMENTS: `Клиенту нужна ипотека/кредит. Если ещё не объяснял процесс — 5–7 шагов из mortgage_process (нумерованный список) + при необходимости FEIN/FiAE из mortgage_lending_official. Затем кратко документы из purchase_documents (mortgage_purchase_typical): NIE, паспорт, справка о доходах, выписка, одобрение банка. Один вопрос: есть ли справка о доходах. House Tenerife — сопровождение ипотеки (пакет €3 000). Без ставок «от юриста», без имён адвокатов и без гарантий одобрения.`,
 
   FINANCE_DOCUMENTS_CASH: `Покупка своими средствами (без ипотеки). Кратко (3–5 пунктов) из purchase_documents (cash_purchase_typical): паспорт, NIE, счёт в Испании, подтверждение происхождения средств, этапы arras/escritura. Справку о доходах не требуй — только если клиент сам спросит про кредит. Один вопрос: готовы ли документы или нужен чек-лист от менеджера.`,
 
   PROPERTY_CLOSING: `Финансы по объекту ясны. Коротко резюмируй: объект, сумма на руках, ипотека да/нет. Предложи созвон с менеджером для просмотра и расчёта сделки — один вопрос да/нет. Или ответь на последний вопрос клиента по документам.`
 };
 
-const MORTGAGE_STEPS_INSTRUCTION = `Клиент спрашивает про ипотеку/кредит в Испании. Обязательно дай *основные шаги* из базы знаний mortgage_process (5–7 пунктов, формат 1. … 2. …, по 1–2 строки). Упомяни ориентир первого взноса для нерезидентов (30–40%, без точных ставок). Кратко — чем помогает House Tenerife (пакет сопровождения, без гарантии одобрения). В конце — один вопрос из follow_up_questions (NIE/счёт, сумма на руках или справка о доходах). Не перегружай — если уже на этапе конкретного объекта, свяжи шаги с его ситуацией.`;
+const MORTGAGE_STEPS_INSTRUCTION = `Клиент спрашивает про ипотеку/кредит в Испании. 
+1) Скажи, что *House Tenerife помогает с оформлением ипотеки* (NIE, счёт, пакет документов, подбор банка, оценка) в пакете сопровождения €3 000 — не нужно уходить оформлять самому «на стороне» и не рекламируй сторонних юристов.
+2) Дай *основные шаги* из mortgage_process (5–7 пунктов, 1. … 2. …). При вопросе про закон/FEIN — добавь 1–2 факта из mortgage_lending_official (BdE / Ley 5/2019).
+3) По ставкам: опирайся на mortgage_rates_official (Euríbor 12 мес. и средний тип BdE за указанный месяц) + оговорка «финальная ставка — у банка». Можно кратко сослаться на Banco de España. Не выдумывай оферту конкретного банка и не гарантируй одобрение.
+4) Источники правды: Banco de España Cliente Bancario, BOE Ley 5/2019, база HT. ЗАПРЕЩЕНО цитировать адвокатов, юрфирмы и их рекламные гайды.
+5) По сайту: нерезиденты часто до ~70% LTV, резиденты ЕС до ~80%; комиссия открытия часто ~1,5–2% (ориентиры housetenerife.eu).
+6) В конце — один вопрос (NIE/счёт, взнос, справка о доходах) ИЛИ мягкий созвон 10–15 мин по ипотеке.`;
 
 function getFinanceStageInstruction(financeStage, lang = 'ru') {
   const localized = getLocalizedFinanceInstruction(lang, financeStage);
@@ -270,11 +351,14 @@ function getMortgageStepsInstruction(lang = 'ru') {
 function formatFinanceSummaryForPrompt(finance, lang = 'ru') {
   const localized = formatLocalizedFinanceSummary(lang, finance);
   if (localized) return localized;
-  if (!finance.hasPropertyInterest) return '';
+  if (!finance.hasPropertyInterest && !finance.hasFundsNow && !finance.hasMortgageAnswered) {
+    return '';
+  }
 
   const lines = [
-    '**КОНКРЕТНЫЙ ОБЪЕКТ (приоритет этапа):**',
-    `- Интерес к объекту: да`,
+    finance.hasPropertyInterest
+      ? '**ФИНАНСЫ / КОНКРЕТНЫЙ ОБЪЕКТ:**'
+      : '**ФИНАНСЫ ДО ПОДБОРКИ:**',
     `- Деньги сейчас на руках: ${finance.hasFundsNow ? finance.fundsNowLabel || 'да' : 'ещё уточни'}`,
     `- Ипотека/кредит: ${
       !finance.hasMortgageAnswered
@@ -285,19 +369,24 @@ function formatFinanceSummaryForPrompt(finance, lang = 'ru') {
             ? 'нет, свои средства'
             : 'уточни'
     }`,
-    `- Документы/справка о доходах: ${
-      finance.documentsDiscussed
-        ? 'обсуждались'
-        : finance.needsMortgage
-          ? 'расскажи кратко и спроси про справку'
-          : 'краткий чек-лист для наличной покупки'
-    }`
   ];
+  if (finance.hasPropertyInterest) {
+    lines.push(
+      `- Документы/справка о доходах: ${
+        finance.documentsDiscussed
+          ? 'обсуждались'
+          : finance.needsMortgage
+            ? 'расскажи кратко и спроси про справку'
+            : 'краткий чек-лист для наличной покупки'
+      }`
+    );
+  }
   return lines.join('\n');
 }
 
 module.exports = {
   analyzePurchaseFinance,
+  analyzeFinanceCapability,
   detectPropertyInterest,
   getFinanceScopedUserText,
   extractFundsAvailableNow,

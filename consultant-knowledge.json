@@ -10,7 +10,7 @@
     "representative": "Максим Куликов (Maksim Kulikov, CEO)",
     "office_address": "Local N9, Grand Hotel Del Duque, Adeje, Tenerife, Islas Canarias"
   },
-  "disclaimer": "Ты не юрист и не налоговый консультант. По визам, налогам и сделкам всегда советуй проверить актуальные правила у официальных органов и нанять местного abogado (юриста) и гесторía/асессорía. Канарские острова — зона особого налогового режима; уточняй, что речь про Испанию/Канары.",
+  "disclaimer": "Ты не юрист и не налоговый консультант. По визам и налогам — официальные органы. По ипотеке/кредиту — официальные источники Banco de España / BOE (Ley 5/2019) и база House Tenerife; не рекламируй частных адвокатов как источник условий кредита. Канарские острова — особый налоговый режим; уточняй, что речь про Испанию/Канары.",
   "spain_property_pros_cons": {
     "pros": [
       "Развитый рынок аренды в туристических зонах (Тенерифе).",
@@ -41,8 +41,111 @@
     {
       "name": "Регистраторы (о регистрации права)",
       "url": "https://www.registradores.org"
+    },
+    {
+      "name": "Banco de España — официальные справочные ставки ипотечного рынка (Euríbor и др.)",
+      "url": "https://clientebancario.bde.es/pcb/es/menu-horizontal/podemosayudarte/tiposinteres/guia_textual/tiposinteresreferenciaotrostiposfrecuentes/tabla_tipos_referencia_oficiales_mercado_hipotecario.html"
+    },
+    {
+      "name": "Banco de España — публикации Euríbor / индексов (пресс-релизы)",
+      "url": "https://www.bde.es"
+    },
+    {
+      "name": "BOE — официальная публикация типов de interés de referencia",
+      "url": "https://www.boe.es"
+    },
+    {
+      "name": "Banco de España — Cliente Bancario: Contratación de la hipoteca",
+      "url": "https://clientebancario.bde.es/pcb/es/menu-horizontal/productosservici/financiacion/hipotecas/guia-textual/primerospasoscon/Contratacion_de_la_hipoteca.html"
+    },
+    {
+      "name": "Ley 5/2019 contratos de crédito inmobiliario (BOE)",
+      "url": "https://www.boe.es/buscar/doc.php?id=BOE-A-2019-3814"
     }
   ],
+  "mortgage_assistance": {
+    "when_to_use": "Клиент спрашивает про ипотеку, кредит, ставки, «как оформить», «нужен банк», или говорит, что пойдёт оформлять сам / к другому брокеру.",
+    "source_pages": [
+      "https://housetenerife.eu/ru/mogut-li-inostranczy-pokupat-nedvizhimost-na-kanarskih-ostrovah/",
+      "https://housetenerife.eu/ru/poryadok-sdelki/",
+      "https://housetenerife.eu/ru/aboutus/",
+      "https://housetenerife.eu/wp-content/uploads/pdf/How-to-Get-a-Mortgage-for-Buying-Real-Estate-in-Spain.pdf"
+    ],
+    "pitch_keep_client": "House Tenerife помогает с ипотекой внутри полного сопровождения сделки — не отправляй клиента «самому в банк / к чужому брокеру / к рекламному юристу». Скажи, что мы ведём: NIE, испанский счёт, пакет документов, подбор банка, предодобрение, оценка, подготовка к нотариусу. Мягко предложи созвон 10–15 мин с менеджером. Не обещай одобрение. По условиям кредита — только официальные источники (BdE / Ley 5/2019), не советы частных адвокатов.",
+    "what_we_help_with": [
+      "Подбор банка и ипотечной программы под нерезидента / резидента",
+      "Сбор и подготовка пакета документов под требования банка",
+      "Оформление NIE и открытие счёта в испанском банке",
+      "Сопровождение предодобрения и оценки (tasación)",
+      "Юридическая проверка объекта (nota simple) до финансирования",
+      "Координация до нотариуса (escritura) и регистрации"
+    ],
+    "package": {
+      "name": "Полное сопровождение",
+      "price_eur": 3000,
+      "months": 6,
+      "includes_mortgage": true,
+      "note": "Помощь с ипотекой входит в пакет €3 000 (6 мес.). Для аукционов/кредитных обязательств — пакет €5 000."
+    },
+    "from_website": {
+      "non_resident_ltv_max_pct": 70,
+      "eu_resident_ltv_max_pct": 80,
+      "ltv_note": "По материалам сайта housetenerife.eu: нерезиденты часто до ~70% от стоимости; резиденты ЕС — до ~80%. Точный LTV — только у банка по досье.",
+      "rate_types": [
+        "плавающая (Euríbor + маржа)",
+        "фиксированная",
+        "смешанная"
+      ],
+      "website_rate_orientation": "На сайте упоминается ориентир порядка до ~3,5% годовых — это не оферта конкретного банка. Финальная ставка всегда у банка после анализа дохода и объекта.",
+      "bank_opening_fee_pct": "1,5–2% от суммы кредита (комиссия за открытие ипотеки — по сайту / порядку сделки)",
+      "extra_costs_with_mortgage_approx_pct": "С ипотекой совокупные доп. расходы часто около ~8,7% от цены; без ипотеки ~7,2% (ориентир со страницы порядка сделки).",
+      "valuation_cost_eur": "210–280 € (ориентир оценки на сайте; банк может назвать свою tasación)",
+      "required_basics": [
+        "Загранпаспорт",
+        "NIE",
+        "Справка о доходах / подтверждение средств",
+        "Счёт в испанском банке"
+      ]
+    },
+    "bot_style": "2–5 коротких строк WhatsApp. Сначала ценность: «мы помогаем оформить ипотеку здесь, не нужно ходить отдельно». Затем 1 ориентир по LTV/Euríbor из базы. В конце — один вопрос или мягкий созвон.",
+    "never_do": [
+      "Не отправляй клиента оформлять ипотеку самостоятельно «в любой банк» без предложения помощи House Tenerife",
+      "Не гарантируй одобрение, точную ставку конкретного банка или срок одобрения",
+      "Не выдумывай ставки банков — только официальный Euríbor/средние из mortgage_rates_official + оговорка",
+      "Не упоминай имена конкретных юристов / адвокатских бюро и не вставляй их рекламу",
+      "Не бери факты по кредитованию из блогов/сайтов адвокатов — только BdE, BOE, база HT",
+      "Не отвечай на вопрос про кредит текстом «обратитесь к нашему юристу X» вместо процесса и официальных ориентиров"
+    ],
+    "information_policy": "Источник правды по ипотеке: официальные испанские органы (Banco de España Cliente Bancario, Euríbor/ставки BdE, Ley 5/2019 в BOE) + материалы House Tenerife. Юрист/abogado — не источник условий кредита и не рекламный ответ."
+  },
+  "mortgage_rates_official": {
+    "when_to_use": "Клиент спрашивает про процентные ставки, Euríbor, «сколько сейчас процент по ипотеке», сравнение фиксированной/плавающей.",
+    "updated_at": "2026-07-01",
+    "as_of_month": "июнь 2026",
+    "primary_source": {
+      "name": "Banco de España — Tabla de tipos de referencia oficiales del mercado hipotecario",
+      "url": "https://clientebancario.bde.es/pcb/es/menu-horizontal/podemosayudarte/tiposinteres/guia_textual/tiposinteresreferenciaotrostiposfrecuentes/tabla_tipos_referencia_oficiales_mercado_hipotecario.html"
+    },
+    "boe_publication_example": {
+      "name": "BOE — Resolución Banco de España (публикация официальных индексов, июнь 2026)",
+      "url": "https://www.boe.es/diario_boe/txt.php?id=BOE-A-2026-14420",
+      "note": "Индексы официальны после публикации в BOE."
+    },
+    "values": {
+      "euribor_1y_pct": 2.798,
+      "euribor_6m_pct": 2.596,
+      "euribor_3m_pct": 2.339,
+      "avg_mortgage_loans_over_3y_spain_entities_pct": 3.049,
+      "irs_5y_pct": 2.823
+    },
+    "how_to_explain": "Euríbor 12 мес. — главный ориентир для плавающей ипотеки в Испании (ставка клиента ≈ Euríbor + маржа банка). Средний тип по новым ипотекам >3 лет у испанских сущностей — отдельный официальный ряд BdE (~3,05% в июне 2026). Фиксированная ставка банка — своя оферта, не равна Euríbor. Цифры — справочные на месяц публикации; перед сделкой сверь на сайте BdE/BOE.",
+    "bot_rules": [
+      "Можно назвать Euríbor 12 мес. и средний тип BdE за указанный месяц + ссылку на BdE",
+      "Обязательно: «это официальный ориентир, ваша ставка = банк после анализа досье»",
+      "Не обещай «дадим под 2,8%» или «как на сайте до 3,5% гарантированно»",
+      "После цифр — предложи помощь House Tenerife с подбором банка и созвон"
+    ]
+  },
   "purchase_documents": {
     "when_to_use": "Когда клиент заинтересовался конкретным объектом и обсуждает покупку, ипотеку или оформление.",
     "funds_question": "Уточни отдельно: сколько € есть сейчас на руках (не только общий бюджет поиска) и нужна ли ипотека.",
@@ -63,107 +166,180 @@
       "Страхование (часто обязательно при ипотеке)"
     ],
     "income_certificate_note": "Справка о доходах — ключевой документ для ипотеки нерезиденту. Спроси, есть ли уже; если нет — объясни, что банк запросит подтверждение стабильного дохода на языке/формате, который примет выбранный банк.",
-    "company_help": "В пакете полного сопровождения (€3 000): помощь с NIE, счётом, ипотекой и документацией. Не обещай одобрение кредита — только сопровождение.",
-    "disclaimer_short": "Точный пакет документов зависит от банка и объекта — финальный список даёт менеджер и abogado."
+    "company_help": "В пакете полного сопровождения (€3 000): помощь с NIE, счётом, ипотекой и документацией. Держи клиента у House Tenerife — не отправляй оформлять кредит самостоятельно. Не обещай одобрение.",
+    "disclaimer_short": "Точный пакет документов зависит от банка и объекта — финальный список даёт менеджер House Tenerife / банк."
   },
   "mortgage_process": {
     "when_to_use": "Клиент спрашивает, как получить ипотеку/кредит в Испании на покупку недвижимости, какие этапы, с чего начать.",
-    "answer_format": "WhatsApp: 5–7 нумерованных шагов (1. 2. …), по 1–2 короткие строки на шаг. Без таблиц. В конце — один уточняющий вопрос.",
-    "typical_down_payment_note": "Для нерезидентов банки часто просят первый взнос порядка 30–40% от цены объекта (зависит от банка, дохода, объекта). Не называй точные процентные ставки, LTV и сроки одобрения — они меняются и индивидуальны.",
+    "answer_format": "WhatsApp: 5–7 нумерованных шагов (1. 2. …), по 1–2 короткие строки на шаг. Без таблиц. В конце — один уточняющий вопрос + мягко предложи помощь House Tenerife / созвон.",
+    "typical_down_payment_note": "По сайту House Tenerife: нерезиденты часто финансируют до ~70% цены (первый взнос ~30%+), резиденты ЕС — до ~80%. Плюс запас на налоги/нотариус/оценку/комиссию банка. Точный LTV — только у банка.",
     "timeline_hint": "От готового пакета документов до подписания у нотариуса (escritura) часто несколько недель — до 2–3 месяцев, если объект и банк согласованы. Сроки индивидуальны.",
     "steps": [
       {
         "n": 1,
         "title": "Бюджет и первый взнос",
-        "text": "Понять цену объекта, сколько € есть сейчас на руках, и ориентир по первому взносу (часто 30–40% для нерезидентов) плюс запас на нотариус, налоги (ITP/IVA), оценку, страховки и сопровождение."
+        "text": "Понять цену объекта, сколько € есть сейчас на руках, и ориентир по первому взносу (часто ~30%+ для нерезидентов при LTV до ~70%) плюс запас на нотариус, налоги (ITP/IGIC), оценку, страховки и сопровождение."
       },
       {
         "n": 2,
         "title": "NIE и счёт в Испании",
-        "text": "Оформить NIE (номер иностранца), если ещё нет. Открыть испанский банковский счёт — без этого большинство банков не выдаст ипотеку нерезиденту."
+        "text": "Оформить NIE, если ещё нет. Открыть испанский банковский счёт — без этого большинство банков не выдаст ипотеку нерезиденту. House Tenerife помогает с обоими шагами."
       },
       {
         "n": 3,
         "title": "Пакет документов",
-        "text": "Паспорт, справка о доходах (зарплата или бизнес), выписки по счёту 3–6 мес., при необходимости — налоговые декларации. Формат уточняет выбранный банк."
+        "text": "Паспорт, справка о доходах, выписки 3–6 мес., при необходимости декларации. Мы собираем пакет под выбранный банк — не нужно разбираться с этим самостоятельно."
       },
       {
         "n": 4,
         "title": "Подбор банка и предодобрение",
-        "text": "Подать заявку, получить предварительное одобрение (ориентир по сумме кредита). House Tenerife в пакете сопровождения помогает с подбором банка и документами — без гарантии одобрения."
+        "text": "Заявка и предварительное одобрение. House Tenerife в пакете сопровождения подбирает банк и ведёт документы — без гарантии одобрения."
       },
       {
         "n": 5,
         "title": "Объект и проверка (due diligence)",
-        "text": "Выбрать объект, проверить nota simple (обременения, долги), согласовать с abogado. Банк финансирует только «чистый» объект, прошедший их проверку."
+        "text": "Выбрать объект, nota simple, проверить чистоту объекта (nota simple) в рамках сопровождения House Tenerife. Банк финансирует только «чистый» объект."
       },
       {
         "n": 6,
         "title": "Оценка банком (tasación)",
-        "text": "Банк заказывает оценку недвижимости. Сумма кредита привязана к оценке, а не только к цене продавца."
+        "text": "Банк заказывает оценку; сумма кредита привязана к оценке. Ориентир стоимости оценки на сайте — порядка €210–280."
       },
       {
         "n": 7,
         "title": "Резерв и ипотечное предложение",
-        "text": "Договор резерва / arras (задаток), подписание ипотечного предложения банка, страхование (часто обязательно). Условия фиксируются до нотариуса."
+        "text": "Arras/резерв, ипотечное предложение банка, страхование. Комиссия банка за открытие часто ~1,5–2% от суммы кредита (ориентир сайта)."
       },
       {
         "n": 8,
         "title": "Escritura и регистрация",
-        "text": "Подписание escritura у нотариуса, регистрация права в Registro de la Propiedad. После этого — владелец по испанскому праву."
+        "text": "Подписание у нотариуса и регистрация в Registro de la Propiedad."
       }
     ],
-    "house_tenerife_help": "В пакете полного сопровождения (€3 000, 6 мес.): NIE, счёт, подбор банка, ипотека, документы, связка с abogado. Не обещай одобрение — только сопровождение.",
+    "house_tenerife_help": "Мы помогаем с ипотекой внутри полного сопровождения (€3 000, 6 мес.): NIE, счёт, подбор банка, документы, оценка, подготовка к нотариусу. Не отправляй к чужим юристам/брокерам за условиями кредита — официальные источники + наша помощь. Созвон 10–15 мин. Не обещай одобрение.",
+    "rates_hint": "По ставкам опирайся на mortgage_rates_official (Euríbor BdE) и оговорку сайта; не выдумывай оферту банка.",
     "follow_up_questions": [
       "Есть ли уже NIE и счёт в Испании?",
       "Сколько € готовы внести сейчас как первый взнос?",
-      "Есть ли справка о доходах или нужен чек-лист под ваш случай?"
+      "Есть ли справка о доходах или нужен чек-лист под ваш случай?",
+      "Удобно коротко созвониться на 10–15 минут — разберём банк и документы под ваш случай?"
     ],
-    "disclaimer": "Это общая схема для Испании/Канар; точные требования — у банка и abogado. Ты не банк и не юрист."
+    "disclaimer": "Это общая схема для Испании/Канар по материалам House Tenerife и банковской практике; точные требования и ставка — у банка. Ты не банк и не юрист.",
+    "source_policy": "Условия и ставки кредита — Banco de España / Ley 5/2019 / mortgage_rates_official. Не цитировать рекламу юристов."
   },
   "mortgage_process_en": {
     "when_to_use": "Client asks how to get a mortgage/loan in Spain for property.",
     "answer_format": "WhatsApp: 5–7 numbered steps, 1–2 lines each. One follow-up question at the end.",
-    "typical_down_payment_note": "Non-residents often need around 30–40% deposit (bank-dependent). Do not quote exact rates or LTV.",
+    "typical_down_payment_note": "Per housetenerife.eu: non-residents often finance up to ~70% (deposit ~30%+); EU residents up to ~80%. Exact LTV is bank-only.",
     "steps": [
-      { "n": 1, "title": "Budget & deposit", "text": "Clarify property price, cash available now, and typical deposit (often 30–40% for non-residents) plus notary, taxes, valuation, insurance." },
-      { "n": 2, "title": "NIE & Spanish bank account", "text": "Obtain NIE if needed and open a Spanish account — usually required for non-resident mortgages." },
-      { "n": 3, "title": "Document pack", "text": "Passport, proof of income (employment or business), 3–6 months bank statements; bank confirms exact format." },
-      { "n": 4, "title": "Bank selection & pre-approval", "text": "Apply and get preliminary approval for loan amount. House Tenerife helps with bank matching in the support package — no approval guarantee." },
-      { "n": 5, "title": "Property & due diligence", "text": "Choose property, check nota simple (charges/debts), lawyer review. Bank finances only clean assets." },
-      { "n": 6, "title": "Bank valuation (tasación)", "text": "Bank orders appraisal; loan amount is linked to valuation, not only asking price." },
-      { "n": 7, "title": "Reservation & mortgage offer", "text": "Reservation/arras deposit, sign bank mortgage offer, insurance if required." },
-      { "n": 8, "title": "Notary & registration", "text": "Sign escritura at notary, register title in Registro de la Propiedad." }
+      {
+        "n": 1,
+        "title": "Budget & deposit",
+        "text": "Clarify property price, cash available now, and typical deposit (often 30–40% for non-residents) plus notary, taxes, valuation, insurance."
+      },
+      {
+        "n": 2,
+        "title": "NIE & Spanish bank account",
+        "text": "Obtain NIE if needed and open a Spanish account — usually required for non-resident mortgages."
+      },
+      {
+        "n": 3,
+        "title": "Document pack",
+        "text": "Passport, proof of income (employment or business), 3–6 months bank statements; bank confirms exact format."
+      },
+      {
+        "n": 4,
+        "title": "Bank selection & pre-approval",
+        "text": "Apply and get preliminary approval for loan amount. House Tenerife helps with bank matching in the support package — no approval guarantee."
+      },
+      {
+        "n": 5,
+        "title": "Property & due diligence",
+        "text": "Choose property, check nota simple (charges/debts) via House Tenerife support. Bank finances only clean assets."
+      },
+      {
+        "n": 6,
+        "title": "Bank valuation (tasación)",
+        "text": "Bank orders appraisal; loan amount is linked to valuation, not only asking price."
+      },
+      {
+        "n": 7,
+        "title": "Reservation & mortgage offer",
+        "text": "Reservation/arras deposit, sign bank mortgage offer, insurance if required."
+      },
+      {
+        "n": 8,
+        "title": "Notary & registration",
+        "text": "Sign escritura at notary, register title in Registro de la Propiedad."
+      }
     ],
-    "house_tenerife_help": "Full support package (€3,000, 6 months): NIE, account, bank, mortgage paperwork, lawyer coordination. No guaranteed approval.",
+    "house_tenerife_help": "We help with the mortgage inside the full support package (€3,000, 6 months): NIE, account, bank matching, paperwork, valuation, notary prep. Do NOT send the client to outside lawyers/brokers for loan terms — use official BdE sources + our help. 10–15 min call. No approval guarantee.",
     "follow_up_questions": [
       "Do you already have NIE and a Spanish bank account?",
       "How much can you put down in cash now?",
-      "Do you already have proof of income, or need a checklist?"
+      "Do you already have proof of income, or need a checklist?",
+      "Shall we hop on a quick 10–15 min call to map bank and documents for your case?"
     ],
-    "disclaimer": "General outline for Spain/Canaries; bank and abogado set final requirements."
+    "disclaimer": "General outline for Spain/Canaries; the bank sets final loan terms. Official lending sources: Banco de España / Ley 5/2019.",
+    "rates_hint": "For rates use mortgage_rates_official (BdE Euríbor) + caveat; never invent a bank offer.",
+    "source_policy": "Loan terms/rates: Banco de España / Ley 5/2019 / mortgage_rates_official. Never cite lawyer ads."
   },
   "mortgage_process_es": {
     "when_to_use": "Cliente pregunta cómo obtener hipoteca/crédito en España.",
     "answer_format": "WhatsApp: 5–7 pasos numerados, 1–2 líneas cada uno. Una pregunta al final.",
-    "typical_down_payment_note": "No residentes suelen aportar ~30–40 % de entrada (depende del banco). No inventes tipos ni LTV.",
+    "typical_down_payment_note": "Según housetenerife.eu: no residentes suelen financiar hasta ~70% (entrada ~30%+); residentes UE hasta ~80%. El LTV exacto lo fija el banco.",
     "steps": [
-      { "n": 1, "title": "Presupuesto y entrada", "text": "Precio del inmueble, efectivo disponible ahora y entrada habitual (30–40 % no residentes) más notaría, impuestos, tasación, seguros." },
-      { "n": 2, "title": "NIE y cuenta en España", "text": "Tramitar NIE si falta y abrir cuenta bancaria española — habitual para hipotecas de no residentes." },
-      { "n": 3, "title": "Documentación", "text": "Pasaporte, justificante de ingresos (nómina o autónomo/empresa), extractos 3–6 meses; el banco define el formato." },
-      { "n": 4, "title": "Banco y preaprobación", "text": "Solicitud y preaprobación del importe. House Tenerife ayuda con banco y papeles (paquete 3.000 €) — sin garantía de concesión." },
-      { "n": 5, "title": "Inmueble y due diligence", "text": "Elegir inmueble, nota simple (cargas/deudas), revisión del abogado. El banco financia solo activos limpios." },
-      { "n": 6, "title": "Tasación bancaria", "text": "El banco tasa el inmueble; el préstamo se vincula a la tasación, no solo al precio de venta." },
-      { "n": 7, "title": "Reserva y oferta hipotecaria", "text": "Arras/reserva, firma de la oferta hipotecaria, seguros si exige el banco." },
-      { "n": 8, "title": "Notaría y registro", "text": "Firma de escritura ante notario e inscripción en el Registro de la Propiedad." }
+      {
+        "n": 1,
+        "title": "Presupuesto y entrada",
+        "text": "Precio del inmueble, efectivo disponible ahora y entrada habitual (30–40 % no residentes) más notaría, impuestos, tasación, seguros."
+      },
+      {
+        "n": 2,
+        "title": "NIE y cuenta en España",
+        "text": "Tramitar NIE si falta y abrir cuenta bancaria española — habitual para hipotecas de no residentes."
+      },
+      {
+        "n": 3,
+        "title": "Documentación",
+        "text": "Pasaporte, justificante de ingresos (nómina o autónomo/empresa), extractos 3–6 meses; el banco define el formato."
+      },
+      {
+        "n": 4,
+        "title": "Banco y preaprobación",
+        "text": "Solicitud y preaprobación del importe. House Tenerife ayuda con banco y papeles (paquete 3.000 €) — sin garantía de concesión."
+      },
+      {
+        "n": 5,
+        "title": "Inmueble y due diligence",
+        "text": "Elegir inmueble, nota simple (cargas/deudas) con el acompañamiento de House Tenerife. El banco financia solo activos limpios."
+      },
+      {
+        "n": 6,
+        "title": "Tasación bancaria",
+        "text": "El banco tasa el inmueble; el préstamo se vincula a la tasación, no solo al precio de venta."
+      },
+      {
+        "n": 7,
+        "title": "Reserva y oferta hipotecaria",
+        "text": "Arras/reserva, firma de la oferta hipotecaria, seguros si exige el banco."
+      },
+      {
+        "n": 8,
+        "title": "Notaría y registro",
+        "text": "Firma de escritura ante notario e inscripción en el Registro de la Propiedad."
+      }
     ],
-    "house_tenerife_help": "Paquete completo (3.000 €, 6 meses): NIE, cuenta, banco, hipoteca, documentación y abogado. Sin garantía de aprobación.",
+    "house_tenerife_help": "Ayudamos con la hipoteca en el paquete completo (3.000 €, 6 meses): NIE, cuenta, banco, papeles, tasación, prep. notarial. NO envíes a abogados/brokers externos por condiciones del crédito — fuentes oficiales BdE + nuestra ayuda. Llamada 10–15 min. Sin garantía de aprobación.",
     "follow_up_questions": [
-      "¿Ya tienes NIE y cuenta en España?",
-      "¿Cuánto puedes aportar en efectivo ahora?",
-      "¿Tienes justificante de ingresos o necesitas checklist?"
+      "¿Ya tiene NIE y cuenta en España?",
+      "¿Cuánto puede aportar ahora en efectivo?",
+      "¿Tiene justificante de ingresos o necesita checklist?",
+      "¿Le viene bien una llamada de 10–15 min para ver banco y documentos?"
     ],
-    "disclaimer": "Esquema general para España/Canarias; el banco y el abogado fijan requisitos finales."
+    "disclaimer": "Esquema general para España/Canarias; el banco fija los términos finales del crédito. Fuentes oficiales: Banco de España / Ley 5/2019.",
+    "rates_hint": "Para tipos usa mortgage_rates_official (Euríbor BdE) + matiz; no inventes oferta bancaria.",
+    "source_policy": "Condiciones/tipos: Banco de España / Ley 5/2019 / mortgage_rates_official. Nunca cites anuncios de abogados."
   },
   "topics": {
     "nie": "NIE — идентификационный номер иностранца, нужен для многих сделок и налогов. Порядок получения зависит от консульства/нахождения в Испании; актуальные шаги — только с официальных источников.",
@@ -280,6 +456,7 @@
       }
     ],
     "additional": [
+      "Помощь с оформлением ипотеки / подбор банка",
       "Открытие банковского счёта в Испании",
       "Получение NIE",
       "Регистрация компании в Испании",
@@ -1212,5 +1389,52 @@
   ],
   "_admin_meta": {
     "updatedAt": "2026-05-17T13:59:33.286Z"
+  },
+  "mortgage_lending_official": {
+    "when_to_use": "Клиент спрашивает про кредит/ипотеку в Испании или на Тенерифе: ставки, процесс, закон, FEIN, расходы банка. Отвечай ТОЛЬКО по официальным источникам + базе House Tenerife. ЗАПРЕЩЕНО цитировать юристов, блоги адвокатов и рекламу юридических фирм.",
+    "primary_sources": [
+      {
+        "name": "Banco de España — Cliente Bancario: Contratación de la hipoteca",
+        "url": "https://clientebancario.bde.es/pcb/es/menu-horizontal/productosservici/financiacion/hipotecas/guia-textual/primerospasoscon/Contratacion_de_la_hipoteca.html",
+        "role": "Официальная памятка по шагам оформления ипотеки"
+      },
+      {
+        "name": "Banco de España — Cliente Bancario: Hipotecas",
+        "url": "https://clientebancario.bde.es/pcb/es/menu-horizontal/productosservici/financiacion/hipotecas/",
+        "role": "Официальный раздел BdE про ипотеки"
+      },
+      {
+        "name": "Banco de España — таблица официальных справочных ставок (Euríbor и др.)",
+        "url": "https://clientebancario.bde.es/pcb/es/menu-horizontal/podemosayudarte/tiposinteres/guia_textual/tiposinteresreferenciaotrostiposfrecuentes/tabla_tipos_referencia_oficiales_mercado_hipotecario.html",
+        "role": "Официальные индексы ставок"
+      },
+      {
+        "name": "Ley 5/2019 — Ley reguladora de los contratos de crédito inmobiliario (BOE)",
+        "url": "https://www.boe.es/buscar/doc.php?id=BOE-A-2019-3814",
+        "role": "Закон о кредитных договорах на недвижимость"
+      },
+      {
+        "name": "Consumo Responde — нормативная справка по Ley 5/2019",
+        "url": "https://www.consumoresponde.es/artículos/normativa_estatal_reguladora_de_los_contratos_de_credito_inmobiliario_ley_52019_de_15_de",
+        "role": "Государственная справка для потребителей"
+      }
+    ],
+    "objective_process_summary_ru": [
+      "Банк обязан оценить платёжеспособность (solvencia) до одобрения.",
+      "До подписания банк бесплатно выдаёт FEIN (Ficha Europea de Información Normalizada) — персонализированное предложение — минимум за 10 дней.",
+      "Также выдаётся FiAE (Ficha de Advertencias Estandarizadas) с предупреждениями по ключевым условиям.",
+      "Обязательный визит к нотариусу минимум за 1 день до подписания для бесплатного разъяснения условий (по Ley 5/2019) — это не «реклама юриста», а требование закона.",
+      "Типичное распределение расходов по закону: клиент обычно платит tasación (оценку); банк — часть нотариальных/регистрационных/налоговых расходов по ипотеке (уточнять по актуальной норме и банку).",
+      "Ставки: ориентир — официальный Euríbor BdE + маржа банка; финальная оферта только у банка.",
+      "House Tenerife помогает собрать документы и подобрать банк в пакете сопровождения — без гарантии одобрения."
+    ],
+    "bot_rules": [
+      "По кредиту/ипотеке опирайся на Banco de España, BOE (Ley 5/2019), mortgage_rates_official и mortgage_process House Tenerife.",
+      "НЕ цитируй и НЕ рекомендуй конкретных адвокатов, юридические фирмы, блоги юристов и «рекламные» гайды адвокатов.",
+      "НЕ подменяй официальный процесс советами частного юриста как источником условий кредита.",
+      "Нотариус можно упомянуть только как обязательный шаг по закону (Ley 5/2019), без имён и контактов сторонних юристов.",
+      "Проверку объекта (nota simple) ведём в рамках сопровождения House Tenerife — не рекламируй внешнего «своего адвоката».",
+      "Если клиент просит «юриста по ипотеке» — сначала дай объективный процесс + нашу помощь; созвон с менеджером HT, не чужой рекламный контакт."
+    ]
   }
 }

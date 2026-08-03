@@ -220,7 +220,7 @@ function formatUserProfileForPrompt(profile) {
 
   return `**LONG-TERM USER PROFILE (background context):**
 ${facts.map((fact) => `- ${fact}`).join('\n')}
-Priority rule: the client's latest explicit message and CURRENT DIALOG MEMORY always override this profile. Do not mix this profile into a clearly different property search or support topic. Use it to avoid unnecessary repetition only when the client continues the same request or refers to previous conversations.`;
+Priority rule: the client's latest explicit message and CURRENT DIALOG MEMORY always override this profile. If budget/region/type appear here or in dialog memory — do NOT re-ask them. Do not mix this profile into a clearly different property search or support topic. Use it to avoid unnecessary repetition when the client continues the same request or refers to previous conversations.`;
 }
 
 module.exports = {

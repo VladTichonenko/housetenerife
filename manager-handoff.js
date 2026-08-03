@@ -4,6 +4,7 @@ const { getKnowledgeBase } = require('./knowledge-base');
 const { getTranslation } = require('./phone-utils');
 const { setPendingHandoff } = require('./handoff-pending');
 const { getLanguageName } = require('./language-detector');
+const { wantsEscalation } = require('./bot-core-rules');
 
 const URL_RE = /(?:https?:\/\/|www\.)[^\s<>"']+/i;
 const DOMAIN_RE =
@@ -13,6 +14,7 @@ const REASON_LABELS = {
   image: 'фото с описанием',
   link: 'ссылка в сообщении',
   handoff: 'запрос связи с менеджером',
+  escalation: 'жалоба или сложный запрос (эскалация)',
 };
 
 let recordHandoffFn = null;
@@ -77,6 +79,7 @@ function isCatalogSiteText(text) {
 function wantsManagerHandoff(text) {
   const t = String(text || '').trim();
   if (!t) return false;
+  if (wantsEscalation(t)) return true;
   const lower = t.toLowerCase().replace(/\s+/g, ' ');
 
   if (/^(менеджер|manager|mánager|менеджера|hablar con (el )?manager|contact manager|anruf|appel)$/i.test(lower)) {

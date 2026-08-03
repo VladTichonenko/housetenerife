@@ -65,6 +65,7 @@ const {
   clearPendingCallOffer,
 } = require('./handoff-pending');
 const { analyzeConversation } = require('./dialog-context');
+const { wantsEscalation } = require('./bot-core-rules');
 const { recordHandoff, HANDOFF_PATH, touchHandoffActivity } = require('./handoff-leads');
 const { recordClientMessage, CLIENTS_PATH } = require('./clients-store');
 const {
@@ -2189,14 +2190,19 @@ async function handleIncomingMessage(msg, options = {}) {
     }
 
     if (wantsManagerHandoff(messageText)) {
-      console.log(`👤 Запрос менеджера/созвона от ${chatId} — предложение через AI`);
+      const reasonKey = wantsEscalation(messageText) ? 'escalation' : 'handoff';
+      console.log(
+        reasonKey === 'escalation'
+          ? `⚠️ Эскалация (жалоба/сложный запрос) от ${chatId} — предложение через AI`
+          : `👤 Запрос менеджера/созвона от ${chatId} — предложение через AI`
+      );
       try {
         await offerSoftCallViaAi({
           msg,
           client,
           chatId,
           dialogLanguage,
-          reasonKey: 'handoff',
+          reasonKey,
           preview: messageText,
           messageText,
           userLine: messageText,
@@ -2258,12 +2264,7 @@ async function handleIncomingMessage(msg, options = {}) {
         const preDialog = analyzeConversation(history, dialogLanguage);
         const willShowListings =
           preDialog.stage === 'SHOW_LISTINGS' ||
-          (preDialog.stage === 'REFINE' &&
-            preDialog.hasBudget &&
-            preDialog.hasType &&
-            preDialog.hasPurpose &&
-            preDialog.hasRegion &&
-            !preDialog.needsMicroArea);
+          (preDialog.stage === 'REFINE' && Boolean(preDialog.readyForListings));
 
         if (willShowListings) {
           const bridge = getSearchingListingsMessage(dialogLanguage);

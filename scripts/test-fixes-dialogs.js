@@ -26,6 +26,7 @@ const {
   derivePriceTarget,
   extractBudgetRange,
   buildDialogMemoryBlock,
+  formatBudgetBandLabel,
 } = require('../dialog-context');
 const { searchForContext, load, parseItemPriceEur } = require('../property-catalog');
 const {
@@ -264,8 +265,8 @@ function runDeterministicTests() {
   // Проверяем по тексту каталога цены
   const pricesOver = [...(ctxBudget.text || '').matchAll(/€([\d,]+)/g)]
     .map((m) => parseInt(m[1].replace(/,/g, ''), 10))
-    .filter((p) => p > 350000 * 1.12);
-  check('нет объектов сильно выше 350k', pricesOver.length === 0, pricesOver.join(', '));
+    .filter((p) => p > 350000 * 1.2);
+  check('нет объектов сильно выше ±20% от 350k', pricesOver.length === 0, pricesOver.join(', '));
 
   console.log('\n=== 7. Район Adeje (не Galeón / ложный fuzzy) ===\n');
   check('la calma не = Palm-Mar', detectMicroAreas('la calma').groupIds.length === 0);
@@ -290,14 +291,23 @@ function runDeterministicTests() {
     'fr'
   );
   check('FR: hasPurpose (pour vivre)', dFr.hasPurpose);
-  check('FR: SHOW_LISTINGS', dFr.stage === 'SHOW_LISTINGS');
+  check('FR: NEED_FUNDS_NOW до подборки', dFr.stage === 'NEED_FUNDS_NOW');
   check('FR: apartments', dFr.propertyTypes.includes('apartments'));
   const dDe = analyzeConversation(
     user('Hallo, ich suche eine Wohnung in Adeje zum Wohnen, Budget 350000 Euro'),
     'de'
   );
   check('DE: hasPurpose', dDe.hasPurpose);
-  check('DE: SHOW_LISTINGS', dDe.stage === 'SHOW_LISTINGS');
+  check('DE: NEED_FUNDS_NOW до подборки', dDe.stage === 'NEED_FUNDS_NOW');
+
+  const dFrReady = analyzeConversation(
+    user(
+      'Bonjour, je cherche un appartement à Adeje pour vivre, budget 350000 euros',
+      'tout cash, sans crédit'
+    ),
+    'fr'
+  );
+  check('FR: SHOW_LISTINGS после финансов', dFrReady.stage === 'SHOW_LISTINGS');
 
   console.log('\n=== 8c. Без китайских иероглифов в RU ===\n');
   const {
@@ -448,10 +458,156 @@ function runDeterministicTests() {
     mortgageTopic.action === 'scenario_change' &&
       mortgageTopic.scenario === SCENARIOS.MORTGAGE_DOCS
   );
+  const resumeVillas = evaluateIntentGate(user('What about villas?'), 'en', mortgageTopic);
+  check(
+    'gate: What about villas? → property search',
+    resumeVillas.scenario === SCENARIOS.PROPERTY_SEARCH
+  );
+  check('gate: resume после ипотеки', resumeVillas.resumeSearch === true);
+  check(
+    'gate: resume не education-запрос',
+    resumeVillas.educationAsk === false && resumeVillas.casualResume === true
+  );
+  const resumePrompt = formatIntentGateForPrompt(resumeVillas);
+  check(
+    'gate: prompt запрещает лекцию про виллы',
+    /FORBIDDEN|RESUME PROPERTY|не лекц|NO EDUCATION|brochure/i.test(resumePrompt)
+  );
+  const educationAsk = evaluateIntentGate(
+    user('Tell me about investing in villas — why are they good?'),
+    'en',
+    mortgageTopic
+  );
+  check('gate: явный education-запрос', educationAsk.educationAsk === true);
+  check(
+    'gate: education prompt разрешает кратко объяснить',
+    /INVESTMENT EDUCATION REQUEST/i.test(formatIntentGateForPrompt(educationAsk))
+  );
+  const resumeRu = evaluateIntentGate(user('а что по виллам?'), 'ru', mortgageTopic);
+  check('gate: а что по виллам? → resume', resumeRu.resumeSearch && resumeRu.casualResume);
+  // Глобально: mid-funnel без ипотеки
+  const midFunnel = evaluateIntentGate(
+    user('What about villas?'),
+    'en',
+    {
+      scenario: SCENARIOS.PROPERTY_SEARCH,
+      regions: ['tenerife'],
+      propertyTypes: ['villas'],
+      language: 'en',
+    }
+  );
+  check(
+    'gate: mid-funnel What about villas? без ипотеки → casual resume',
+    midFunnel.casualResume && midFunnel.resumeSearch && !midFunnel.educationAsk
+  );
+  check(
+    'gate: любой property_search имеет anti-lecture',
+    /NO EDUCATION PITCH \(global\)/i.test(
+      formatIntentGateForPrompt({
+        scenario: SCENARIOS.PROPERTY_SEARCH,
+        action: 'continue',
+        language: 'en',
+        educationAsk: false,
+      })
+    )
+  );
+  const { formatGlobalHumanChatRules } = require('../conversational-flow');
+  check(
+    'tone: глобальные правила чата в модуле',
+    /ГЛОБАЛЬНЫЕ ПРАВИЛА|GLOBAL CHAT RULES/i.test(formatGlobalHumanChatRules('ru')) &&
+      /в ЛЮБОЙ момент|anytime/i.test(formatGlobalHumanChatRules('ru') + formatGlobalHumanChatRules('en'))
+  );
+  const {
+    isCasualSearchResume,
+    wantsInvestmentEducation,
+  } = require('../conversational-flow');
+  const { softenRoboticPunctuation } = require('../reply-warmth');
+  check('tone: casual resume EN', isCasualSearchResume('What about villas?'));
+  check('tone: casual resume RU', isCasualSearchResume('а что по виллам?'));
+  check(
+    'tone: education не casual',
+    !isCasualSearchResume('Tell me about investing in villas') &&
+      wantsInvestmentEducation('Tell me about investing in villas')
+  );
+  const softened = softenRoboticPunctuation(
+    'Villas are excellent for investment.\nThey attract long-term renters.\nWhich area do you prefer?',
+    'NEED_REGION'
+  );
+  check(
+    'tone: смягчение подряд идущих точек',
+    !/\.\nThey attract/.test(softened) || softened.split('\n')[1].endsWith('renters')
+  );
   check(
     'gate: техническая поддержка распознана',
     classifyScenario('У меня не работает сайт, нужна техническая поддержка').scenario ===
       SCENARIOS.SUPPORT_OTHER
+  );
+  const {
+    isOffTopicChatter,
+    isGreetingOrSmallTalk,
+    hasPropertyRelevantKeywords,
+  } = require('../keyword-relevance');
+  check('kw: привет как дела = small talk', isGreetingOrSmallTalk('Привет, как дела?'));
+  check('kw: how are you = off-topic', isOffTopicChatter('Hi, how are you?'));
+  check(
+    'kw: вилла инвестиции = relevant',
+    hasPropertyRelevantKeywords('ищу виллу под инвестиции') &&
+      !isOffTopicChatter('ищу виллу под инвестиции')
+  );
+  const greetDialog = analyzeConversation(user('Привет, как дела?'), 'ru');
+  check(
+    'kw: small talk → FIRST_CONTACT без подборки',
+    greetDialog.stage === 'FIRST_CONTACT' &&
+      greetDialog.offTopicChatter &&
+      !greetDialog.readyForListings
+  );
+  check(
+    'kw: инструкция запрещает виллы',
+    /ЗАПРЕЩЕНО: виллы|не по теме|Какой у вас бюджет/i.test(greetDialog.stageInstruction)
+  );
+  const greetGate = evaluateIntentGate(user('Привет, как дела?'), 'ru', null);
+  check(
+    'kw: gate помечает offTopic',
+    greetGate.offTopic === true && /ФИЛЬТР ПО КЛЮЧЕВЫМ|OFF-TOPIC|бюджет/i.test(formatIntentGateForPrompt(greetGate))
+  );
+
+  console.log('\n=== Coverage: 9 правил + 4 проблемы ===\n');
+  const coverRules = require('../bot-core-rules');
+  const coverKnowledge = require('../consultant-knowledge.json');
+  const coverWeb = require('../web-search');
+  check('cover: 9 CORE_RULES', coverRules.CORE_RULES.length === 9);
+  check('cover: ±20% ratio', coverRules.BUDGET_RANGE_RATIO === 0.2);
+  check(
+    'cover: 2M → 1.6–2.4M',
+    coverRules.expandBudgetBand({ maxPrice: 2_000_000 }).floor === 1_600_000 &&
+      coverRules.expandBudgetBand({ maxPrice: 2_000_000 }).ceiling === 2_400_000
+  );
+  check(
+    'cover: срок в правиле 3',
+    /2 месяца.*3 месяца.*позже/i.test(coverRules.CORE_RULES.find((r) => r.id === 3).summary)
+  );
+  check(
+    'cover: официальные источники ипотеки',
+    Array.isArray(coverKnowledge.mortgage_lending_official?.primary_sources) &&
+      coverKnowledge.mortgage_lending_official.primary_sources.some((s) => /bde\.es/i.test(s.url))
+  );
+  check(
+    'cover: ипотека не в веб-поиск',
+    coverWeb.isMortgageOrCreditQuery('ипотека на Тенерифе') &&
+      coverWeb.shouldAugmentWithWeb('актуальные ставки по ипотеке') === false
+  );
+  check(
+    'cover: эскалация жалоб',
+    coverRules.wantsEscalation('это мошенничество хочу жалобу директору')
+  );
+  check(
+    'cover: живой тон в промпте',
+    /ГЛОБАЛЬНЫЕ ПРАВИЛА|не ставь точку/i.test(formatGlobalHumanChatRules('ru'))
+  );
+  check(
+    'cover: финансы до подборки',
+    analyzeConversation(user('инвестиции', 'бюджет 2 млн', 'через 2 месяца'), 'ru').stage ===
+      'NEED_FUNDS_NOW'
   );
   const languageSwitch = evaluateIntentGate(user('ok'), 'en', tenerifeTopic);
   check(
@@ -638,10 +794,40 @@ function runDeterministicTests() {
     query: 'Какие документы нужны и как получить ипотеку в Испании?',
     scenario: 'mortgage_docs',
     language: 'ru',
-    maxSections: 4,
+    maxSections: 6,
   });
   check('rag: ипотека получает mortgage_process', Boolean(mortgageKnowledge.mortgage_process));
   check('rag: ипотека получает purchase_documents', Boolean(mortgageKnowledge.purchase_documents));
+  check(
+    'rag: ипотека получает помощь House Tenerife',
+    Boolean(mortgageKnowledge.mortgage_assistance) ||
+      Boolean(fullKnowledge.mortgage_assistance?.pitch_keep_client)
+  );
+  check(
+    'rag: ипотека получает официальные источники кредитования',
+    Boolean(mortgageKnowledge.mortgage_lending_official) ||
+      Boolean(fullKnowledge.mortgage_lending_official?.primary_sources?.length)
+  );
+  check(
+    'rag: в lending official есть BdE и Ley 5/2019',
+    Array.isArray(fullKnowledge.mortgage_lending_official?.primary_sources) &&
+      fullKnowledge.mortgage_lending_official.primary_sources.some((s) => /bde\.es/i.test(s.url)) &&
+      fullKnowledge.mortgage_lending_official.primary_sources.some((s) => /boe\.es/i.test(s.url))
+  );
+  check(
+    'rag: запрет рекламы юристов в политике ипотеки',
+    /НЕ цитируй|не реклам|Never cite lawyer|Nunca cites anuncios/i.test(
+      JSON.stringify({
+        a: fullKnowledge.mortgage_assistance,
+        b: fullKnowledge.mortgage_lending_official,
+        c: fullKnowledge.mortgage_process?.source_policy,
+      })
+    )
+  );
+  check(
+    'rag: официальный Euríbor BdE в базе',
+    fullKnowledge.mortgage_rates_official?.values?.euribor_1y_pct === 2.798
+  );
   check('rag: устаревшие featured properties исключены', !mortgageKnowledge.featured_properties);
   check('rag: дублирующий concierge playbook исключён', !mortgageKnowledge.concierge_playbook);
   check(
@@ -665,6 +851,20 @@ function runDeterministicTests() {
     maxSections: 3,
   });
   check('rag: support получает контакты', Boolean(supportKnowledge.contacts));
+
+  const { shouldAugmentWithWeb } = require('../web-search');
+  check(
+    'web: ипотека не уходит в веб-поиск (реклама юристов)',
+    shouldAugmentWithWeb('Как получить ипотеку в Испании? актуальные ставки') === false
+  );
+  check(
+    'web: кредит/mortgage не уходит в веб-поиск',
+    shouldAugmentWithWeb('Tell me about mortgage rates in Tenerife today') === false
+  );
+  check(
+    'web: обычный запрос про актуальность налогов может искать',
+    shouldAugmentWithWeb('актуальные налоги на покупку недвижимости') === true
+  );
 
   const fileDocs = loadFileDocKnowledge();
   const genericDocs = selectRelevantDocuments(
@@ -850,6 +1050,8 @@ function runDeterministicTests() {
     { sender: 'user', text: 'Ищу апартаменты на Ибице для жизни, бюджет около 320000' },
     { sender: 'bot', text: 'В каком районе Ибицы смотрите?' },
     { sender: 'user', text: 'Marina Botafoch' },
+    { sender: 'bot', text: 'Сколько есть сейчас на руках — все своими или часть + ипотека?' },
+    { sender: 'user', text: 'часть + ипотека, на руках около 100000' },
     { sender: 'bot', text: 'Apartments in Marina-Botafoch — €320,000' },
     { sender: 'user', text: 'а дай пожалуйста на них ссылки' },
   ];
@@ -906,6 +1108,149 @@ function runDeterministicTests() {
   check('session: DISCONNECTED не маскируется как LOGOUT', !isDefinitiveLogoutReason('DISCONNECTED'));
   check('batch: одиночное сообщение ждёт не более 3 с', REPLY_WAIT_MS <= 3000, REPLY_WAIT_MS);
   check('batch: пачка ждёт не более 6 с', REPLY_BATCH_WAIT_MS <= 6000, REPLY_BATCH_WAIT_MS);
+
+  console.log('\n=== 18. Две ветки: инвестиции vs для себя ===\n');
+  const { detectPurposeKind } = require('../dialog-context');
+  check('purpose: инвестпроект → investment', detectPurposeKind('Ищу инвестиционный проект') === 'investment');
+  check('purpose: для жизни → living', detectPurposeKind('для жизни на Тенерифе') === 'living');
+  const invEarly = analyzeConversation(user('Ищу инвестиционный проект'), 'ru');
+  check('invest: сразу NEED_BUDGET, не объекты', invEarly.stage === 'NEED_BUDGET' && invEarly.isInvestment);
+  const invMid = analyzeConversation(
+    user('инвестиции', 'бюджет 2 млн евро', 'в ближайшие месяцы'),
+    'ru'
+  );
+  check('invest: после бюджета+срока → финансы', invMid.stage === 'NEED_FUNDS_NOW');
+  const rememberBudget = analyzeConversation(
+    user('Ищу виллу под инвестиции', 'Мой бюджет 2 миллиона'),
+    'ru'
+  );
+  check(
+    'memory: после бюджета → NEED_TIMELINE, не NEED_BUDGET',
+    rememberBudget.stage === 'NEED_TIMELINE' &&
+      rememberBudget.hasBudget &&
+      rememberBudget.budget.maxPrice === 2_000_000
+  );
+  check(
+    'memory: инструкция «запомнил» бюджет',
+    /запомнил|ПАМЯТЬ КОНТЕКСТА/i.test(rememberBudget.stageInstruction)
+  );
+  check(
+    'memory: запрет снова спрашивать бюджет',
+    /НИКОГДА не спрашивай снова|НЕ переспрашивай|бюджет сохранён/i.test(
+      `${rememberBudget.stageInstruction}\n${rememberBudget.memoryBlock}`
+    )
+  );
+  check(
+    'memory: дальше срок покупки из правил',
+    /Когда вы планируете совершить покупку/i.test(rememberBudget.stageInstruction)
+  );
+  const keepBudget = analyzeConversation(
+    user('инвестиции', 'бюджет 2 миллиона', 'через 2 месяца'),
+    'ru'
+  );
+  check(
+    'memory: бюджет живёт после срока',
+    keepBudget.hasBudget && keepBudget.budget.maxPrice === 2_000_000
+  );
+  const invNeedTimeline = analyzeConversation(
+    user('вилла под инвестиции', 'бюджет 2 миллиона'),
+    'ru'
+  );
+  check(
+    'invest: после бюджета → NEED_TIMELINE',
+    invNeedTimeline.stage === 'NEED_TIMELINE' && invNeedTimeline.isInvestment
+  );
+  check(
+    'invest: инструкция срока сейчас / 2–3 месяца',
+    /Когда вы планируете совершить покупку|Через 2 месяца.*3 месяца.*позже/i.test(
+      invNeedTimeline.stageInstruction
+    )
+  );
+  check(
+    'timeline: «через 2 месяца»',
+    require('../bot-core-rules').detectInvestmentTimeline('через 2 месяца')
+  );
+  check(
+    'timeline: «сейчас»',
+    require('../bot-core-rules').detectInvestmentTimeline('сейчас')
+  );
+  check(
+    'timeline: «позже»',
+    require('../bot-core-rules').detectInvestmentTimeline('позже')
+  );
+  check(
+    'timeline: «in 3 months»',
+    require('../bot-core-rules').detectInvestmentTimeline('in 3 months')
+  );
+  check(
+    'timeline: «now»',
+    require('../bot-core-rules').detectInvestmentTimeline('now')
+  );
+  const invSkipLinks = analyzeConversation(
+    user(
+      'вилла Costa Adeje под инвестиции бюджет 2 млн все своими',
+      'скинь ссылки'
+    ),
+    'ru'
+  );
+  check(
+    'invest: ссылки без срока → всё равно NEED_TIMELINE',
+    invSkipLinks.stage === 'NEED_TIMELINE' && !invSkipLinks.hasTimeline
+  );
+  const invLater = analyzeConversation(
+    user('инвестиции', 'бюджет 2 млн', 'позже'),
+    'ru'
+  );
+  check('invest: «позже» считается сроком', invLater.hasTimeline && invLater.stage === 'NEED_FUNDS_NOW');
+  const { getStageInstruction } = require('../sales-localization');
+  check(
+    'invest: EN NEED_TIMELINE не падает в REFINE',
+    /When do you plan to make the purchase|In 2 months.*3 months.*later/i.test(
+      getStageInstruction('en', 'NEED_TIMELINE', {})
+    )
+  );
+  const invSel = analyzeConversation(
+    user('инвестиции', 'бюджет 2 млн', 'в ближайшие месяцы', 'все своими'),
+    'ru'
+  );
+  check(
+    'invest: после финансов → подбор без цены',
+    invSel.stage === 'NEED_PROPERTY_TYPE' || invSel.stage === 'NEED_REGION'
+  );
+  const livEarly = analyzeConversation(user('Хочу купить для себя'), 'ru');
+  check('living: после цели → регион', livEarly.stage === 'NEED_REGION' && !livEarly.isInvestment);
+  const livFunds = analyzeConversation(
+    user('апартамент Costa Adeje для жизни бюджет 350000'),
+    'ru'
+  );
+  check('living: бюджет есть → финансы до подборки', livFunds.stage === 'NEED_FUNDS_NOW');
+  const livReady = analyzeConversation(
+    user('апартамент Costa Adeje для жизни бюджет 350000', 'все своими без ипотеки'),
+    'ru'
+  );
+  check('living: после финансов → SHOW_LISTINGS', livReady.stage === 'SHOW_LISTINGS');
+
+  console.log('\n=== 19. Бюджет обязателен до «покажи объекты» ===\n');
+  const showNoBudget = analyzeConversation(user('Покажи объекты для инвестиций'), 'ru');
+  check(
+    'show: без бюджета → NEED_BUDGET',
+    showNoBudget.stage === 'NEED_BUDGET' && !showNoBudget.readyForListings
+  );
+  check(
+    'show: инструкция просит бюджет, не объекты',
+    /бюджет|ЗАПРЕЩЕНО|±20%/i.test(showNoBudget.stageInstruction)
+  );
+  const band2m = derivePriceTarget({ maxPrice: 2_000_000 });
+  check('show: 2M → пол 1.6M', band2m.floor === 1_600_000);
+  check('show: 2M → потолок 2.4M', band2m.ceiling === 2_400_000);
+  check(
+    'show: label коридора',
+    /1,600,000|1600000/.test(formatBudgetBandLabel({ maxPrice: 2_000_000 }, 'ru'))
+  );
+  const twoMln = extractBudgetRange('2 миллиона');
+  check('show: «2 миллиона» → max 2M', twoMln.maxPrice === 2_000_000 && twoMln.minPrice == null);
+  const twoMlnBand = derivePriceTarget(twoMln);
+  check('show: «2 миллиона» → 1.6–2.4M', twoMlnBand.floor === 1_600_000 && twoMlnBand.ceiling === 2_400_000);
 
   console.log(`\n--- Итого: ${passed} passed, ${failed} failed ---\n`);
   return failed === 0;

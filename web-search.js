@@ -37,8 +37,16 @@ async function webSearchSnippets(query, maxTopics = 6) {
   }
 }
 
+function isMortgageOrCreditQuery(lastUserMessage) {
+  return /ипотек|кредит|mortgage|hipoteca|eur[ií]bor|préstamo|prestamo|home\s*loan|hypothek|hypotheek|ставк.{0,20}(?:банк|ипотек|кредит)|fein|fiae/i.test(
+    String(lastUserMessage || '')
+  );
+}
+
 function shouldAugmentWithWeb(lastUserMessage) {
   const m = String(lastUserMessage || '').toLowerCase();
+  // Ипотека/кредит — только KB + официальные источники BdE/BOE, без веб-выдачи (часто реклама юристов).
+  if (isMortgageOrCreditQuery(m)) return false;
   const keys = [
     'интернет',
     'ссылк',
@@ -57,4 +65,4 @@ function shouldAugmentWithWeb(lastUserMessage) {
   return keys.some((k) => m.includes(k));
 }
 
-module.exports = { webSearchSnippets, shouldAugmentWithWeb };
+module.exports = { webSearchSnippets, shouldAugmentWithWeb, isMortgageOrCreditQuery };

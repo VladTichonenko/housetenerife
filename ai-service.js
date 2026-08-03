@@ -20,7 +20,8 @@ const {
   derivePriceTarget,
   formatBudgetLabel
 } = require('./dialog-context');
-const { maybeAddWarmSmiley, getWarmTonePromptBlock } = require('./reply-warmth');
+const { maybeAddWarmSmiley, getWarmTonePromptBlock, softenRoboticPunctuation } = require('./reply-warmth');
+const { formatHumanToneExamples, formatGlobalHumanChatRules } = require('./conversational-flow');
 const {
   repairPropertyUrlsInText,
   hasValidCatalogPropertyLinks,
@@ -56,6 +57,7 @@ const {
   recordTopicAssistantReply,
   formatTopicSummaryForPrompt,
 } = require('./topic-memory');
+const { formatCoreRulesForPrompt } = require('./bot-core-rules');
 
 function truncateKnowledge(knowledge, maxChars) {
   const raw = JSON.stringify(knowledge, null, 2);
@@ -97,9 +99,18 @@ async function buildPromptParts(
     : dialog.budget || extractBudgetRange(dialog.allUserText);
   const priceTarget = dialog.ignoreBudget ? null : derivePriceTarget(budget);
   const showingListings =
-    dialog.stage === 'SHOW_LISTINGS' || dialog.stage === 'REFINE' || dialog.wantsListings;
+    dialog.stage === 'SHOW_LISTINGS' ||
+    (dialog.stage === 'REFINE' &&
+      (dialog.hasBudget || dialog.ignoreBudget) &&
+      Boolean(dialog.readyForListings || dialog.wantsListings || dialog.wantsMoreLikeThese));
+  // Правило: без бюджета каталог не подмешиваем (кроме «любой бюджет»)
   const maySearchCatalog =
-    dialog.hasType && dialog.hasPurpose && (showingListings || tier !== 'full');
+    !dialog.offTopicChatter &&
+    dialog.hasType &&
+    dialog.hasPurpose &&
+    (dialog.hasBudget || dialog.ignoreBudget) &&
+    (dialog.financeReadyForListings || dialog.ignoreBudget) &&
+    (showingListings || (tier !== 'full' && (dialog.hasBudget || dialog.ignoreBudget)));
 
   const {
     extractPropertyItemsFromText,
@@ -164,6 +175,14 @@ async function buildPromptParts(
     catalogBlock =
       hints?.noPurpose ||
       '\n\n(Цель покупки не ясна — сначала один вопрос: для жизни/переезда или инвестиция? Без объектов и ссылок.)\n';
+  } else if (!dialog.hasBudget && !dialog.ignoreBudget && tier === 'full') {
+    // Клиент просит объекты / любой этап без бюджета — каталог не даём, только запрос бюджета
+    catalogBlock =
+      salesLang === 'es'
+        ? '\n\n(**SIN PRESUPUESTO — PROHIBIDO mostrar fichas.** El cliente pidió ver opciones o aún no dijo presupuesto. Agradece el interés y pregunta el presupuesto en €. Di que luego mostrarás en banda ±20%. Sin villas, sin precios, sin enlaces.)\n'
+        : salesLang === 'en'
+          ? '\n\n(**NO BUDGET — FORBIDDEN to show listings.** Client asked to see options or has not stated a budget. Thank them and ask for budget in €. Say you’ll then shortlist within ±20%. No villas, no prices, no links.)\n'
+          : '\n\n(**БЮДЖЕТ НЕ ИЗВЕСТЕН — ЗАПРЕЩЕНО показывать объекты.** Клиент просит варианты или ещё не назвал бюджет. Поблагодари за интерес и спроси бюджет в €. Скажи, что после этого покажешь варианты в коридоре ±20%. Без вилл, без цен 500k–9M, без ссылок.)\n';
   } else if (!dialog.hasType && tier === 'full' && hints) {
     catalogBlock = hints.noType;
   } else if (!dialog.hasRegion && !dialog.hasLocation && tier === 'full' && hints) {
@@ -226,17 +245,32 @@ async function buildPromptParts(
     .filter(Boolean)
     .join(' ');
   const activeScenario = runtimeContext.intentGate?.scenario || 'general';
+  const mortgageKnowledgeFocus =
+    activeScenario === 'mortgage_docs' ||
+    Boolean(dialog.wantsMortgageSteps) ||
+    /ипотек|кредит|mortgage|hipoteca|eur[ií]bor|fein|fiae/i.test(knowledgeQuery);
   const consultantKnowledgeRaw = getKnowledgeBaseForPrompt({
     query: knowledgeQuery,
     scenario: activeScenario,
     language: salesLang,
-    maxSections: tier === 'minimal' ? 2 : tier === 'compact' ? 3 : 4,
+    maxSections: mortgageKnowledgeFocus
+      ? tier === 'minimal'
+        ? 4
+        : 6
+      : tier === 'minimal'
+        ? 2
+        : tier === 'compact'
+          ? 3
+          : 4,
   });
   const consultantKnowledge = localizeKnowledgeBase(consultantKnowledgeRaw, salesLang);
   const mortgageKnowledgeSlice = {
     disclaimer: consultantKnowledge.disclaimer,
     mortgage_process: consultantKnowledge.mortgage_process,
-    purchase_documents: consultantKnowledge.purchase_documents
+    mortgage_assistance: consultantKnowledge.mortgage_assistance,
+    mortgage_lending_official: consultantKnowledge.mortgage_lending_official,
+    mortgage_rates_official: consultantKnowledge.mortgage_rates_official,
+    purchase_documents: consultantKnowledge.purchase_documents,
   };
   const ck =
     tier === 'minimal'
@@ -287,13 +321,19 @@ async function buildPromptParts(
   const criteriaBlock =
     salesLang === 'ru'
       ? `**СОБРАННЫЕ КРИТЕРИИ (из ВСЕЙ переписки — не спрашивай повторно то, что уже есть):**
+- Ветка: ${dialog.isInvestment ? 'ИНВЕСТИЦИИ' : dialog.hasPurpose ? 'ДЛЯ СЕБЯ / ЖИЗНЬ' : 'цель ещё не ясна'}
 - Цель (жизнь/инвестиция): ${dialog.hasPurpose ? 'да' : 'ещё нет'}
 - Бюджет: ${dialog.hasBudget ? `да${dialog.budgetLabel || formatBudgetLabel(budget, 'ru') ? ` — ${dialog.budgetLabel || formatBudgetLabel(budget, 'ru')}` : ''}` : 'ещё нет'}
+- Срок покупки/инвестиции: ${dialog.hasTimeline ? 'да' : dialog.isInvestment ? 'ещё нет (обязательно для инвестиций)' : 'ещё нет'}
+- Деньги на руках / форма оплаты: ${dialog.hasFundsNow ? `да${dialog.fundsNowLabel ? ` — ${dialog.fundsNowLabel}` : ''}` : 'ещё нет'}
+- Ипотека: ${dialog.hasMortgageAnswered ? (dialog.needsMortgage ? 'нужна' : 'не нужна') : 'ещё нет'}
 - Регион: ${dialog.hasRegion ? `да (${dialog.regionLabel})` : `ещё нет — ${dialog.regionOptions}`}
 - Район / зона: ${dialog.hasLocation ? `да (${dialog.microAreaLabel || 'уточнено'})` : dialog.needsMicroArea ? `ещё нет (примеры: ${dialog.areaOptionsPrompt || 'уточнить у клиента'})` : 'не требуется'}
-- Тип объекта: ${dialog.hasType ? `да (${dialog.propertyTypeLabel})` : 'ещё нет — обязательно уточни до подборки'}
-${dialog.hasBudget ? '- ⛔ Бюджет уже назван — НЕ переспрашивай его. Если просят «ещё/похожие» — сразу новая подборка.\n' : ''}${dialog.hasType && dialog.hasRegion && dialog.hasLocation ? '- ⛔ Тип, регион и район известны — не переспрашивай.\n' : ''}`
+- Тип объекта: ${dialog.hasType ? `да (${dialog.propertyTypeLabel})` : 'ещё нет'}
+${dialog.hasBudget ? `- ⛔ Бюджет уже назван${dialog.budgetLabel ? ` (${dialog.budgetLabel})` : ''} — НЕ переспрашивай его. Если клиент только что назвал сумму — коротко подтверди «запомнил» и иди к следующему шагу.\n` : '- ⛔ Без бюджета объекты и ссылки НЕ отправляй. Если просят «покажи объекты» — сначала спроси бюджет, потом подборка ±20%.\n'}${!dialog.financeReadyForListings && !dialog.ignoreBudget ? '- ⛔ Без финансов (деньги на руках + ипотека да/нет) подборку НЕ отправляй.\n' : ''}${dialog.hasType && dialog.hasRegion && dialog.hasLocation ? '- ⛔ Тип, регион и район известны — не переспрашивай.\n' : ''}${dialog.needsEscalation ? '- ⚠️ Жалоба/сложный запрос — эскалируй к менеджеру (созвон 10–15 мин), не спорь.\n' : ''}`
       : blocks.criteria;
+
+  const coreRulesBlock = formatCoreRulesForPrompt(salesLang);
 
   const conversationRules =
     salesLang === 'ru'
@@ -301,8 +341,8 @@ ${dialog.hasBudget ? '- ⛔ Бюджет уже назван — НЕ перес
 - Веди как опытный продавец-аналитик: сначала пойми человека, потом дай ценность (подборка), потом углубляй, потом мягко созвон.
 - Не повторяй выбор клиента после каждого сообщения. Отражай его словами только если это снимает сомнение или помогает продать; чаще сразу переходи к следующему точному вопросу.
 - Один понятный вопрос в конце (не три сразу).
-- Не предлагай объекты, пока не ясны цель и тип.
-- Никогда не переспрашивай то, что клиент уже сказал (бюджет, район, тип, цель) — смотри блок «ПАМЯТЬ ДИАЛОГА» / собранные критерии.
+- Не предлагай объекты, пока не ясны цель, тип и бюджет.
+- Никогда не переспрашивай то, что клиент уже сказал (бюджет, район, тип, цель, срок) — смотри блок «ПАМЯТЬ ДИАЛОГА» / собранные критерии. История диалога сохраняется в БД между сообщениями. Если назвали бюджет — подтверди («Отлично, запомнил — …») и спроси следующий шаг, а не бюджет снова.
 - Никогда не обещай «пришлю через пару минут / позже / через 90 секунд». Если пора показывать объекты — показывай их в этом же ответе. Если рано — задай следующий вопрос.
 - Названия районов и городов копируй БУКВАЛЬНО из блока критериев / каталога (латиница: Costa Adeje, Los Cristianos, Las Américas, Golf del Sur, El Médano, Sant Antoni). Не транслитерируй («Лос Кристианос», «Коста Адеже») и не искажай орфографию.
 - Запрещено: «благодарим за обращение», «запрос передан», «уважаемый клиент», «чем могу помочь» без продолжения.
@@ -328,7 +368,7 @@ ${blocks.conversation}`;
 **Цена:** ${
         dialog.ignoreBudget
           ? 'клиент снял ограничение по цене — показывай подходящие по типу и району объекты из блока без фильтра «около бюджета».'
-          : 'не предлагай варианты сильно дешевле бюджета клиента — только около названной суммы или чуть дороже (премиум/больше метраж), если клиент не просил именно дешевле.'
+          : 'коридор ±20% от бюджета клиента — не предлагай сильно дешевле или сильно дороже, если клиент не просил иначе.'
       }
 **Ссылки:** копируй URL из блока каталога БУКВАЛЬНО (формат https://housetenerife.eu/…/property/slug/). Запрещено выдумывать /objekt/123, /object/ID и любые другие пути. Не давай ссылки на Idealista, Fotocasa, Habitaclia и любые внешние порталы — только карточки House Tenerife из блока.
 Если клиент просит ссылки на объекты — ОБЯЗАТЕЛЬНО вставь в ответ URL из блока каталога по его параметрам (тип/регион/бюджет/район). Запрещено отвечать только «посмотрите на сайте / в разделе недвижимости» без конкретных карточек. Не описывай объекты без их URL.
@@ -336,9 +376,9 @@ ${blocks.conversation}`;
 Подборка только когда ясны *цель*, тип, бюджет, регион и конкретная зона/район; ссылки только из блока ниже.
 Никогда не пиши клиенту, что отправишь подборку позже. Системная задержка ссылок уже есть: твоя задача — сформировать подборку сразу в текущем ответе.
 После подборки — один вопрос: какой вариант ближе или что скорректировать (бюджет/район).
-**Ипотека/кредит:** если спрашивают шаги, процесс, «как получить ипотеку» — ответь по mortgage_process (5–7 нумерованных шагов), без выдуманных ставок и гарантий одобрения.
-**Конкретный объект:** если клиент выбрал вариант — уточни деньги *сейчас на руках*, нужна ли ипотека; при ипотеке — шаги (mortgage_process) + документы и справка о доходах. Потом — предложи созвон с менеджером (да/нет).
-**Связь с менеджером:** если клиент хочет человека / звонок / просмотр — тепло предложи короткий созвон, чтобы обсудить текущий шаг диалога. Не проси писать слово «менеджер» и не давай телефон вместо заявки.`
+**Ипотека/кредит:** House Tenerife *помогает оформить ипотеку* (NIE, счёт, документы, подбор банка) — всегда предлагай нашу помощь, не отправляй клиента заниматься этим самостоятельно. Шаги — из mortgage_process + mortgage_lending_official (FEIN/FiAE, Ley 5/2019). Ставки — только из mortgage_rates_official (Euríbor / средний тип Banco de España) с оговоркой «финальная ставка у банка». Источники правды: Banco de España Cliente Bancario и BOE — ЗАПРЕЩЕНО цитировать юристов, рекламу адвокатских бюро и блоги адвокатов. Нотариус — только как обязательный шаг по закону, без имён. Без гарантии одобрения и без выдуманных оферт банков.
+**Конкретный объект:** если клиент выбрал вариант — уточни деньги *сейчас на руках*, нужна ли ипотека, какие документы уже есть; при ипотеке — шаги + наша помощь + созвон (да/нет).
+**Связь с менеджером:** если клиент хочет человека / звонок / просмотр / жалоба / сложный запрос — тепло предложи короткий созвон 10–15 минут. Не проси писать слово «менеджер» и не давай телефон вместо заявки.`
       : `**PROPERTY CATALOG (${catalog.totalInDb || 'full'} listings on site; block below = best matches):**
 ${blocks.catalog}
 **Pricing:** stay around budget or slightly above — not much cheaper unless they asked.
@@ -355,8 +395,9 @@ ${blocks.managerHandoff}`;
   const siteLabel =
     salesLang === 'es' ? '*Catálogo:*' : salesLang === 'en' ? '*Catalog site:*' : '*Сайт каталога:*';
 
+  // file_doc часто содержит внешние/рекламные материалы — на ипотеке не подмешиваем
   const fileDocBlock =
-    tier === 'full'
+    tier === 'full' && !mortgageKnowledgeFocus
       ? getFileDocKnowledgeForPrompt(knowledgeQuery, 12000, {
           scenario: activeScenario,
           maxDocs: 3,
@@ -390,6 +431,8 @@ ${intentGateBlock}
 ${topicSummaryBlock}
 ${dialogPathBlock}
 
+${coreRulesBlock}
+
 ${stageHeader}
 ${stageBlock}
 
@@ -402,6 +445,10 @@ ${conversationRules}
 ${salesPlaybookBlock}
 
 ${getWritingQualityBlock(salesLang)}
+
+${formatGlobalHumanChatRules(salesLang)}
+
+${formatHumanToneExamples(salesLang)}
 
 ${getWarmTonePromptBlock(salesLang)}
 ${emojiReactBlock}
@@ -548,60 +595,58 @@ function sanitizeListingWhyLabels(text) {
 function getWritingQualityBlock(salesLang) {
   if (salesLang === 'en') {
     return `**TEXT QUALITY (critical for sales):**
-- Flawless spelling, grammar, and punctuation — no typos, no glued words, no broken phrases.
-- Every word must have a space; complete sentences only.
-- Natural fluent English — never Russian transliteration, never Spanglish.
-- At most ONE emoji or text smiley :) per message — add it on greeting and warm replies (Perfecto, Got it, Hi…). Skip only on listings, mortgage, documents, errors.
-- Sound like a real advisor texting on WhatsApp — warm, natural, never robotic or like machine translation.`;
+- Spelling/grammar OK — no typos, no glued words.
+- Natural WhatsApp chat — short lines, fragments OK; NOT a formal letter or brochure.
+- At most ONE emoji or :) per message on warm stages.
+- NEVER sound like: «I offer you the following investment options. A villa costs… It is suitable for…»
+- DO sound like: «Great! Found a few around Marbella Villa for 2.5M — solid for long-term rental Want details?»
+- Do not put a full stop at the end of every short line. Mix short phrases + a question. Light connectors (great / got it / then…).`;
   }
   if (salesLang === 'es') {
     return `**CALIDAD DEL TEXTO (crítico para ventas):**
-- Ortografía, gramática y puntuación impecables — sin faltas, sin palabras pegadas ni frases rotas.
-- Español natural — sin ruso, sin calcos del inglés, sin transliteraciones raras.
-- Cada palabra con su espacio; frases completas.
-- En saludo y confirmaciones cálidas (Perfecto, Hola, Genial) incluye un 🙂 o :) — uno por mensaje. No en fichas, hipoteca ni documentos.
-- Tono humano en WhatsApp — cercano y natural, nunca robótico ni traducción automática.`;
+- Ortografía correcta — sin faltas ni palabras pegadas.
+- Chat WhatsApp natural — frases cortas; NO carta formal ni folleto.
+- Un 🙂 o :) en etapas cálidas.
+- NO: «Le ofrezco las siguientes opciones de inversión. Una villa cuesta…»
+- SÍ: «Genial! Tengo opciones por Marbella Villa a 2,5M — buena para alquiler ¿Miramos?»
+- No pongas punto al final de cada línea corta.`;
   }
   if (salesLang === 'de') {
     return `**TEXTQUALITÄT (kritisch für Verkauf):**
-- Einwandfreie Rechtschreibung, Grammatik und Zeichensetzung — keine Tippfehler, keine zusammengeklebten Wörter.
-- Natürliches Deutsch — kein Russisch, kein steifes Maschinendeutsch.
-- Jedes Wort mit Abstand; vollständige Sätze.
-- Bei Begrüßung und warmen Bestätigungen (Perfekt, Hallo) ein 🙂 oder :) — eines pro Nachricht. Nicht bei Objektlisten, Hypothek oder Dokumenten.
-- Klinge wie ein echter Berater auf WhatsApp — warm, natürlich, nie roboterhaft.`;
+- Korrekte Rechtschreibung — keine Tippfehler.
+- Natürlicher WhatsApp-Chat — kurze Zeilen, kein Behördendeutsch.
+- Ein 🙂 oder :) in warmen Phasen.
+- Kein Broschüren-Ton. Nicht nach jedem kurzen Satz einen Punkt. Frage am Ende.`;
   }
   if (salesLang === 'fr') {
     return `**QUALITÉ DU TEXTE (critique pour la vente):**
-- Orthographe, grammaire et ponctuation impeccables — pas de fautes ni mots collés.
-- Français naturel — pas de russe, pas de calques d’anglais.
-- Chaque mot espacé; phrases complètes.
-- À l’accueil et confirmations chaleureuses (Parfait, Bonjour) un 🙂 ou :) — un par message. Pas sur les fiches, l’hypothèque ni les documents.
-- Ton humain WhatsApp — chaleureux et naturel, jamais robotique.`;
+- Orthographe correcte — pas de fautes ni mots collés.
+- Chat WhatsApp naturel — phrases courtes, pas une lettre formelle.
+- Un 🙂 ou :) aux étapes chaleureuses.
+- Pas de ton brochure. Pas de point à la fin de chaque courte ligne.`;
   }
   if (salesLang === 'pl') {
     return `**JAKOŚĆ TEKSTU (krytyczne dla sprzedaży):**
-- Bezbłędna ortografia, gramatyka i interpunkcja — bez literówek i sklejonych słów.
-- Naturalny polski — bez rosyjskiego i angielskich kalków.
-- Każde słowo z odstępem; pełne zdania.
-- Przy powitaniu i ciepłych potwierdzeniach (Świetnie, Cześć) jeden 🙂 lub :) — jeden na wiadomość. Nie przy listach ofert, kredycie ani dokumentach.
-- Ludzki ton WhatsApp — ciepło i naturalnie, nigdy jak robot.`;
+- Poprawna ortografia — bez literówek.
+- Naturalny czat WhatsApp — krótkie linie, nie formalny list.
+- Jeden 🙂 lub :) na ciepłych etapach.
+- Bez tonu ulotki. Bez kropki na końcu każdej krótkiej linii.`;
   }
   if (salesLang === 'nl') {
     return `**TEKSTKWALITEIT (kritisch voor verkoop):**
-- Flawless spelling, grammatica en interpunctie — geen typfouten of plakwoorden.
-- Natuurlijk Nederlands — geen Russisch, geen Engelse calques.
-- Elk woord met spatie; volledige zinnen.
-- Bij begroeting en warme bevestigingen (Top, Hallo) één 🙂 of :) — één per bericht. Niet bij objectlijsten, hypotheek of documenten.
-- Menselijke WhatsApp-toon — warm en natuurlijk, nooit robotachtig.`;
+- Correcte spelling — geen typfouten.
+- Natuurlijke WhatsApp-chat — korte regels, geen formele brief.
+- Eén 🙂 of :) in warme fasen.
+- Geen brochure-toon. Geen punt aan het eind van elke korte regel.`;
   }
   return `**КАЧЕСТВО ТЕКСТА (критично для продаж):**
-- Без орфографических ошибок, без «склеенных» слов, без обрывков и канцелярита.
-- Пиши НАСТОЯЩИМ русским — запрещена транслитерация английских слов кириллицей.
-  Плохо: «Арор», «баджет», «проперти», «листинг», «хеллоу», «сорри», «плиз».
-  Хорошо: «Ошибка», «бюджет», «объект», «объявление», «привет», «извините», «пожалуйста».
-- Каждое слово отдельно, предложения законченные — перечитай ответ перед отправкой.
-- На приветствии и тёплых репликах (Отлично, Понял, Привет) — один 🙂 или :). Не в подборке, ипотеке, документах.
-- Живой язык опытного риелтора в WhatsApp — тепло и по-человечески, не call-центр и не «переводчик».`;
+- Без орфографических ошибок и «склеенных» слов.
+- Пиши НАСТОЯЩИМ русским — без транслита («баджет», «проперти» — нельзя).
+- Тон WhatsApp с другом, НЕ робот и НЕ call-центр: короткие строки, обрывки норм; не ставь точку в конце каждой короткой реплики подряд.
+- ПЛОХО: «Я предлагаю вам следующие варианты инвестиций. Вилла стоит 2.5 миллиона евро. Она подходит для долгосрочной аренды.»
+- ХОРОШО: «Отлично! Нашёл варианты около Марбельи Вилла за 2.5М — сильный вариант под долгосрочную аренду Хотите подробнее?»
+- На приветствии и тёплых репликах — один 🙂 или :). Лёгкие связки: отлично / понял / тогда…
+- Не читай лекцию про «почему виллы для инвестиций», если клиент просто продолжает подбор.`;
 }
 
 function formatModelReply(data) {
@@ -865,6 +910,34 @@ function buildHonestNoCatalogReply(lang, dialog) {
   );
 }
 
+function buildAskBudgetInsteadOfListingsReply(lang, dialog) {
+  const salesLang = normalizeSalesLang(lang);
+  const invest = dialog?.isInvestment;
+  if (salesLang === 'es') {
+    return invest
+      ? 'Gracias por el interés :) ¿Cuál es su presupuesto de inversión en €? Con eso le muestro opciones en una banda de ±20%.'
+      : 'Gracias por el interés :) ¿En qué rango de presupuesto en € nos orientamos? Después le muestro opciones en una banda de ±20%.';
+  }
+  if (salesLang === 'en') {
+    return invest
+      ? 'Thanks for the interest :) What’s your investment budget in €? I’ll then shortlist within about ±20% of that.'
+      : 'Thanks for the interest :) What budget range in € should we use? I’ll then show options within about ±20%.';
+  }
+  return invest
+    ? 'Спасибо за интерес :) Какой у вас бюджет для инвестиции в €? После этого покажу варианты в коридоре ±20%.'
+    : 'Спасибо за интерес :) На какой бюджет в € ориентируемся? После этого покажу варианты в коридоре ±20%.';
+}
+
+function stripPropertyLinksKeepText(text) {
+  return String(text || '')
+    .replace(
+      /https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[^\s<>\])"'}]+/gi,
+      ''
+    )
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /**
  * Один запрос к ИИ (без каскада 6× повторов). При 429 — сразу запасной ключ, если задан.
  * @param {Array<{sender:string,text:string}>} conversationHistory
@@ -952,8 +1025,10 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
     }
     const listingStage =
       dialog.stage === 'SHOW_LISTINGS' ||
-      dialog.wantsPropertyLinks ||
-      (dialog.stage === 'REFINE' && dialog.wantsListings);
+      ((dialog.wantsPropertyLinks ||
+        (dialog.stage === 'REFINE' && dialog.wantsListings)) &&
+        (dialog.hasBudget || dialog.ignoreBudget) &&
+        Boolean(dialog.readyForListings || dialog.financeReadyForListings || dialog.ignoreBudget));
     const recentUrls = collectRecentPropertyUrls(conversationHistory);
     let urlsForRepair = Array.isArray(catalogUrls) ? [...catalogUrls] : [];
     const fallbackMeta = {
@@ -1111,10 +1186,13 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
     reply = repairPropertyUrlsInText(
       fixPhoneticTransliterations(
         sanitizeListingWhyLabels(
-          mirrorUserEmojiInReply(
-            maybeAddWarmSmiley(sanitizeDelayedListingPromise(reply), salesLang, dialog.stage),
-            lastUserMsg,
-            { force: isEmojiOnlyMessage(lastUserMsg) }
+          softenRoboticPunctuation(
+            mirrorUserEmojiInReply(
+              maybeAddWarmSmiley(sanitizeDelayedListingPromise(reply), salesLang, dialog.stage),
+              lastUserMsg,
+              { force: isEmojiOnlyMessage(lastUserMsg) }
+            ),
+            dialog.stage
           )
         ),
         salesLang
@@ -1123,6 +1201,22 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       urlsForRepair,
       { wantedTypes: dialog.propertyTypes || [], avoidUrls: recentUrls }
     );
+    // Жёсткий гард: без бюджета нельзя отдавать карточки/ссылки (даже если модель выдумала)
+    if (!dialog.hasBudget && !dialog.ignoreBudget) {
+      const clientSentOwnLink = /housetenerife\.eu[^.\s]*\/property\//i.test(lastUserMsg);
+      if (!clientSentOwnLink) {
+        const hadListingLeak =
+          /housetenerife\.eu[^.\s]*\/property\//i.test(reply) ||
+          replyLooksLikeInventedListings(reply);
+        if (hadListingLeak) {
+          console.warn('⚠️ Ответ с объектами без бюджета — вырезаю ссылки и прошу бюджет');
+          reply = stripPropertyLinksKeepText(reply);
+          if (replyLooksLikeInventedListings(reply) || /(?:€|eur)\s*[\d.,]+/i.test(reply)) {
+            reply = buildAskBudgetInsteadOfListingsReply(userLanguage, dialog);
+          }
+        }
+      }
+    }
     if (listingStage) {
       reply = stripNonCatalogUrls(reply);
     }
@@ -1217,14 +1311,17 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         const repairedRetry = repairPropertyUrlsInText(
           fixPhoneticTransliterations(
             sanitizeListingWhyLabels(
-              mirrorUserEmojiInReply(
-                maybeAddWarmSmiley(
-                  sanitizeDelayedListingPromise(stripUnexpectedScripts(retryReply)),
-                  salesLangRetry,
-                  dialog.stage
+              softenRoboticPunctuation(
+                mirrorUserEmojiInReply(
+                  maybeAddWarmSmiley(
+                    sanitizeDelayedListingPromise(stripUnexpectedScripts(retryReply)),
+                    salesLangRetry,
+                    dialog.stage
+                  ),
+                  lastUserRetry,
+                  { force: isEmojiOnlyMessage(lastUserRetry) }
                 ),
-                lastUserRetry,
-                { force: isEmojiOnlyMessage(lastUserRetry) }
+                dialog.stage
               )
             ),
             salesLangRetry

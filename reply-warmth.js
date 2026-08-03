@@ -6,7 +6,7 @@ const WARM_MARKER_RE =
   /(?:[\u{1F300}-\u{1F9FF}\u2600-\u27BF])|:\)|;\)|:-\)|\(-:|🙂|😊|👋|👍/u;
 
 const SKIP_STAGES =
-  /^(SHOW_LISTINGS|OFFER_MANAGER_CALL|NEED_FUNDS_NOW|NEED_MORTGAGE|FINANCE_|PROPERTY_CLOSING)/;
+  /^(SHOW_LISTINGS|FINANCE_DOCUMENTS|FINANCE_DOCUMENTS_CASH|PROPERTY_CLOSING)/;
 
 const WARM_STAGES = new Set([
   'FIRST_CONTACT',
@@ -14,8 +14,12 @@ const WARM_STAGES = new Set([
   'NEED_PROPERTY_TYPE',
   'NEED_REGION',
   'NEED_BUDGET',
+  'NEED_TIMELINE',
   'NEED_LOCATION',
+  'NEED_FUNDS_NOW',
+  'NEED_MORTGAGE',
   'REFINE',
+  'OFFER_MANAGER_CALL',
 ]);
 
 /** Всегда тёплый тон на первом контакте; на остальных — примерно каждое второе сообщение */
@@ -94,28 +98,72 @@ function maybeAddWarmSmiley(text, salesLang, stage) {
 function getWarmTonePromptBlock(salesLang) {
   const lang = normalizeSalesLang(salesLang);
   if (lang === 'es') {
-    return `**TONO CÁLIDO (WhatsApp):** En etapas de conversación (saludo, objetivo, tipo, región, zona, presupuesto) incluye de vez en cuando *un* emoji suave 🙂 o :) — no en cada mensaje, sí en saludo y en ~cada segunda respuesta cálida. Ejemplo: «Perfecto :) ¿qué tipo de inmueble…?» o «Hola, soy Maksim 🙂». Si el cliente envía un emoji — duplícalo. No en fichas con enlaces, hipoteca ni documentos.`;
+    return `**TONO CÁLIDO (WhatsApp):** Habla como persona en chat, no como robot. Frases cortas, a veces sin punto final. En etapas de conversación (saludo, objetivo, tipo, región, zona, presupuesto) incluye de vez en cuando *un* emoji suave 🙂 o :) — no en cada mensaje, sí en saludo y en ~cada segunda respuesta cálida. Ejemplo: «Perfecto :) ¿qué tipo…?» Si el cliente envía un emoji — duplícalo. No suenes a folleto («Le ofrezco las siguientes opciones…»). No en listados densos con enlaces.`;
   }
   if (lang === 'en') {
-    return `**WARM TONE (WhatsApp):** On conversation stages (greeting, goal, type, region, area, budget) occasionally include *one* subtle 🙂 or :) — not every message, yes on greetings and roughly every other warm reply. Example: «Got it :) What property type…?» or «Hi, I'm Maxim 🙂». If the client sends an emoji — mirror it. Not in listing blocks, mortgage or documents.`;
+    return `**WARM TONE (WhatsApp):** Sound like a real person texting — short lines, not every sentence ending with a period. On conversation stages occasionally include *one* 🙂 or :) — not every message, yes on greetings and roughly every other warm reply. Example: «Got it :) What area works for you?» If the client sends an emoji — mirror it. Never brochure voice («I offer you the following investment options…»). Skip dense listing blocks.`;
   }
   if (lang === 'de') {
-    return `**WARMER TON (WhatsApp):** In Gesprächsphasen (Begrüßung, Ziel, Typ, Region, Zone, Budget) gelegentlich *ein* dezentes 🙂 oder :) — nicht in jeder Nachricht, ja bei Begrüßung und etwa jeder zweiten warmen Antwort. Beispiel: «Perfekt :) Welcher Objekttyp…?» oder «Hallo, ich bin Maxim 🙂». Wenn der Kunde ein Emoji schickt — dasselbe spiegeln. Nicht bei Objektlisten, Hypothek oder Dokumenten.`;
+    return `**WARMER TON (WhatsApp):** Wie ein Mensch im Chat — kurze Zeilen, nicht nach jedem Satz einen Punkt. Gelegentlich *ein* 🙂 oder :). Kein Broschüren-Ton. Emoji des Kunden spiegeln.`;
   }
   if (lang === 'fr') {
-    return `**TON CHALEUREUX (WhatsApp):** Aux étapes de conversation (accueil, objectif, type, région, zone, budget) inclure parfois *un* emoji doux 🙂 ou :) — pas à chaque message, oui à l’accueil et environ une réponse chaleureuse sur deux. Exemple: « Parfait :) Quel type de bien… ? » ou « Bonjour, je suis Maxim 🙂 ». Si le client envoie un emoji — le dupliquer. Pas sur les fiches, l’hypothèque ni les documents.`;
+    return `**TON CHALEUREUX (WhatsApp):** Comme une vraie personne en chat — phrases courtes, pas un point à chaque ligne. Parfois *un* 🙂 ou :). Pas de ton brochure. Dupliquer l’emoji du client.`;
   }
   if (lang === 'pl') {
-    return `**CIEPLY TON (WhatsApp):** Na etapach rozmowy (powitanie, cel, typ, region, strefa, budżet) czasem dodawaj *jeden* delikatny 🙂 lub :) — nie w każdej wiadomości, tak w powitaniu i mniej więcej co drugiej ciepłej odpowiedzi. Przykład: «Świetnie :) Jaki typ obiektu…?» lub «Cześć, jestem Maxim 🙂». Jeśli klient wysłał emoji — odzwierciedl to samo. Nie w listach ofert, kredycie ani dokumentach.`;
+    return `**CIEPLY TON (WhatsApp):** Jak człowiek na czacie — krótkie linie, nie kropka po każdej. Czasem *jeden* 🙂 lub :). Bez tonu ulotki. Odzwierciedl emoji klienta.`;
   }
   if (lang === 'nl') {
-    return `**WARME TOON (WhatsApp):** In gespreksfasen (begroeting, doel, type, regio, zone, budget) af en toe *één* subtiel 🙂 of :) — niet in elk bericht, wel bij begroeting en ongeveer elke tweede warme reactie. Voorbeeld: «Top :) Welk objecttype…?» of «Hallo, ik ben Maxim 🙂». Als de klant een emoji stuurt — spiegel die. Niet bij objectlijsten, hypotheek of documenten.`;
+    return `**WARME TOON (WhatsApp):** Als een echt persoon in chat — korte regels, niet na elke zin een punt. Af en toe *één* 🙂 of :). Geen brochure-toon. Spiegel emoji van de klant.`;
   }
-  return `**ТЁПЛЫЙ ТОН (WhatsApp):** На этапах диалога (приветствие, цель, тип, регион, район, бюджет) иногда добавляй *один* мягкий смайлик 🙂 или скобочки :) — не в каждом сообщении, обязательно в приветствии и примерно в каждом втором тёплом ответе. Если клиент прислал смайлик — *обязательно дублируй его же* в ответе. Пример: «Отлично :) Какой тип объекта…?» или «Привет, я Максим 🙂». Не в подборке со ссылками, не на ипотеке/документах.`;
+  return `**ТЁПЛЫЙ ТОН (WhatsApp):** Пиши как живой человек в чате, не как робот. Короткие строки, не точка в конце каждой фразы подряд. На этапах диалога иногда *один* 🙂 или :) — обязательно в приветствии и примерно в каждом втором тёплом ответе. Пример: «Отлично :) Какой район ближе?» Если клиент прислал смайлик — дублируй его же. Запрещён тон буклета («Я предлагаю вам следующие варианты инвестиций…»). Не в плотной подборке со ссылками.`;
+}
+
+/**
+ * Смягчает «робот-точки» на коротких строках тёплых этапов (не трогает URL, списки, цифры).
+ */
+function softenRoboticPunctuation(text, stage) {
+  const body = String(text || '');
+  if (!body.trim()) return text;
+  // Плотная подборка со ссылками — не трогаем; остальное — живой WhatsApp
+  if (/^SHOW_LISTINGS$/i.test(String(stage || ''))) return text;
+  if (/FINANCE_DOCUMENTS|PROPERTY_CLOSING/i.test(String(stage || ''))) return text;
+
+  const lines = body.split('\n');
+  let consecutivePeriodLines = 0;
+  const out = lines.map((line) => {
+    const trimmed = line.trimEnd();
+    if (!trimmed) {
+      consecutivePeriodLines = 0;
+      return line;
+    }
+    if (/^\s*(?:[•\-*]|\d+[.)])\s/.test(trimmed)) {
+      consecutivePeriodLines = 0;
+      return line;
+    }
+    if (/https?:\/\/|housetenerife\.eu|€|eur\b|\d[\d\s.,]*\d/i.test(trimmed)) {
+      consecutivePeriodLines = 0;
+      return line;
+    }
+    if (/[.]$/.test(trimmed) && !/[?!…]$/.test(trimmed) && trimmed.length <= 160) {
+      consecutivePeriodLines += 1;
+      const brochure =
+        /(?:I offer you|Я предлагаю|Le ofrezco|excellent for investment|отлично подходят для|attract long-term)/i.test(
+          trimmed
+        );
+      if (consecutivePeriodLines >= 2 || brochure) {
+        return trimmed.replace(/\.\s*$/, '');
+      }
+    } else {
+      consecutivePeriodLines = 0;
+    }
+    return line;
+  });
+  return out.join('\n');
 }
 
 module.exports = {
   maybeAddWarmSmiley,
   getWarmTonePromptBlock,
+  softenRoboticPunctuation,
   hasWarmMarker,
 };

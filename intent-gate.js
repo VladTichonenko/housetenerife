@@ -5,6 +5,17 @@ const { detectRegionPreference } = require('./catalog-regions');
 const { detectMicroAreas } = require('./location-matching');
 const { detectMortgageStepsQuestion } = require('./purchase-finance');
 const { wantsManagerHandoff } = require('./manager-handoff');
+const {
+  isCasualSearchResume,
+  wantsInvestmentEducation,
+  shouldResumePropertyFunnel,
+  formatResumeSearchInstruction,
+} = require('./conversational-flow');
+const {
+  isOffTopicChatter,
+  isGreetingOrSmallTalk,
+  formatOffTopicInstruction,
+} = require('./keyword-relevance');
 
 const SCENARIOS = {
   PROPERTY_SEARCH: 'property_search',
@@ -71,7 +82,17 @@ function classifyScenario(text, language = 'ru') {
     };
   }
 
-  return { scenario: SCENARIOS.GENERAL, confidence: 0.35, strongSignal: false };
+  if (isGreetingOrSmallTalk(value) || isOffTopicChatter(value)) {
+    return {
+      scenario: SCENARIOS.GENERAL,
+      confidence: 0.8,
+      strongSignal: true,
+      offTopic: true,
+      smallTalk: true,
+    };
+  }
+
+  return { scenario: SCENARIOS.GENERAL, confidence: 0.35, strongSignal: false, offTopic: false };
 }
 
 function arraysDifferWhenExplicit(current, previous) {
@@ -89,10 +110,15 @@ function evaluateIntentGate(conversationHistory, language = 'ru', previousTopic 
   const micro = detectMicroAreas(lastUser, language);
 
   const previous = previousTopic && typeof previousTopic === 'object' ? previousTopic : null;
-  const inheritedScenario =
+  const offTopicChatter = Boolean(classification.offTopic || classification.smallTalk);
+  let inheritedScenario =
     !classification.strongSignal && previous?.scenario
       ? previous.scenario
       : classification.scenario;
+  // Small talk mid-funnel: не сбрасываем поиск — продолжаем воронку без объектов
+  if (offTopicChatter && previous?.scenario === SCENARIOS.PROPERTY_SEARCH) {
+    inheritedScenario = SCENARIOS.PROPERTY_SEARCH;
+  }
   const regions = region.hasRegion ? region.regions : [];
   const propertyTypes = type.hasType ? type.types : [];
   const microAreas = micro.hasSpecific ? micro.groupIds || [] : [];
@@ -103,7 +129,13 @@ function evaluateIntentGate(conversationHistory, language = 'ru', previousTopic 
   let action = previous ? 'continue' : 'start_topic';
   let reason = previous ? 'same_or_ambiguous_topic' : 'first_observation';
 
-  if (
+  if (languageChanged) {
+    action = 'language_switch';
+    reason = `${previous.language}_to_${String(language).slice(0, 2)}`;
+  } else if (offTopicChatter && previous?.scenario === SCENARIOS.PROPERTY_SEARCH) {
+    action = 'continue';
+    reason = 'small_talk_continue_funnel';
+  } else if (
     previous &&
     classification.strongSignal &&
     previous.scenario &&
@@ -125,14 +157,21 @@ function evaluateIntentGate(conversationHistory, language = 'ru', previousTopic 
   ) {
     action = 'new_topic';
     reason = 'property_type_changed';
-  } else if (languageChanged) {
-    action = 'language_switch';
-    reason = `${previous.language}_to_${String(language).slice(0, 2)}`;
   }
 
   const effectiveRegions = regions.length ? regions : previous?.regions || [];
   const effectiveTypes = propertyTypes.length ? propertyTypes : previous?.propertyTypes || [];
   const effectiveMicroAreas = microAreas.length ? microAreas : previous?.microAreas || [];
+
+  const resumeSearch = shouldResumePropertyFunnel(
+    {
+      scenario: inheritedScenario,
+      reason,
+      lastUserText: lastUser,
+    },
+    previous?.scenario
+  );
+  const educationAsk = wantsInvestmentEducation(lastUser);
 
   return {
     mode: 'observe',
@@ -141,6 +180,11 @@ function evaluateIntentGate(conversationHistory, language = 'ru', previousTopic 
     scenario: inheritedScenario,
     confidence: classification.confidence,
     strongSignal: classification.strongSignal,
+    offTopic: offTopicChatter,
+    smallTalk: Boolean(classification.smallTalk || isGreetingOrSmallTalk(lastUser)),
+    resumeSearch,
+    educationAsk,
+    casualResume: isCasualSearchResume(lastUser),
     topicKey: [
       inheritedScenario,
       effectiveRegions.join('+') || '*',
@@ -157,21 +201,39 @@ function evaluateIntentGate(conversationHistory, language = 'ru', previousTopic 
 
 function formatIntentGateForPrompt(gate) {
   if (!gate) return '';
+  if (gate.offTopic || gate.smallTalk) {
+    return `${formatOffTopicInstruction(gate.language || 'ru', {
+      hasBudget: false,
+      hasPurpose: gate.scenario === SCENARIOS.PROPERTY_SEARCH,
+      isInvestment: false,
+      hasTimeline: false,
+    })}`;
+  }
   if (gate.scenario === SCENARIOS.SUPPORT_OTHER) {
     return `**ACTIVE SCENARIO: SUPPORT**
 Answer the client's support question directly. Do not run the property qualification funnel, ask for a property budget, or show catalog listings unless the client explicitly returns to property search.`;
   }
   if (gate.scenario === SCENARIOS.MORTGAGE_DOCS) {
     return `**ACTIVE SCENARIO: MORTGAGE / DOCUMENTS**
-Answer the finance or document question directly using the knowledge base. Keep relevant property context, but do not restart qualification or re-ask known budget, region, or property type.`;
+Answer using mortgage_process + mortgage_assistance + mortgage_lending_official + mortgage_rates_official (Banco de España / Ley 5/2019). Pitch that House Tenerife helps arrange the mortgage (package) — do not send the client to handle it alone elsewhere. NEVER cite lawyers, law-firm ads, or lawyer blogs for loan terms. Keep property context; do not re-ask known budget/region/type. After answering, be ready to resume property selection if they casually return to villas/apartments — without a sales lecture.`;
   }
   if (gate.scenario === SCENARIOS.MANAGER_HANDOFF) {
-    return `**ACTIVE SCENARIO: MANAGER HANDOFF**
-Follow the existing soft-call and handoff rules. Do not replace the requested human contact with a new property qualification question.`;
+    return `**ACTIVE SCENARIO: MANAGER HANDOFF / ESCALATION**
+Follow soft-call and handoff rules. Complaints or complex specialist topics — warm 10–15 min call offer. Do not replace human contact with a new property qualification question.`;
   }
-  if (gate.action === 'new_topic' && gate.scenario === SCENARIOS.PROPERTY_SEARCH) {
-    return `**ACTIVE TOPIC: NEW PROPERTY SEARCH**
-Use only the criteria from the active topic history. Older profile facts are background and must not override this new region or property type.`;
+  if (gate.scenario === SCENARIOS.PROPERTY_SEARCH) {
+    const resumeBlock =
+      gate.resumeSearch || gate.casualResume
+        ? `\n${formatResumeSearchInstruction(gate.language || 'en')}`
+        : '';
+    const educationBlock = gate.educationAsk
+      ? `\n**INVESTMENT EDUCATION REQUEST:** Client explicitly asked about investing — you may briefly explain pros of the property type for investment, then return to the next funnel question. Keep WhatsApp tone (short, warm, not a brochure).`
+      : `\n**NO EDUCATION PITCH (global):** Unless the client clearly asks to explain investing («tell me about…», «why villas for investment»), do NOT lecture why villas/apartments are good investments — continue the selection algorithm. Casual «What about villas?» = next funnel step, not a sales pitch.`;
+    return gate.action === 'new_topic'
+      ? `**ACTIVE TOPIC: NEW PROPERTY SEARCH**
+Use only the criteria from the active topic history. Older profile facts are background and must not override this new region or property type. Filter by relevant keywords (type/region/budget) — stay in property search.${resumeBlock}${educationBlock}`
+      : `**ACTIVE SCENARIO: PROPERTY SEARCH**
+Stay in the property funnel. Filter the message by relevant keywords (goal, type, region, area, budget). Do not switch to mortgage/support unless the client clearly asks.${resumeBlock}${educationBlock}`;
   }
   return '';
 }

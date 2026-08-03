@@ -25,7 +25,43 @@ const {
 const { normalizeSalesLang, getStageInstruction } = require('./sales-localization');
 const { wantsManagerHandoff, buildCallOfferContext } = require('./manager-handoff');
 const { pickBudgetQuestionExample } = require('./budget-questions');
+const {
+  detectInvestmentTimeline,
+  wantsEscalation,
+  expandBudgetBand,
+} = require('./bot-core-rules');
+const { isOffTopicChatter, formatOffTopicInstruction } = require('./keyword-relevance');
 
+const INVEST_PURPOSE_RE =
+  /инвест|invest|inversi[oó]n|anlage|investissement|доход|аренд|rental|alquiler|miete|location|бизнес|business|negocio|geschäft|pour\s+investir|zum\s+investieren|инвест(?:иционн)?\s*проект|investment\s+project/i;
+
+const LIVING_PURPOSE_RE =
+  /для жизни|для себя|для семьи|личн(?:ой|ая)?\s+жизн|переезд|relocate|live in|residen|vivir|para vivir|wohnen|umzug|habiter|pour\s+vivre|zum\s+wohnen|déménagement|demenagement|holiday home|segunda residencia|second home|ferien|résidence secondaire|residence secondaire/i;
+
+/**
+ * @param {string} text
+ * @returns {'investment'|'living'|null}
+ */
+function detectPurposeKind(text) {
+  const s = String(text || '');
+  const invest = INVEST_PURPOSE_RE.test(s);
+  const living = LIVING_PURPOSE_RE.test(s);
+  if (invest && !living) return 'investment';
+  if (living && !invest) return 'living';
+  if (invest && living) {
+    // Последний явный сигнал важнее
+    const lastInvest = Math.max(
+      ...[...s.matchAll(new RegExp(INVEST_PURPOSE_RE.source, 'gi'))].map((m) => m.index ?? -1),
+      -1
+    );
+    const lastLiving = Math.max(
+      ...[...s.matchAll(new RegExp(LIVING_PURPOSE_RE.source, 'gi'))].map((m) => m.index ?? -1),
+      -1
+    );
+    return lastInvest >= lastLiving ? 'investment' : 'living';
+  }
+  return null;
+}
 
 /**
  * @param {Array<{sender:string,text:string}>} history
@@ -38,10 +74,11 @@ function analyzeConversation(history, lang = 'ru') {
   const lower = allUserText.toLowerCase();
   const lastUser = userMsgs[userMsgs.length - 1]?.text || '';
 
-  const hasPurpose =
-    /инвест|invest|inversi[oó]n|anlage|investissement|доход|аренд|rental|alquiler|miete|location|бизнес|business|negocio|geschäft|для жизни|для себя|для семьи|личн(?:ой|ая)?\s+жизн|переезд|relocate|live in|residen|vivir|para vivir|wohnen|umzug|habiter|pour\s+vivre|pour\s+investir|zum\s+wohnen|zum\s+investieren|déménagement|demenagement|holiday home|segunda residencia|second home|ferien|résidence secondaire|residence secondaire/i.test(
-      lower
-    );
+  const purposeKind =
+    detectPurposeKind(lastUser) || detectPurposeKind(allUserText);
+  const hasPurpose = Boolean(purposeKind) || INVEST_PURPOSE_RE.test(lower) || LIVING_PURPOSE_RE.test(lower);
+  const isInvestment = purposeKind === 'investment';
+  const isLiving = purposeKind === 'living' || (hasPurpose && !isInvestment);
 
   const budget = resolveEffectiveBudget(history, allUserText, lastUser);
   const lastBudget = extractBudgetRange(lastUser);
@@ -50,6 +87,9 @@ function analyzeConversation(history, lang = 'ru') {
   const ignoreBudget =
     wantsIgnoreBudget(lastUser) || (!lastHasBudget && wantsIgnoreBudget(allUserText));
   const hasBudget = budgetHasSignal(allUserText, budget) || ignoreBudget || lastHasBudget;
+  const hasTimeline =
+    detectInvestmentTimeline(lastUser) || detectInvestmentTimeline(allUserText);
+  const needsEscalation = wantsEscalation(lastUser);
 
   const regionPref = resolveActiveRegionPreference(history, salesLang);
   const hasRegion = regionPref.hasRegion;
@@ -82,8 +122,6 @@ function analyzeConversation(history, lang = 'ru') {
     );
   const userTurns = userMsgs.length;
 
-  let stage = 'FIRST_CONTACT';
-
   const needsMicroArea =
     hasRegion &&
     needsMicroAreaSelection(macroRegions, microAreas) &&
@@ -91,42 +129,78 @@ function analyzeConversation(history, lang = 'ru') {
   const areaOptionsPrompt = getAreaOptionsPrompt(macroRegions, salesLang);
   const microAreaGroupIds = filterMicroGroupsForMacro(microAreas.groupIds, macroRegions);
 
-  const readyForListings =
-    hasType &&
-    hasBudget &&
-    hasPurpose &&
-    hasRegion &&
-    !needsMicroArea;
+  const wantsMortgageSteps = detectMortgageStepsQuestion(lastUser || allUserText);
+  const offTopicChatter = isOffTopicChatter(lastUser);
 
-  if (
-    readyForListings ||
-    (wantsListings && hasType && hasBudget && hasPurpose && hasRegion && !needsMicroArea)
-  ) {
-    stage = 'SHOW_LISTINGS';
-  } else if (userTurns <= 1 && !hasPurpose && !hasBudget && !hasLocation && !hasType && !hasRegion) {
+  const finance = analyzePurchaseFinance(history, allUserText, salesLang, {
+    requireBeforeListings: true,
+  });
+  const financeReady =
+    Boolean(finance.financeReadyForListings) || ignoreBudget;
+
+  // Критерии подбора без цены (тип / регион / район)
+  const selectionReady =
+    hasType && hasRegion && !needsMicroArea;
+
+  const readyForListings =
+    hasPurpose &&
+    hasBudget &&
+    selectionReady &&
+    financeReady &&
+    (!isInvestment || hasTimeline || ignoreBudget);
+
+  let stage = 'FIRST_CONTACT';
+
+  if (userTurns <= 1 && !hasPurpose && !hasBudget && !hasLocation && !hasType && !hasRegion) {
     stage = 'FIRST_CONTACT';
   } else if (!hasPurpose) {
     stage = 'NEED_PURPOSE';
-  } else if (!hasType) {
-    stage = 'NEED_PROPERTY_TYPE';
-  } else if (!hasRegion && !hasLocation) {
-    stage = 'NEED_REGION';
-  } else if (needsMicroArea) {
-    // Сначала район/зона — потом бюджет (доверие до цифр)
-    stage = 'NEED_LOCATION';
-  } else if (!hasBudget) {
-    stage = 'NEED_BUDGET';
+  } else if (isInvestment) {
+    // Инвестиции: бюджет → срок → финансы → подбор (тип/регион/район, без переспроса цены)
+    if (!hasBudget) {
+      stage = 'NEED_BUDGET';
+    } else if (!hasTimeline && !ignoreBudget) {
+      stage = 'NEED_TIMELINE';
+    } else if (!finance.hasFundsNow && !ignoreBudget) {
+      stage = 'NEED_FUNDS_NOW';
+    } else if (!finance.hasMortgageAnswered && !ignoreBudget) {
+      stage = 'NEED_MORTGAGE';
+    } else if (!hasType) {
+      stage = 'NEED_PROPERTY_TYPE';
+    } else if (!hasRegion && !hasLocation) {
+      stage = 'NEED_REGION';
+    } else if (needsMicroArea) {
+      stage = 'NEED_LOCATION';
+    } else if (readyForListings) {
+      stage = 'SHOW_LISTINGS';
+    } else {
+      stage = 'REFINE';
+    }
   } else {
-    stage = 'REFINE';
+    // Для себя: цель → регион → район → тип → бюджет → финансы → подборка
+    if (!hasRegion && !hasLocation) {
+      stage = 'NEED_REGION';
+    } else if (needsMicroArea) {
+      stage = 'NEED_LOCATION';
+    } else if (!hasType) {
+      stage = 'NEED_PROPERTY_TYPE';
+    } else if (!hasBudget) {
+      stage = 'NEED_BUDGET';
+    } else if (!finance.hasFundsNow && !ignoreBudget) {
+      stage = 'NEED_FUNDS_NOW';
+    } else if (!finance.hasMortgageAnswered && !ignoreBudget) {
+      stage = 'NEED_MORTGAGE';
+    } else if (readyForListings) {
+      stage = 'SHOW_LISTINGS';
+    } else {
+      stage = 'REFINE';
+    }
   }
 
   if (
-    userTurns >= 4 &&
-    hasBudget &&
-    hasType &&
-    hasPurpose &&
-    hasRegion &&
-    !needsMicroArea
+    readyForListings ||
+    (wantsListings && readyForListings) ||
+    (userTurns >= 5 && readyForListings)
   ) {
     stage = 'SHOW_LISTINGS';
   }
@@ -134,29 +208,57 @@ function analyzeConversation(history, lang = 'ru') {
   // «Ещё похожие» / «кроме цены» при уже собранных критериях — всегда подборка
   if (
     (wantsMoreLikeThese || ignoreBudget) &&
-    hasType &&
+    selectionReady &&
     hasPurpose &&
-    hasRegion &&
-    !needsMicroArea &&
-    (hasBudget || ignoreBudget)
+    (hasBudget || ignoreBudget) &&
+    (financeReady || ignoreBudget) &&
+    (!isInvestment || hasTimeline || ignoreBudget)
   ) {
     stage = 'SHOW_LISTINGS';
   }
 
-  // «Дай ссылки» по уже названным параметрам — сразу карточки с URL, без отсылки на общий сайт
+  // «Дай ссылки» по уже названным параметрам — сразу карточки с URL
   if (
     wantsPropertyLinks &&
-    hasType &&
+    selectionReady &&
     hasPurpose &&
-    hasRegion &&
-    (hasBudget || ignoreBudget)
+    (hasBudget || ignoreBudget) &&
+    (financeReady || ignoreBudget) &&
+    (!isInvestment || hasTimeline || ignoreBudget)
   ) {
     stage = 'SHOW_LISTINGS';
   }
 
-  const wantsMortgageSteps = detectMortgageStepsQuestion(lastUser || allUserText);
+  // Инвестиции: без срока покупки нельзя уходить в подборку (даже если просят ссылки)
+  if (isInvestment && hasBudget && !hasTimeline && !ignoreBudget && !wantsMortgageSteps) {
+    const tryingToSkipTimeline =
+      stage === 'SHOW_LISTINGS' ||
+      stage === 'NEED_PROPERTY_TYPE' ||
+      stage === 'NEED_REGION' ||
+      stage === 'NEED_LOCATION' ||
+      stage === 'REFINE' ||
+      stage === 'NEED_FUNDS_NOW' ||
+      stage === 'NEED_MORTGAGE';
+    // Финансы только после срока; подбор/ссылки — тоже
+    if (tryingToSkipTimeline) {
+      stage = 'NEED_TIMELINE';
+    }
+  }
 
-  const finance = analyzePurchaseFinance(history, allUserText, salesLang);
+  // Жёстко: просьба «покажи объекты» БЕЗ бюджета → только запрос бюджета (не подборка)
+  const askedForListingsWithoutBudget =
+    (wantsListings || wantsPropertyLinks || wantsMoreLikeThese) &&
+    !hasBudget &&
+    !ignoreBudget;
+  if (askedForListingsWithoutBudget) {
+    stage = hasPurpose ? 'NEED_BUDGET' : 'NEED_PURPOSE';
+  }
+
+  // Правило 10: приветствие/small talk без ключевых слов — не в подборку
+  if (offTopicChatter && !hasPurpose && !hasBudget && !hasType && !hasRegion) {
+    stage = 'FIRST_CONTACT';
+  }
+
   const managerCallRequested = wantsManagerHandoff(lastUser);
 
   const callOfferContext = buildCallOfferContext(
@@ -170,10 +272,26 @@ function analyzeConversation(history, lang = 'ru') {
     salesLang
   );
 
-  if (finance.financeStage && finance.financeStage !== 'PROPERTY_CLOSING') {
-    stage = finance.financeStage;
-  } else if (managerCallRequested || finance.financeStage === 'PROPERTY_CLOSING') {
+  // После интереса к конкретному объекту — документы / закрытие имеют приоритет
+  if (needsEscalation) {
     stage = 'OFFER_MANAGER_CALL';
+  } else if (
+    finance.hasPropertyInterest &&
+    finance.financeStage &&
+    ['FINANCE_DOCUMENTS', 'FINANCE_DOCUMENTS_CASH', 'PROPERTY_CLOSING'].includes(
+      finance.financeStage
+    )
+  ) {
+    stage = finance.financeStage === 'PROPERTY_CLOSING' ? 'OFFER_MANAGER_CALL' : finance.financeStage;
+  } else if (managerCallRequested) {
+    stage = 'OFFER_MANAGER_CALL';
+  } else if (
+    finance.hasPropertyInterest &&
+    finance.financeStage &&
+    !financeReady &&
+    (finance.financeStage === 'NEED_FUNDS_NOW' || finance.financeStage === 'NEED_MORTGAGE')
+  ) {
+    stage = finance.financeStage;
   }
 
   const dialogCtx = {
@@ -182,17 +300,74 @@ function analyzeConversation(history, lang = 'ru') {
     areaOptionsPrompt,
     microAreaLabel: microAreas.label,
     callOfferContext,
+    purposeKind: isInvestment ? 'investment' : isLiving ? 'living' : null,
+    isInvestment,
   };
   if (stage === 'NEED_BUDGET') {
     dialogCtx.budgetQuestionExample = pickBudgetQuestionExample(salesLang);
+    dialogCtx.askedForListingsWithoutBudget = askedForListingsWithoutBudget;
   }
-  let stageInstruction = finance.financeStage && finance.financeStage !== 'PROPERTY_CLOSING'
-    ? getFinanceStageInstruction(finance.financeStage, salesLang)
+  if (stage === 'SHOW_LISTINGS' && hasBudget && !ignoreBudget) {
+    dialogCtx.budgetBandLabel = formatBudgetBandLabel(budget, salesLang);
+  }
+
+  const useFinanceInstruction =
+    stage === 'NEED_FUNDS_NOW' ||
+    stage === 'NEED_MORTGAGE' ||
+    stage === 'FINANCE_DOCUMENTS' ||
+    stage === 'FINANCE_DOCUMENTS_CASH';
+
+  let stageInstruction = useFinanceInstruction
+    ? getFinanceStageInstruction(stage, salesLang)
     : getStageInstruction(salesLang, stage, dialogCtx) ||
       resolveStageInstruction(stage, dialogCtx);
 
+  // Уточняем инструкции под ветку инвестиции / для себя
+  if (stage === 'NEED_BUDGET' && askedForListingsWithoutBudget) {
+    stageInstruction = getAskBudgetBeforeListingsInstruction(salesLang, {
+      isInvestment,
+      budgetQuestionExample: dialogCtx.budgetQuestionExample,
+    });
+  } else if (stage === 'NEED_BUDGET' && isInvestment) {
+    stageInstruction = getInvestmentBudgetInstruction(salesLang, dialogCtx);
+  } else if (stage === 'NEED_TIMELINE' && isInvestment) {
+    stageInstruction = getInvestmentTimelineInstruction(salesLang);
+  } else if (stage === 'NEED_PROPERTY_TYPE' && isInvestment && financeReady) {
+    stageInstruction = `${getInvestmentSelectionPreamble(salesLang)}\n\n${stageInstruction}`;
+  } else if (
+    (stage === 'NEED_REGION' || stage === 'NEED_LOCATION') &&
+    isInvestment &&
+    financeReady
+  ) {
+    stageInstruction = `${getInvestmentSelectionPreamble(salesLang)}\n\n${stageInstruction}`;
+  }
+
+  // Правило 9: клиент только что назвал бюджет — подтвердить «запомнил» и не переспрашивать
+  if (lastHasBudget && hasBudget && stage !== 'NEED_BUDGET') {
+    stageInstruction = `${getJustRememberedBudgetInstruction(salesLang, budget)}\n\n${stageInstruction}`;
+  }
+
+  // Правило 10: small talk / оффтоп — без вилл, только вход в воронку
+  if (offTopicChatter) {
+    stageInstruction = `${formatOffTopicInstruction(salesLang, {
+      hasBudget,
+      hasPurpose,
+      isInvestment,
+      hasTimeline,
+    })}\n\n${stageInstruction}`;
+  }
+
+  if (needsEscalation) {
+    stageInstruction = `${getEscalationInstruction(salesLang)}\n\n${stageInstruction}`;
+  }
+
   if (wantsMortgageSteps) {
     stageInstruction = `${getMortgageStepsInstruction(salesLang)}\n\n${stageInstruction}`;
+  }
+
+  const funnelBlock = formatFunnelPathBlock(isInvestment, salesLang);
+  if (funnelBlock) {
+    stageInstruction = `${funnelBlock}\n\n${stageInstruction}`;
   }
 
   // Память диалога: явный запрет переспрашивать известное
@@ -203,13 +378,17 @@ function analyzeConversation(history, lang = 'ru') {
       hasType,
       hasRegion,
       hasLocation,
+      hasTimeline,
+      hasFundsNow: finance.hasFundsNow,
+      hasMortgageAnswered: finance.hasMortgageAnswered,
       needsMicroArea,
       propertyTypeLabel,
       regionLabel,
       microAreaLabel: microAreas.label,
       budget,
       wantsMoreLikeThese,
-      stage
+      stage,
+      purposeKind: isInvestment ? 'investment' : 'living',
     },
     salesLang
   );
@@ -224,6 +403,8 @@ function analyzeConversation(history, lang = 'ru') {
     lastUser,
     allUserText,
     hasPurpose,
+    purposeKind: isInvestment ? 'investment' : hasPurpose ? 'living' : null,
+    isInvestment,
     hasBudget,
     hasLocation,
     microAreas,
@@ -257,6 +438,10 @@ function analyzeConversation(history, lang = 'ru') {
                   ? 'geen prijslimiet'
                   : 'без ограничения цены'
       : formatBudgetLabel(budget, salesLang),
+    hasTimeline,
+    needsEscalation,
+    financeReadyForListings: financeReady,
+    readyForListings,
     regionOptions: REGION_OPTIONS_PROMPT[salesLang] || REGION_OPTIONS_PROMPT.en,
     salesLang,
     stage,
@@ -266,34 +451,157 @@ function analyzeConversation(history, lang = 'ru') {
     managerCallRequested,
     callOfferContext,
     propertyTypeOptions: formatPropertyTypeOptions(salesLang),
+    offTopicChatter,
     ...finance,
     financeSummaryBlock
   };
 }
 
 const stageInstructions = {
-  FIRST_CONTACT: `Первый контакт. Представься: «Меня зовут Максим», *инвестиционный аналитик* House Tenerife. Не «бот», не «консультант». Тон: уверенный эксперт, тепло, без канцелярита. Добавь один мягкий смайлик 🙂 или :) в приветствии. Не повторяй очевидный текст клиента. Один вопрос: *для какой цели* покупка — для жизни/переезда или инвестиция/доход/бизнес? Объекты и ссылки НЕ показывай.`,
+  FIRST_CONTACT: `Первый контакт / приветствие. Представься: «Меня зовут Максим», помогаешь с недвижимостью и инвестициями (House Tenerife). Не «бот». Тон WhatsApp: коротко, тепло, один 🙂 или :). Если клиент написал «привет / как дела?» без темы недвижимости — НЕ присылай виллы и ссылки. Образец: «Привет! Я здесь, чтобы помочь с инвестициями в недвижимость. Какой у вас бюджет?» (или: для себя / под инвестиции, если цель ещё не ясна). Объекты и ссылки ЗАПРЕЩЕНЫ.`,
 
-  NEED_PURPOSE: `Цель не ясна — обязательный шаг ДО любых предложений. Не повторяй вопрос клиента и не начинай с «понял». Один вопрос: жизнь/семья/переезд или инвестиция (аренда, перепродажа, бизнес)? Одна фраза, зачем это важно для подбора. Без объектов.`,
+  NEED_PURPOSE: `Цель не ясна — обязательный шаг ДО любых предложений. Не повторяй вопрос клиента и не начинай с канцелярского «понял ваш запрос». Живо: один вопрос — жизнь/семья/переезд или инвестиция (аренда, перепродажа, бизнес)? Одна короткая фраза, зачем это важно. Без объектов.`,
 
-  NEED_PROPERTY_TYPE: `Цель ясна — не пересказывай её. Сразу уточни *тип*: апартаменты, вилла, дом, земля, коммерция, готовый бизнес, инвест-проект — не «жильё» в общем. Не предполагай виллу. Без ссылок.`,
+  NEED_PROPERTY_TYPE: `Сразу уточни *тип*: апартаменты, вилла, дом, земля, коммерция, готовый бизнес, инвест-проект — не «жильё» в общем. Не предполагай виллу. Если тип УЖЕ известен и клиент просто вернулся («а что по виллам?») — НЕ читай лекцию про инвестиции в виллы, иди к следующему шагу воронки. Без ссылок и без переспроса уже известного бюджета.`,
 
-  NEED_REGION: `Один вопрос про регион: Тенерифе, Дубай, Ибица, Марбелья, Малага, Барселона? Можно мягко подсказать: «если не определились — подскажу сильные зоны под вашу цель». Без подборки.`,
+  NEED_REGION: `Один живой вопрос про регион/город: Тенерифе, Дубай, Ибица, Марбелья, Малага, Барселона? Если бюджет уже известен — мягко подскажи 1–2 сильные зоны под этот бюджет из каталога (напр. Adeje / Ибица / Марбелья — только реальные названия). Можно: «если не определились — подскажу сильные зоны под вашу цель и бюджет». Без подборки и без буклета.`,
 
-  NEED_LOCATION: `Уточни район в ${'{regionLabel}'}. Предлагай ТОЛЬКО реальные зоны из каталога и копируй их написание БУКВАЛЬНО: ${'{areaOptionsPrompt}'}. Не выдумывай и не искажай названия (не «Лос Кристианос» / «Коста Адеже»). Один вопрос. Бюджет пока НЕ спрашивай. Без подборки.`,
+  NEED_LOCATION: `Уточни район в ${'{regionLabel}'}. Предлагай ТОЛЬКО реальные зоны из каталога и копируй их написание БУКВАЛЬНО: ${'{areaOptionsPrompt}'}. Если бюджет известен — предложи 2–3 зоны, которые обычно хорошо стыкуются с этим бюджетом (из списка выше, без выдумок). Один короткий вопрос. Без подборки.`,
 
-  NEED_BUDGET: `Район уже известен. Спроси о бюджете мягко — не в лоб «какой у вас бюджет?». Смысл: подобрать подходящие варианты и не показывать заведомо неподходящие. Образец (можно слегка перефразировать, сохраняя смысл и тон): «{budgetQuestionExample}». Ориентиры по €: до 300k / 300–600k / от 600k. Тип: {propertyTypeLabel}, регион: {regionLabel}, район: {microAreaLabel} — название района пиши точно как здесь. Один вопрос в конце. Срок покупки — отдельным сообщением позже, не вместе с бюджетом.`,
+  NEED_BUDGET: `Спроси о бюджете мягко — не в лоб «какой у вас бюджет?». Смысл: подобрать подходящие варианты и не показывать заведомо неподходящие. Образец: «{budgetQuestionExample}». Ориентиры по €: до 300k / 300–600k / от 600k. Уже известное (тип/регион/район) не переспрашивай. Один вопрос. Объекты НЕ показывай. Тон чата, не анкета.`,
 
-  SHOW_LISTINGS: `ОБЯЗАТЕЛЬНО дай подборку 3–5 объектов прямо сейчас (не обещай «пришлю позже» и не ходи кругами с уточнениями): тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, район ${'{microAreaLabel}'} (название района — точно как в этой строке, латиницей). Только из блока каталога. Весь текст ответа — на языке диалога клиента. Формат:
+  NEED_TIMELINE: `Бюджет уже известен — НЕ переспрашивай. Если клиент только что назвал сумму — коротко: «Отлично, запомнил — …». Подборку пока не высылай. Затем один мягкий вопрос про *срок покупки/инвестирования*. Образец из правил: «Когда вы планируете совершить покупку? Через 2 месяца, 3 месяца или позже?» Коротко, тепло.`,
+
+  NEED_FUNDS_NOW: `Финансы ДО подборки. Один вопрос: сколько денег есть *сейчас* на руках — «все своими», «часть + ипотека» или сумма в €. Это не бюджет поиска. Объекты НЕ показывай.`,
+
+  NEED_MORTGAGE: `Форма оплаты: один вопрос — нужна ипотека/кредит в Испании или свои средства? Объекты пока НЕ показывай.`,
+
+  SHOW_LISTINGS: `ОБЯЗАТЕЛЬНО дай подборку 3–5 объектов прямо сейчас (не обещай «пришлю позже»): тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, район ${'{microAreaLabel}'}. Только из блока каталога, строго в коридоре ±20% бюджета${'{budgetBandHint}'}. Начни коротко: что покажешь варианты в этом диапазоне (как «отлично, смотрим около …»). Формат:
 • *Название* — €цена
-  [одна живая фраза-выгода под цель клиента — БЕЗ заголовка «Почему вам» / «Why for you»]
+  [одна живая фраза-выгода под цель — БЕЗ «Почему вам»]
   ссылка
-Если клиент просит ссылки — вставь URL из блока каталога в этом же ответе. Запрещено отвечать только «посмотрите на сайте» / общим разделом без карточек. Закрой: «Какой вариант ближе — или скорректируем бюджет/район?» Не предлагай дешевле бюджета без запроса. Критерии из памяти диалога НЕ переспрашивай.`,
+Закрой: «Какой вариант ближе?» Критерии из памяти НЕ переспрашивай. Не вываливай объекты сильно дешевле/дороже коридора (запрещены вилки вроде 500k–9M вне бюджета).`,
 
-  REFINE: `Ответь по последней реплике. Если клиент просит ещё/похожие — сразу новая подборка 3–5 объектов из каталога по УЖЕ известным критериям (не спрашивай бюджет/район/тип снова). Формат: название, цена, одна фраза-выгода без ярлыка «Почему вам», ссылка. Если клиент сомневается — предложи альтернативу. Один вопрос в конце.`,
+  REFINE: `Ответь по последней реплике. Если просят ещё/похожие — сразу новая подборка 3–5 из каталога по УЖЕ известным критериям. Один вопрос в конце.`,
 
-  OFFER_MANAGER_CALL: `Клиент готов к живому контакту (просил менеджера/звонок/запись на просмотр — или финансы по объекту ясны). Не путай с «посмотреть район/варианты в каталоге». Не повторяй весь запрос клиента. НЕ пиши «запрос передан», «спасибо за обращение», телефон менеджера. Тёпло предложи короткий созвон 10–15 минут, чтобы обсудить детали и варианты не из открытого каталога. Один вопрос да/нет в конце. 2–4 строки.`,
+  OFFER_MANAGER_CALL: `Клиент готов к живому контакту. НЕ пиши «запрос передан», телефон менеджера. Тёпло предложи созвон 10–15 минут. Один вопрос да/нет. 2–4 строки.`,
 };
+
+function formatFunnelPathBlock(isInvestment, lang = 'ru') {
+  if (lang === 'en') {
+    return isInvestment
+      ? `**ACTIVE FUNNEL: INVESTMENT** (strict order — never skip ahead to listings):
+1) Investment budget in € → 2) Investment timeline → 3) Cash now / all / part / mortgage → 4) Then selection criteria WITHOUT re-asking price (type → region → area) → 5) Shortlist ±20%.
+NEVER offer villas/projects before budget + timeline + finances.`
+      : `**ACTIVE FUNNEL: FOR LIVING / SELF** (strict order):
+1) Goal (self vs invest) → 2) City/region → 3) District → 4) Property type → 5) Budget € → 6) Cash on hand / mortgage → 7) Shortlist ±20%.
+NEVER send listings before budget and finances.`;
+  }
+  if (lang === 'es') {
+    return isInvestment
+      ? `**EMBUDO ACTIVO: INVERSIÓN** (orden estricto):
+1) Presupuesto de inversión € → 2) Plazo → 3) Dinero ahora / todo / parte / hipoteca → 4) Criterios de selección SIN repetir precio (tipo → región → zona) → 5) Selección ±20%.
+NUNCA ofrezcas fichas antes de presupuesto + plazo + finanzas.`
+      : `**EMBUDO ACTIVO: PARA VIVIR** (orden estricto):
+1) Objetivo → 2) Ciudad/región → 3) Zona → 4) Tipo → 5) Presupuesto € → 6) Dinero en mano / hipoteca → 7) Selección ±20%.
+NUNCA envíes fichas antes del presupuesto y las finanzas.`;
+  }
+  return isInvestment
+    ? `**АКТИВНАЯ ВЕТКА: ИНВЕСТИЦИИ** (строгий порядок — не перескакивай к объектам):
+1) Бюджет для инвестиций в € → 2) Срок инвестирования → 3) Деньги сейчас (все / часть / ипотека) → 4) Потом критерии подбора БЕЗ переспроса цены (тип → регион → район) → 5) Подборка ±20%.
+ЗАПРЕЩЕНО предлагать виллы/проекты до бюджета, срока и финансов.`
+    : `**АКТИВНАЯ ВЕТКА: ДЛЯ СЕБЯ / ЖИЗНЬ** (строгий порядок):
+1) Цель (для себя или инвестиции) → 2) Город/регион → 3) Район → 4) Тип → 5) Бюджет € → 6) Деньги на руках / ипотека → 7) Подборка ±20%.
+ЗАПРЕЩЕНО слать объекты до бюджета и финансов.`;
+}
+
+function getAskBudgetBeforeListingsInstruction(lang, opts = {}) {
+  const isInvestment = Boolean(opts.isInvestment);
+  const example =
+    opts.budgetQuestionExample ||
+    pickBudgetQuestionExample(lang === 'en' ? 'en' : lang === 'es' ? 'es' : 'ru');
+
+  if (lang === 'en') {
+    return `Client asked to SHOW properties, but budget is UNKNOWN. Thank them briefly for the interest. Ask explicitly for ${
+      isInvestment ? 'their *investment budget* in €' : 'their *budget* in €'
+    }. Example vibe: «${example}». Say that once you have the budget you’ll shortlist around ±20% of that figure. FORBIDDEN: any villas, prices, ranges like 500k–9M, or catalog links. One question only.`;
+  }
+  if (lang === 'es') {
+    return `El cliente pide VER inmuebles, pero el presupuesto es DESCONOCIDO. Agradece el interés. Pregunta explícitamente el ${
+      isInvestment ? '*presupuesto de inversión* en €' : '*presupuesto* en €'
+    }. Ejemplo: «${example}». Di que con el presupuesto mostrarás opciones en torno a ±20%. PROHIBIDO: villas, precios, rangos 500k–9M o enlaces. Solo una pregunta.`;
+  }
+  return `Клиент просит ПОКАЗАТЬ объекты, но бюджет НЕ известен. Коротко поблагодари за интерес. ЯВНО спроси ${
+    isInvestment ? '*бюджет для инвестиции* в €' : '*бюджет* / диапазон стоимости в €'
+  }. Образец: «${example}». Скажи, что после бюджета покажешь варианты в коридоре ±20% от названной суммы. ЗАПРЕЩЕНО: виллы, цены, вилки вроде 500k–9M, любые ссылки на объекты. Только один вопрос — про бюджет.`;
+}
+
+function formatBudgetBandLabel(budget, lang = 'ru') {
+  const band = expandBudgetBand(budget);
+  if (!band) return '';
+  const fmt = (n) => `€${Number(n).toLocaleString('en-US')}`;
+  const range = `${fmt(band.floor)}–${fmt(band.ceiling)}`;
+  if (lang === 'en') return `±20% band ${range}`;
+  if (lang === 'es') return `banda ±20% ${range}`;
+  return `коридор ±20% ${range}`;
+}
+
+function getInvestmentBudgetInstruction(lang, dialog) {
+  const example =
+    dialog?.budgetQuestionExample || pickBudgetQuestionExample(lang === 'en' ? 'en' : 'ru');
+  if (lang === 'en') {
+    return `Investment path. Ask the *investment budget* in € softly (not "what's your budget?"). Example vibe: «${example}». Hints: up to €300k / €300–600k / €600k+. One question. No listings yet. Timeline and cash-on-hand come next.`;
+  }
+  if (lang === 'es') {
+    return `Rama inversión. Pregunta el *presupuesto de inversión* en € con suavidad. Ejemplo: «${example}». Orientación: hasta 300k / 300–600k / desde 600k. Una pregunta. Sin fichas. Luego plazo y dinero ahora.`;
+  }
+  return `Ветка инвестиций. Спроси *бюджет для инвестиций* в € мягко (не в лоб). Образец: «${example}». Ориентиры: до 300k / 300–600k / от 600k. Один вопрос. Объекты НЕ показывай. Дальше — срок и деньги на руках.`;
+}
+
+function getInvestmentTimelineInstruction(lang) {
+  if (lang === 'en') {
+    return `Investment budget is known — do not re-ask. No listings yet. First briefly confirm you remembered the budget (e.g. «Got it — €2M.» / use the exact figure from criteria). Then one short warm question about *when they plan to buy/invest*. Preferred wording: «When do you plan to make the purchase? In 2 months, 3 months, or later?» Separate message, not with budget.`;
+  }
+  if (lang === 'es') {
+    return `Presupuesto de inversión ya conocido — no lo repitas. Sin fichas. Primero confirma en breve que lo recordaste (p. ej. «Perfecto, anotado — 2 millones.» con la cifra de criterios). Luego una pregunta clara: *cuándo planean comprar/invertir*. Formulación preferida: «¿Cuándo planean realizar la compra? ¿En 2 meses, 3 meses o más adelante?»`;
+  }
+  return `Бюджет для инвестиций уже известен — НЕ переспрашивай. Подборку пока не высылай. Сначала коротко подтверди, что запомнил бюджет (как в правиле: «Отлично, запомнил — …» с цифрой из критериев, напр. 2 миллиона). Затем один вопрос про *срок покупки/инвестирования*. Формулировка из правил: «Когда вы планируете совершить покупку? Через 2 месяца, 3 месяца или позже?» Отдельным сообщением, не вместе с бюджетом.`;
+}
+
+/** Клиент только что назвал бюджет — явное «запомнил» + запрет переспроса. */
+function getJustRememberedBudgetInstruction(lang, budget) {
+  const label = formatBudgetLabel(budget, lang) || '';
+  const figure =
+    label ||
+    (lang === 'en' ? 'the stated budget' : lang === 'es' ? 'el presupuesto indicado' : 'названный бюджет');
+  if (lang === 'en') {
+    return `**CONTEXT MEMORY (critical):** Client JUST stated the budget (${figure}). Briefly confirm you remembered it — e.g. «Got it — ${figure}.» — then ask ONLY the next missing step. NEVER ask «what is your budget?» again.`;
+  }
+  if (lang === 'es') {
+    return `**MEMORIA DE CONTEXTO (crítico):** El cliente ACABA de indicar el presupuesto (${figure}). Confirma en breve que lo recordaste — p. ej. «Perfecto, anotado — ${figure}.» — y pregunta SOLO el siguiente paso. NUNCA vuelvas a preguntar el presupuesto.`;
+  }
+  return `**ПАМЯТЬ КОНТЕКСТА (критично):** Клиент ТОЛЬКО ЧТО назвал бюджет (${figure}). Коротко подтверди, что запомнил — например: «Отлично, запомнил — ${figure}.» — и сразу спроси ТОЛЬКО следующий недостающий шаг. НИКОГДА не спрашивай снова «какой у вас бюджет?».`;
+}
+
+function getInvestmentSelectionPreamble(lang) {
+  if (lang === 'en') {
+    return `**Investment selection (price already known):** Budget, timeline and finances are set. Now collect type/region/area only — do NOT re-ask price. Then shortlist.`;
+  }
+  if (lang === 'es') {
+    return `**Selección inversión (precio ya conocido):** Presupuesto, plazo y finanzas listos. Ahora solo tipo/región/zona — NO repitas el precio. Luego la selección.`;
+  }
+  return `**Подбор для инвестиций (цена уже известна):** Бюджет, срок и финансы собраны. Сейчас только тип/регион/район — цену НЕ переспрашивай. Потом подборка.`;
+}
+
+function getEscalationInstruction(lang = 'ru') {
+  if (lang === 'en') {
+    return `**ESCALATION:** The client raised a complaint or a complex specialist topic. Stay calm and empathetic. Do not argue or invent legal promises. Softly offer a 10–15 min call with a specialist/manager. One yes/no question.`;
+  }
+  if (lang === 'es') {
+    return `**ESCALADO:** Hay queja o tema complejo de especialista. Mantén la calma y empatía. No discutas ni inventes promesas legales. Ofrece con suavidad una llamada de 10–15 min con un especialista/manager. Una pregunta sí/no.`;
+  }
+  return `**ЭСКАЛАЦИЯ:** Клиент с жалобой или сложным запросом к специалисту. Спокойно и с эмпатией. Не спорь и не обещай юридически невозможное. Мягко предложи созвон 10–15 мин со специалистом/менеджером. Один вопрос да/нет.`;
+}
 
 function resolveStageInstruction(stage, dialog) {
   let text = stageInstructions[stage] || stageInstructions.REFINE;
@@ -304,13 +612,17 @@ function resolveStageInstruction(stage, dialog) {
   const callOfferContext = dialog.callOfferContext || 'ваш запрос';
   const budgetQuestionExample =
     dialog.budgetQuestionExample || pickBudgetQuestionExample('ru');
+  const budgetBandHint = dialog.budgetBandLabel
+    ? ` (${dialog.budgetBandLabel})`
+    : '';
   return text
     .replace(/\{propertyTypeLabel\}/g, typeLabel)
     .replace(/\{regionLabel\}/g, regionLabel)
     .replace(/\{microAreaLabel\}/g, microAreaLabel)
     .replace(/\{areaOptionsPrompt\}/g, areaOptionsPrompt)
     .replace(/\{callOfferContext\}/g, callOfferContext)
-    .replace(/\{budgetQuestionExample\}/g, budgetQuestionExample);
+    .replace(/\{budgetQuestionExample\}/g, budgetQuestionExample)
+    .replace(/\{budgetBandHint\}/g, budgetBandHint);
 }
 
 function buildCatalogSearchQuery(history) {
@@ -355,12 +667,14 @@ function extractBudgetRange(text) {
     if (v == null) return;
     if (mode === 'max') maxPrice = maxPrice == null ? v : Math.max(maxPrice, v);
     else if (mode === 'min') minPrice = minPrice == null ? v : Math.min(minPrice, v);
-    else {
-      // around / plain → коридор
-      const floor = Math.round(v * 0.92);
-      const ceil = Math.round(v * 1.12);
-      minPrice = minPrice == null ? floor : Math.min(minPrice, floor);
-      maxPrice = maxPrice == null ? ceil : Math.max(maxPrice, ceil);
+    else if (mode === 'target') {
+      // Одна цифра бюджета («2 миллиона») — якорь; коридор ±20% даст derivePriceTarget
+      maxPrice = v;
+      minPrice = null;
+    } else {
+      // around / около — тоже якорь, без предрасширения ±12% (иначе ±20% сверху раздувает вилку)
+      maxPrice = v;
+      minPrice = null;
     }
   };
 
@@ -408,7 +722,7 @@ function extractBudgetRange(text) {
   )];
   if (withUnit.length) {
     const m = withUnit[withUnit.length - 1];
-    if (maxPrice == null && minPrice == null) take(m[1], m[2], 'around');
+    if (maxPrice == null && minPrice == null) take(m[1], m[2], 'target');
     else if (maxPrice == null) take(m[1], m[2], 'max');
   }
 
@@ -419,30 +733,20 @@ function extractBudgetRange(text) {
       const digits = bare[bare.length - 1][1].replace(/[^\d]/g, '');
       const v = parseInt(digits, 10);
       if (Number.isFinite(v) && v >= 50000) {
-        if (/(?:до|hasta|up\s*to|макс|under|below|bis|jusqu|budget|presupuesto|бюджет)/i.test(s)) {
-          // «бюджет 350000» / «budget 350k» — потолок, не коридор ±12%
-          maxPrice = v;
-        } else {
-          minPrice = Math.round(v * 0.92);
-          maxPrice = Math.round(v * 1.12);
-        }
+        // Одна сумма = якорь бюджета; ±20% применяется в derivePriceTarget
+        maxPrice = v;
       }
     }
   }
 
-  // словесные: до двух миллионов
+  // словесные: «двух миллионов» / «до двух миллионов»
   const wordMillions = s.match(
     /(?:до|hasta|up\s*to|около|around)?\s*(одного|одной|двух|трёх|трех|четырех|четырёх|пяти|шести|семи|восьми|девяти|десяти|one|two|three|four|five|un|una|dos|tres|cuatro|cinco)\s+(миллион\w*|million\w*|millon\w*)/i
   );
   if (wordMillions && maxPrice == null && minPrice == null) {
     const n = wordToNumber(wordMillions[1]);
     if (n != null) {
-      const v = n * 1_000_000;
-      if (/(?:до|hasta|up\s*to)/i.test(wordMillions[0])) maxPrice = v;
-      else {
-        minPrice = Math.round(v * 0.92);
-        maxPrice = Math.round(v * 1.12);
-      }
+      maxPrice = n * 1_000_000;
     }
   }
 
@@ -511,43 +815,18 @@ function parseBudgetNumber(numStr, unit, fullText) {
 }
 
 /**
- * Целевой коридор цены для подборки: не уводить клиента на сильно дешёвые объекты.
+ * Целевой коридор цены для подборки: ±20% от бюджета (правило 6).
  * @param {{ minPrice: number|null, maxPrice: number|null }} budget
  * @param {{ preferNearMax?: boolean }} [opts]
- * @returns {{ anchor: number, floor: number, ceiling: number, hardMax?: number, hardMin?: number }|null}
+ * @returns {{ anchor: number, floor: number, ceiling: number, hardMax?: number, hardMin?: number, ratio?: number }|null}
  */
 function derivePriceTarget(budget, opts = {}) {
-  const { minPrice, maxPrice } = budget || {};
-  if (minPrice == null && maxPrice == null) return null;
-
-  let anchor;
-  let floor;
-  let ceiling;
-  let hardMax;
-  let hardMin;
-
-  if (minPrice != null && maxPrice != null) {
-    anchor = Math.round((minPrice + maxPrice) / 2);
-    floor = Math.round(minPrice * 0.95);
-    ceiling = Math.round(maxPrice * 1.08);
-    hardMin = Math.round(minPrice * 0.88);
-    hardMax = Math.round(maxPrice * 1.12);
-  } else if (maxPrice != null) {
-    // «до 1 млн» — якорь у верхней границы, не уводить на объекты за полцены
-    anchor = Math.round(maxPrice * (opts.preferNearMax === false ? 0.85 : 0.92));
-    floor = Math.round(maxPrice * 0.7);
-    ceiling = Math.round(maxPrice * 1.08);
-    hardMin = Math.round(maxPrice * 0.55);
-    hardMax = Math.round(maxPrice * 1.12);
-  } else {
-    anchor = minPrice;
-    floor = Math.round(minPrice * 0.95);
-    ceiling = Math.round(minPrice * 1.2);
-    hardMin = Math.round(minPrice * 0.9);
-    hardMax = Math.round(minPrice * 1.35);
+  const band = expandBudgetBand(budget);
+  if (!band) return null;
+  if (budget?.maxPrice != null && budget?.minPrice == null && opts.preferNearMax === false) {
+    band.anchor = Math.round(budget.maxPrice * 0.85);
   }
-
-  return { anchor, floor, ceiling, hardMax, hardMin };
+  return band;
 }
 
 /** Клиент просит дороже / повысить бюджет. */
@@ -650,7 +929,19 @@ function buildDialogMemoryBlock(state, lang = 'ru') {
   const known = [];
   const neverAsk = [];
   if (state.hasPurpose) {
-    known.push(lang === 'es' ? 'objetivo' : lang === 'en' ? 'purpose' : 'цель');
+    const purposeLabel =
+      state.purposeKind === 'investment'
+        ? lang === 'es'
+          ? 'objetivo: inversión'
+          : lang === 'en'
+            ? 'goal: investment'
+            : 'цель: инвестиции'
+        : lang === 'es'
+          ? 'objetivo: vivir'
+          : lang === 'en'
+            ? 'goal: living'
+            : 'цель: для себя/жизнь';
+    known.push(purposeLabel);
     neverAsk.push(lang === 'es' ? 'objetivo' : lang === 'en' ? 'purpose/goal' : 'цель (жизнь/инвестиция)');
   }
   if (state.hasType) {
@@ -674,6 +965,36 @@ function buildDialogMemoryBlock(state, lang = 'ru') {
         : lang === 'en'
           ? `budget${bl ? ` (${bl})` : ''}`
           : `бюджет${bl ? ` (${bl})` : ''}`
+    );
+  }
+  if (state.hasTimeline) {
+    known.push(
+      lang === 'es' ? 'plazo' : lang === 'en' ? 'timeline' : 'срок покупки'
+    );
+    neverAsk.push(
+      lang === 'es'
+        ? 'plazo de compra'
+        : lang === 'en'
+          ? 'purchase timeline'
+          : 'срок покупки/инвестиции'
+    );
+  }
+  if (state.hasFundsNow) {
+    known.push(
+      lang === 'es' ? 'dinero ahora' : lang === 'en' ? 'cash on hand' : 'деньги на руках'
+    );
+    neverAsk.push(
+      lang === 'es'
+        ? 'efectivo disponible'
+        : lang === 'en'
+          ? 'cash available now'
+          : 'деньги сейчас на руках'
+    );
+  }
+  if (state.hasMortgageAnswered) {
+    known.push(lang === 'es' ? 'hipoteca' : lang === 'en' ? 'mortgage' : 'ипотека да/нет');
+    neverAsk.push(
+      lang === 'es' ? 'hipoteca sí/no' : lang === 'en' ? 'mortgage yes/no' : 'нужна ли ипотека'
     );
   }
 
@@ -712,25 +1033,33 @@ function buildDialogMemoryBlock(state, lang = 'ru') {
                 : ' Клиент просит ещё/похожие — сразу новая подборка по этим критериям, без вопросов про бюджет/район/тип.'
     : '';
 
+  const budgetLock = state.hasBudget
+    ? lang === 'es'
+      ? ' El presupuesto está guardado en este chat (y en la base) — NUNCA preguntes de nuevo «¿cuál es su presupuesto?» salvo que el cliente lo cambie.'
+      : lang === 'en'
+        ? ' Budget is stored for this chat (and in DB) — NEVER ask «what is your budget?» again unless the client changes it.'
+        : ' Бюджет сохранён в этом чате (и в БД) — НИКОГДА не спрашивай снова «какой у вас бюджет?», пока клиент сам не изменит цифру.'
+    : '';
+
   if (lang === 'es') {
-    return `**MEMORIA DEL DIÁLOGO (obligatorio):** Ya sabemos: ${known.join('; ')}. NO vuelvas a preguntar: ${neverAsk.join(', ')}.${locationLock}${moreHint} Pregunta solo lo que aún falta.`;
+    return `**MEMORIA DEL DIÁLOGO (obligatorio):** Ya sabemos: ${known.join('; ')}. NO vuelvas a preguntar: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Pregunta solo lo que aún falta.`;
   }
   if (lang === 'en') {
-    return `**DIALOG MEMORY (mandatory):** Already known: ${known.join('; ')}. Do NOT re-ask: ${neverAsk.join(', ')}.${locationLock}${moreHint} Ask only for what is still missing.`;
+    return `**DIALOG MEMORY (mandatory):** Already known: ${known.join('; ')}. Do NOT re-ask: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Ask only for what is still missing.`;
   }
   if (lang === 'de') {
-    return `**DIALOGGEDÄCHTNIS (pflicht):** Bereits bekannt: ${known.join('; ')}. NICHT erneut fragen: ${neverAsk.join(', ')}.${locationLock}${moreHint} Nur fragen, was noch fehlt.`;
+    return `**DIALOGGEDÄCHTNIS (pflicht):** Bereits bekannt: ${known.join('; ')}. NICHT erneut fragen: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Nur fragen, was noch fehlt.`;
   }
   if (lang === 'fr') {
-    return `**MÉMOIRE DU DIALOGUE (obligatoire):** Déjà connu: ${known.join('; ')}. NE PAS redemander: ${neverAsk.join(', ')}.${locationLock}${moreHint} Demander seulement ce qui manque.`;
+    return `**MÉMOIRE DU DIALOGUE (obligatoire):** Déjà connu: ${known.join('; ')}. NE PAS redemander: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Demander seulement ce qui manque.`;
   }
   if (lang === 'pl') {
-    return `**PAMIĘĆ DIALOGU (obowiązkowe):** Już wiadomo: ${known.join('; ')}. NIE pytaj ponownie: ${neverAsk.join(', ')}.${locationLock}${moreHint} Pytaj tylko o to, czego jeszcze brakuje.`;
+    return `**PAMIĘĆ DIALOGU (obowiązkowe):** Już wiadomo: ${known.join('; ')}. NIE pytaj ponownie: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Pytaj tylko o to, czego jeszcze brakuje.`;
   }
   if (lang === 'nl') {
-    return `**DIALOOGGEHEUGEN (verplicht):** Al bekend: ${known.join('; ')}. NIET opnieuw vragen: ${neverAsk.join(', ')}.${locationLock}${moreHint} Vraag alleen wat nog ontbreekt.`;
+    return `**DIALOOGGEHEUGEN (verplicht):** Al bekend: ${known.join('; ')}. NIET opnieuw vragen: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Vraag alleen wat nog ontbreekt.`;
   }
-  return `**ПАМЯТЬ ДИАЛОГА (обязательно):** Уже известно: ${known.join('; ')}. НЕ переспрашивай: ${neverAsk.join(', ')}.${locationLock}${moreHint} Спрашивай только то, чего ещё нет.`;
+  return `**ПАМЯТЬ ДИАЛОГА (обязательно):** Уже известно: ${known.join('; ')}. НЕ переспрашивай: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Спрашивай только то, чего ещё нет.`;
 }
 
 /** @deprecated use parseBudgetNumber — оставлено для совместимости тестов */
@@ -746,9 +1075,13 @@ module.exports = {
   resolveEffectiveBudget,
   wantsMoreExpensive,
   formatBudgetLabel,
+  formatBudgetBandLabel,
   buildDialogMemoryBlock,
   budgetHasSignal,
   wantsIgnoreBudget,
+  detectInvestmentTimeline,
+  wantsEscalation,
+  detectPurposeKind,
   LOCATION_KEYWORDS,
   detectMicroAreas,
   detectRegionPreference,
