@@ -2,7 +2,7 @@ diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modu
 index 540078a..c38ecc4 100644
 --- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
 +++ b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
-@@ -582,7 +582,7 @@ exports.LoadUtils = () => {
+@@ -582,7 +582,7 @@
  
          return window
              .require('WAWebCollections')
@@ -11,7 +11,7 @@ index 540078a..c38ecc4 100644
      };
  
      window.WWebJS.editMessage = async (msg, content, options = {}) => {
-@@ -625,7 +625,9 @@ exports.LoadUtils = () => {
+@@ -625,7 +625,9 @@
          await window
              .require('WAWebSendMessageEditAction')
              .sendMessageEdit(msg, content, internalOptions);
@@ -22,7 +22,15 @@ index 540078a..c38ecc4 100644
      };
  
      window.WWebJS.toStickerData = async (mediaInfo) => {
-@@ -834,6 +836,15 @@ exports.LoadUtils = () => {
+@@ -830,10 +832,22 @@
+ 
+         if (typeof msg.id.remote === 'object') {
+             msg.id = Object.assign({}, msg.id, {
+-                remote: msg.id.remote._serialized,
++                remote:
++                    window.WWebJS.getMsgKeyId(msg.id.remote) ||
++                    msg.id.remote._serialized ||
++                    msg.id.remote.$1,
              });
          }
  
@@ -38,7 +46,7 @@ index 540078a..c38ecc4 100644
          delete msg.pendingAckUpdate;
  
          return msg;
-@@ -917,12 +928,21 @@ exports.LoadUtils = () => {
+@@ -917,12 +931,21 @@
          };
      };
  
@@ -64,20 +72,57 @@ index 540078a..c38ecc4 100644
      };
  
      window.WWebJS.getChannels = async () => {
-@@ -957,7 +977,11 @@ exports.LoadUtils = () => {
-             const groupMetadata =
-                 window.require('WAWebCollections').GroupMetadata ||
-                 window.require('WAWebCollections').WAWebGroupMetadataCollection;
+@@ -951,20 +974,36 @@
+ 
+         if (chat.groupMetadata) {
+             model.isGroup = true;
+-            const chatWid = window
+-                .require('WAWebWidFactory')
+-                .createWid(chat.id._serialized);
+-            const groupMetadata =
+-                window.require('WAWebCollections').GroupMetadata ||
+-                window.require('WAWebCollections').WAWebGroupMetadataCollection;
 -            await groupMetadata.update(chatWid);
+-            const { toPn } = window.require('WAWebLidMigrationUtils');
+-            const serializedMetadata = chat.groupMetadata.serialize();
+-            for (const p of serializedMetadata.participants || []) {
+-                p.id = toPn(p.id) ?? p.id;
++            const chatIdSerialized = window.WWebJS.getMsgKeyId(chat.id);
 +            try {
++                const chatWid = window
++                    .require('WAWebWidFactory')
++                    .createWid(chatIdSerialized);
++                const groupMetadata =
++                    window.require('WAWebCollections').GroupMetadata ||
++                    window.require('WAWebCollections')
++                        .WAWebGroupMetadataCollection;
 +                await groupMetadata.update(chatWid);
++                const { toPn } = window.require('WAWebLidMigrationUtils');
++                const serializedMetadata = chat.groupMetadata.serialize();
++                for (const p of serializedMetadata.participants || []) {
++                    p.id = toPn(p.id) ?? p.id;
++                }
++                model.groupMetadata = serializedMetadata;
++                model.isReadOnly = chat.groupMetadata.announce;
 +            } catch {
++                // LID / metadata / $1 — группа без metadata, но чат в списке остаётся.
 +                model.groupMetadata = null;
 +            }
-             const { toPn } = window.require('WAWebLidMigrationUtils');
-             const serializedMetadata = chat.groupMetadata.serialize();
-             for (const p of serializedMetadata.participants || []) {
-@@ -981,16 +1005,17 @@ exports.LoadUtils = () => {
++        }
++
++        if (model.id && typeof model.id === 'object' && model.id._serialized == null) {
++            const chatSerialized = window.WWebJS.getMsgKeyId(model.id);
++            if (chatSerialized) {
++                model.id = Object.assign({}, model.id, {
++                    _serialized: chatSerialized,
++                });
+             }
+-            model.groupMetadata = serializedMetadata;
+-            model.isReadOnly = chat.groupMetadata.announce;
+         }
+ 
+         if (chat.newsletterMetadata) {
+@@ -981,16 +1020,17 @@
  
          model.lastMessage = null;
          if (model.msgs && model.msgs.length) {
@@ -104,7 +149,7 @@ diff --git a/node_modules/whatsapp-web.js/src/util/Puppeteer.js b/node_modules/w
 index 54df700..b707cc4 100644
 --- a/node_modules/whatsapp-web.js/src/util/Puppeteer.js
 +++ b/node_modules/whatsapp-web.js/src/util/Puppeteer.js
-@@ -17,7 +17,14 @@ async function exposeFunctionIfAbsent(page, name, fn) {
+@@ -17,7 +17,14 @@
      if (exist) {
          return;
      }

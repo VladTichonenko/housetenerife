@@ -63,12 +63,18 @@ ENV DBUS_SESSION_BUS_ADDRESS=/dev/null
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
+# Патчи нужны ДО npm ci: postinstall → patch-package (иначе wwebjs без $1/_serialized фикса)
+COPY patches ./patches
 # Puppeteer postinstall скачивает Chrome, совместимый с puppeteer-core из whatsapp-web.js
 RUN npm ci --omit=dev \
-  && node -e "const p=require('puppeteer'); const e=p.executablePath(); const fs=require('fs'); if(!fs.existsSync(e)) { console.error('Chrome not found:', e); process.exit(1); } console.log('✅ Puppeteer Chrome:', e);"
+  && node -e 'const fs=require("fs"); const s=fs.readFileSync("node_modules/whatsapp-web.js/src/util/Injected/Utils.js","utf8"); if(!s.includes("getMsgKeyId") || !s.includes("$1")) { console.error("❌ whatsapp-web.js patch NOT applied"); process.exit(1); } console.log("✅ whatsapp-web.js patch applied");' \
+  && node -e 'const p=require("puppeteer"); const e=p.executablePath(); const fs=require("fs"); if(!fs.existsSync(e)) { console.error("Chrome not found:", e); process.exit(1); } console.log("✅ Puppeteer Chrome:", e);'
 
 # Код приложения (web/dist в .dockerignore — не перезапишет сборку)
 COPY . .
+# На случай если COPY перезапишет что-то в node_modules — повторно накатываем патч
+RUN npx patch-package \
+  && node -e "const fs=require('fs'); const s=fs.readFileSync('node_modules/whatsapp-web.js/src/util/Injected/Utils.js','utf8'); if(!s.includes('getMsgKeyId')) { console.error('❌ patch missing after COPY'); process.exit(1); }"
 
 RUN node scripts/ingest-file-doc.js || test -f data/file-doc-knowledge.json
 

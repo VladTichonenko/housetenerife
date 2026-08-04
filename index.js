@@ -801,7 +801,7 @@ function startMessagePolling() {
           }
         } catch (stateErr) {
           if (isPuppeteerProtocolTimeout(stateErr)) {
-            markChromiumSlow(60000);
+            noteCdpHang(60000);
             stillConnected = true;
           }
         }
@@ -1338,51 +1338,20 @@ client.on('ready', async () => {
       console.warn('⚠️ Не удалось получить информацию о клиенте:', infoError.message);
     }
 
-    // getChats на старте часто «r»/hang — короткий race, иначе блокируем CDP на protocolTimeout.
-    try {
-      const chats = await Promise.race([
-        client.getChats(),
-        new Promise((_, reject) => {
-          const err = new Error('getChats soft timeout after 8000ms');
-          err.code = 'WA_GETCHATS_SOFT_TIMEOUT';
-          setTimeout(() => reject(err), 8000);
-        }),
-      ]);
-      console.log(`💬 Доступно чатов: ${chats.length}`);
-      if (chats.length > 0) {
-        console.log(
-          `📋 Первые 3 чата: ${chats
-            .slice(0, 3)
-            .map((c) => c.name || c.id.user || 'без имени')
-            .join(', ')}`
-        );
-      }
-    } catch (chatsError) {
-      if (
-        chatsError?.code === 'WA_GETCHATS_SOFT_TIMEOUT' ||
-        isChatLoadError(chatsError) ||
-        isPuppeteerProtocolTimeout(chatsError)
-      ) {
-        console.warn(
-          `⚠️ Список чатов пока недоступен (${chatsError.message}) — Store/CDP ещё прогревается, это не FATAL`
-        );
-        markChromiumSlow(20000);
-      } else {
-        console.warn('⚠️ Не удалось получить список чатов:', chatsError.message);
-      }
-    }
+    // Не вызываем getChats() на старте: при WA Web 2.3000 без патча это даёт «r»
+    // и может забить CDP. Polling сам подхватит чаты после warmup.
 
     console.log('🔍 Диагностика завершена. Бот готов получать сообщения.');
 
     console.log('📡 Входящие: события message + message_create + polling (резерв), очередь по чату');
     startMessageMaintenance();
-    // Даём WA Web/Store чуть осесть после ready, иначе getChats → «r» + CDP timeouts.
-    markChromiumSlow(15000);
+    // Даём WA Web/Store чуть осесть после ready (warmup, не CDP hang).
+    markChromiumSlow(20000);
     startMessagePolling();
   } catch (error) {
     console.warn('⚠️ Не удалось подтвердить состояние клиента:', error.message);
     startMessageMaintenance();
-    markChromiumSlow(15000);
+    markChromiumSlow(20000);
     startMessagePolling();
   }
 });
@@ -1950,7 +1919,7 @@ function startWhatsAppSessionWatchdog() {
   let lastTransientLogAt = 0;
 
   trackedSetInterval(async () => {
-    if (isManualLogoutInProgress || isReconnecting || cdpRecoveryInFlight) return;
+    if (!botReady || isManualLogoutInProgress || isReconnecting || cdpRecoveryInFlight) return;
     // Не запускаем новый CDP-вызов, пока предыдущий getState ещё не завершился.
     // Иначе при нагрузке несколько Runtime.callFunctionOn зависают одновременно.
     if (probeInFlight) {
