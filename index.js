@@ -207,6 +207,18 @@ let chromiumSlowUntil = 0;
 let cdpHangSince = 0;
 let cdpHangCount = 0;
 let cdpRecoveryInFlight = false;
+/** Последняя живая активность WA (входящее/исходящее/ack) — getState может тупить при живой сессии. */
+let lastWhatsAppActivityAt = 0;
+
+function touchWhatsAppActivity() {
+  lastWhatsAppActivityAt = Date.now();
+  // Живой трафик снимает «hang» — иначе watchdog перезапустит рабочую сессию.
+  if (cdpHangSince) clearCdpHang();
+}
+
+function hasRecentWhatsAppActivity(withinMs = 120000) {
+  return lastWhatsAppActivityAt > 0 && Date.now() - lastWhatsAppActivityAt < withinMs;
+}
 
 function markChromiumSlow(ms = 60000) {
   const pauseMs = Math.max(15000, Number(ms) || 60000);
@@ -224,23 +236,36 @@ function clearCdpHang() {
 
 /** Таймаут CDP (не intentional warmup) — копим для recovery. */
 function noteCdpHang(pauseMs = 60000) {
+  // Не копим hang и не глушим polling надолго, если сообщения/ack только что ходили.
+  if (hasRecentWhatsAppActivity(300000)) {
+    markChromiumSlow(Math.min(pauseMs, 15000));
+    return;
+  }
   markChromiumSlow(pauseMs);
   if (!cdpHangSince) cdpHangSince = Date.now();
   cdpHangCount += 1;
 }
 
+function isCdpRecoveryEnabled() {
+  // По умолчанию ВЫКЛ: getState timeout ≠ мёртвая сессия (сообщения могут идти).
+  // Включить только явно: WA_CDP_RECOVERY=1
+  return process.env.WA_CDP_RECOVERY === '1' || process.env.WA_CDP_RECOVERY === 'true';
+}
+
 function getCdpRecoveryThresholdMs() {
   const configured = parseInt(process.env.WA_CDP_RECOVERY_MS, 10);
-  return Number.isFinite(configured) && configured >= 60000 ? configured : 180000;
+  // Минимум 10 мин — короткие пороги ложно роняли живую сессию после ack.
+  return Number.isFinite(configured) && configured >= 600000 ? configured : 600000;
 }
 
 function shouldRecoverFromCdpHang() {
+  if (!isCdpRecoveryEnabled()) return false;
   if (!cdpHangSince || cdpRecoveryInFlight || isReconnecting || isManualLogoutInProgress) {
     return false;
   }
-  // Достаточно одного зафиксированного hang + порог по времени:
-  // пока probeInFlight занят, новые таймауты не копятся.
-  const minHangs = Math.max(1, parseInt(process.env.WA_CDP_RECOVERY_MIN_HANGS, 10) || 1);
+  // Нельзя рестартить Chromium, пока сессия явно живая (ответы/acks).
+  if (hasRecentWhatsAppActivity(300000)) return false;
+  const minHangs = Math.max(3, parseInt(process.env.WA_CDP_RECOVERY_MIN_HANGS, 10) || 3);
   return (
     cdpHangCount >= minHangs &&
     Date.now() - cdpHangSince >= getCdpRecoveryThresholdMs()
@@ -439,7 +464,6 @@ function getOutboundDelayMs(text) {
 
 async function sendMessageSafely(msg, text, client) {
   const chatId = msg.from;
-  const isLid = String(chatId || '').includes('@lid');
 
   const delayMs = getOutboundDelayMs(text);
   if (delayMs > 0) {
@@ -450,40 +474,31 @@ async function sendMessageSafely(msg, text, client) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
-  // Для @lid сначала reply — getChatById часто падает после миграции WhatsApp на LID
-  const attempts = isLid
-    ? [
-        ['reply', async () => msg.reply(text)],
-        ['sendMessage', async () => client.sendMessage(chatId, text, { sendSeen: false })],
-        [
-          'chat.sendMessage',
-          async () => {
-            const chat = await msg.getChat();
-            await chat.sendMessage(text);
-          },
-        ],
-      ]
-    : [
-        [
-          'chat.sendMessage',
-          async () => {
-            const chat = await msg.getChat();
-            await chat.sendMessage(text);
-          },
-        ],
-        ['sendMessage', async () => client.sendMessage(chatId, text, { sendSeen: false })],
-        ['reply', async () => msg.reply(text)],
-      ];
+  // Обычные сообщения, не «ответ с цитатой». msg.reply() всегда цитирует входящее —
+  // поэтому reply только как крайний fallback (часто нужен для @lid, если sendMessage падает).
+  const attempts = [
+    ['sendMessage', async () => client.sendMessage(chatId, text, { sendSeen: false })],
+    [
+      'chat.sendMessage',
+      async () => {
+        const chat = await msg.getChat();
+        await chat.sendMessage(text);
+      },
+    ],
+    ['reply', async () => msg.reply(text)],
+  ];
 
   let lastError = null;
   for (const [label, fn] of attempts) {
     try {
       await fn();
+      touchWhatsAppActivity();
       return;
     } catch (err) {
       lastError = err;
       if (isMarkedUnreadError(err)) {
         console.log(`⚠️ markedUnread при ${label} — сообщение могло уйти`);
+        touchWhatsAppActivity();
         return;
       }
       console.error(`❌ Ошибка отправки через ${label}:`, err.message || err);
@@ -495,10 +510,12 @@ async function sendMessageSafely(msg, text, client) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
     await client.sendMessage(chatId, text, { sendSeen: false });
     console.log('✅ Сообщение отправлено после задержки');
+    touchWhatsAppActivity();
     return;
   } catch (finalError) {
     if (isMarkedUnreadError(finalError)) {
       console.log('⚠️ Ошибка markedUnread, но сообщение может быть отправлено');
+      touchWhatsAppActivity();
       return;
     }
     console.error('❌ Все методы отправки не сработали:', finalError.message || lastError?.message);
@@ -854,6 +871,7 @@ async function withChatTyping(msg, work) {
 
 function dispatchIncomingMessage(msg, source) {
   if (msg.fromMe) return;
+  touchWhatsAppActivity();
   const chatId = msg.from || msg.id?.remote || '?';
   enqueueForChat(chatId, () => processIncomingMessage(msg, source)).catch((error) => {
     console.error(`❌ Ошибка обработки сообщения (${source}):`, error.message);
@@ -1923,6 +1941,8 @@ function startWhatsAppSessionWatchdog() {
     // Не запускаем новый CDP-вызов, пока предыдущий getState ещё не завершился.
     // Иначе при нагрузке несколько Runtime.callFunctionOn зависают одновременно.
     if (probeInFlight) {
+      // Не рестартим из‑за зависшего getState: soft-timeout уже есть, сессия может быть жива.
+      // Recovery только если явно включён WA_CDP_RECOVERY=1 и нет недавней активности.
       if (shouldRecoverFromCdpHang()) {
         recoverFromCdpHang('watchdog probe stuck').catch((reconnectError) =>
           console.error('❌ CDP recovery (stuck probe):', reconnectError.message)
@@ -1984,6 +2004,18 @@ function startWhatsAppSessionWatchdog() {
       // но не доказательство отключения WhatsApp. Не отправляем ложный алерт.
       if (transientTimeout && browserConnected) {
         watchErrors = 0;
+        // getState часто тупит под нагрузкой WA Web, хотя message/ack живые.
+        if (hasRecentWhatsAppActivity(300000)) {
+          markChromiumSlow(15000);
+          const now = Date.now();
+          if (now - lastTransientLogAt >= 10 * 60 * 1000) {
+            console.log(
+              `👁️ WhatsApp session watch: getState медленный, но сессия живая (activity ${Math.round((now - lastWhatsAppActivityAt) / 1000)}с назад)`
+            );
+            lastTransientLogAt = now;
+          }
+          return;
+        }
         noteCdpHang(Math.max(probeTimeoutMs, 45000));
         const now = Date.now();
         if (now - lastTransientLogAt >= 5 * 60 * 1000) {
@@ -1992,6 +2024,7 @@ function startWhatsAppSessionWatchdog() {
           );
           lastTransientLogAt = now;
         }
+        // Авто-рестарт по умолчанию выключен (см. WA_CDP_RECOVERY).
         if (shouldRecoverFromCdpHang()) {
           recoverFromCdpHang(err.message).catch((reconnectError) =>
             console.error('❌ CDP recovery (watchdog):', reconnectError.message)
@@ -2569,14 +2602,41 @@ client.on('error', (error) => {
   console.error('❌ Ошибка клиента:', error);
 });
 
-// Диагностика: логируем все события клиента для отладки
-const debugEvents = ['loading_screen', 'qr', 'authenticated', 'auth_failure', 'ready', 'disconnected', 'change_state', 'message', 'message_create', 'message_ack', 'message_revoke_everyone', 'message_revoke_me'];
-debugEvents.forEach(eventName => {
+// Диагностика: ключевые события (без message_ack — их слишком много на каждое сообщение)
+const debugEvents = [
+  'loading_screen',
+  'qr',
+  'authenticated',
+  'auth_failure',
+  'ready',
+  'disconnected',
+  'change_state',
+  'message',
+  'message_create',
+  'message_revoke_everyone',
+  'message_revoke_me',
+];
+if (process.env.WA_DEBUG_ACK === '1') {
+  debugEvents.push('message_ack');
+}
+debugEvents.forEach((eventName) => {
   client.on(eventName, (...args) => {
-    if (eventName !== 'message' && eventName !== 'message_create') {
-      console.log(`🔔 [EVENT DEBUG] Событие "${eventName}" вызвано`, args.length > 0 ? (typeof args[0] === 'object' ? JSON.stringify(args[0]).substring(0, 100) : args[0]) : '');
+    if (eventName === 'message' || eventName === 'message_create') return;
+    if (eventName === 'message_ack') {
+      touchWhatsAppActivity();
     }
+    const preview =
+      args.length > 0
+        ? typeof args[0] === 'object'
+          ? JSON.stringify(args[0]).substring(0, 100)
+          : args[0]
+        : '';
+    console.log(`🔔 [EVENT DEBUG] Событие "${eventName}" вызвано`, preview);
   });
+});
+// Ack без спама в лог — только метка «сессия живая»
+client.on('message_ack', () => {
+  touchWhatsAppActivity();
 });
 
 // ========== API ENDPOINTS ==========

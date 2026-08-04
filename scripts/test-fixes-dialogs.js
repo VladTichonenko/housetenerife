@@ -605,6 +605,15 @@ function runDeterministicTests() {
     /ГЛОБАЛЬНЫЕ ПРАВИЛА|не ставь точку/i.test(formatGlobalHumanChatRules('ru'))
   );
   check(
+    'cover: обращение на Вы',
+    /всегда обращение на «Вы»|ВСЕГДА обращение на «Вы»/i.test(formatGlobalHumanChatRules('ru'))
+  );
+  const { collapseDuplicateWarmMarkers } = require('../reply-warmth');
+  check(
+    'tone: не два смайла подряд',
+    collapseDuplicateWarmMarkers('Привет :) :) Как дела?') === 'Привет :) Как дела?'
+  );
+  check(
     'cover: финансы до подборки',
     analyzeConversation(user('инвестиции', 'бюджет 2 млн', 'через 2 месяца'), 'ru').stage ===
       'NEED_FUNDS_NOW'

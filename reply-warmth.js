@@ -75,6 +75,13 @@ function appendMarker(text, salesLang) {
   return `${trimmed}${marker}`;
 }
 
+function collapseDuplicateWarmMarkers(text) {
+  let out = String(text || '');
+  // «Привет :) :)» / «Привет 🙂 :)» → один маркер
+  out = out.replace(/([🙂😊👋👍]|:\)|;\)|:-\))\s*(?:[🙂😊👋👍]|:\)|;\)|:-\))+/gu, '$1');
+  return out;
+}
+
 /**
  * Добавляет один уместный смайлик / :) если модель не добавила.
  * Не в каждом сообщении — чтобы звучать как консультант, не как бот со смайлами.
@@ -83,16 +90,16 @@ function appendMarker(text, salesLang) {
  * @param {string} stage
  */
 function maybeAddWarmSmiley(text, salesLang, stage) {
-  const body = String(text || '').trim();
-  if (!body || hasWarmMarker(body)) return text;
+  const body = collapseDuplicateWarmMarkers(String(text || '').trim());
+  if (!body || hasWarmMarker(body)) return collapseDuplicateWarmMarkers(text);
   if (shouldSkipWarmth(stage)) return text;
   if (!WARM_STAGES.has(stage)) return text;
   if (!shouldInjectWarmth(stage, body)) return text;
 
   const withOpener = insertAfterOpener(body, salesLang);
-  if (withOpener) return withOpener;
+  if (withOpener) return collapseDuplicateWarmMarkers(withOpener);
 
-  return appendMarker(body, salesLang);
+  return collapseDuplicateWarmMarkers(appendMarker(body, salesLang));
 }
 
 function getWarmTonePromptBlock(salesLang) {
@@ -115,7 +122,7 @@ function getWarmTonePromptBlock(salesLang) {
   if (lang === 'nl') {
     return `**WARME TOON (WhatsApp):** Als een echt persoon in chat — korte regels, niet na elke zin een punt. Af en toe *één* 🙂 of :). Geen brochure-toon. Spiegel emoji van de klant.`;
   }
-  return `**ТЁПЛЫЙ ТОН (WhatsApp):** Пиши как живой человек в чате, не как робот. Короткие строки, не точка в конце каждой фразы подряд. На этапах диалога иногда *один* 🙂 или :) — обязательно в приветствии и примерно в каждом втором тёплом ответе. Пример: «Отлично :) Какой район ближе?» Если клиент прислал смайлик — дублируй его же. Запрещён тон буклета («Я предлагаю вам следующие варианты инвестиций…»). Не в плотной подборке со ссылками.`;
+  return `**ТЁПЛЫЙ ТОН (WhatsApp):** Пиши как живой человек в чате на «Вы», не как робот. Короткие строки, не точка в конце каждой фразы подряд. На этапах диалога иногда *один* 🙂 или :) — не два подряд. Пример: «Отлично :) Какой район ближе?» Если клиент прислал смайлик — дублируй его же. Запрещён тон буклета («Я предлагаю вам следующие варианты инвестиций…»). Не в плотной подборке со ссылками.`;
 }
 
 /**
@@ -158,7 +165,7 @@ function softenRoboticPunctuation(text, stage) {
     }
     return line;
   });
-  return out.join('\n');
+  return collapseDuplicateWarmMarkers(out.join('\n'));
 }
 
 module.exports = {
@@ -166,4 +173,5 @@ module.exports = {
   getWarmTonePromptBlock,
   softenRoboticPunctuation,
   hasWarmMarker,
+  collapseDuplicateWarmMarkers,
 };
