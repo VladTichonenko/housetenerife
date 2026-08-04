@@ -50,13 +50,14 @@ export default function Dashboard({ showToast }) {
       } else {
         setSessionQr(null);
       }
-    } catch {
-      setSession(null);
+    } catch (err) {
+      // Не затираем последний известный статус при таймауте CDP.
       setSessionQr(null);
+      showToast?.(err.message || 'Не удалось обновить статус', 'error');
     } finally {
       setSessionLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
   const logoutWhatsAppSession = useCallback(async () => {
     const result = await api.logoutSession();

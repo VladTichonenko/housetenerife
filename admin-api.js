@@ -61,19 +61,35 @@ function registerAdminRoutes(app, state) {
   });
 
   app.get('/api/admin/session', requireAdmin, async (req, res) => {
-    let clientState = 'unknown';
+    let ready = Boolean(state.botReady);
+    let clientState = state.waWatchState || (ready ? 'CONNECTED' : 'unknown');
+    let stateCached = true;
+
     try {
-      if (state.client) {
-        clientState = await state.client.getState();
+      if (typeof state.getAdminSessionSnapshot === 'function') {
+        const snap = await state.getAdminSessionSnapshot();
+        ready = Boolean(snap.ready);
+        clientState = snap.clientState || clientState;
+        stateCached = Boolean(snap.stateCached);
+      } else if (state.client) {
+        // Fallback: короткий race, без ожидания protocolTimeout (минуты)
+        const timeoutMs = 2500;
+        clientState = await Promise.race([
+          state.client.getState(),
+          new Promise((resolve) => setTimeout(() => resolve(clientState), timeoutMs)),
+        ]);
+        stateCached = clientState === (state.waWatchState || clientState);
+        ready = clientState === 'CONNECTED' || ready;
       }
-    } catch (e) {
-      clientState = 'error';
+    } catch {
+      clientState = state.waWatchState || 'error';
     }
 
     res.json({
       success: true,
-      ready: state.botReady,
+      ready,
       clientState,
+      stateCached,
       hasQr: Boolean(state.currentQr),
       account: state.accountInfo,
       manager: {

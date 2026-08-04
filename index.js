@@ -201,6 +201,18 @@ function buildFallbackChatFromMessage(msg) {
   };
 }
 
+/** CDP/Chromium временно «тупит» — не долбим getChats/getState параллельно. */
+let chromiumSlowUntil = 0;
+
+function markChromiumSlow(ms = 60000) {
+  const pauseMs = Math.max(15000, Number(ms) || 60000);
+  chromiumSlowUntil = Math.max(chromiumSlowUntil, Date.now() + pauseMs);
+}
+
+function isChromiumSlow() {
+  return Date.now() < chromiumSlowUntil;
+}
+
 function isTransientChatLookupError(err) {
   const msg = String(err?.message || err || '');
   return (
@@ -209,6 +221,7 @@ function isTransientChatLookupError(err) {
     msg.includes('Lid is missing') ||
     msg.includes('getChat') ||
     msg.includes('Evaluation failed') ||
+    isPuppeteerProtocolTimeout(err) ||
     isChatLoadError(err)
   );
 }
@@ -283,7 +296,8 @@ function isChatLoadError(err) {
     msg.includes('Cannot read properties of undefined') ||
     msg.includes('No LID') ||
     msg.includes('Lid is missing') ||
-    msg.includes('Evaluation failed')
+    msg.includes('Evaluation failed') ||
+    isPuppeteerProtocolTimeout(err)
   );
 }
 
@@ -583,6 +597,10 @@ function startMessagePolling() {
   global.pollingInterval = trackedSetInterval(async () => {
     if (!botReady) return;
     if (pollingInFlight || Date.now() < nextPollAt) return;
+    if (isChromiumSlow()) {
+      // Watchdog уже видит медленный CDP — не добавляем getChats поверх.
+      return;
+    }
     pollingInFlight = true;
 
     pollingCounter++;
@@ -632,6 +650,10 @@ function startMessagePolling() {
             dispatchIncomingMessage(msg, 'polling');
           }
         } catch (chatErr) {
+          if (isPuppeteerProtocolTimeout(chatErr)) {
+            markChromiumSlow(45000);
+            break;
+          }
           if (!isChatLoadError(chatErr) && pollingCounter % 20 === 0) {
             console.warn(`⚠️ [POLLING] чат ${getChatPollingKey(chat)}:`, chatErr.message);
           }
@@ -648,20 +670,24 @@ function startMessagePolling() {
     } catch (pollError) {
       lastPollingError = pollError;
       consecutivePollingErrors++;
-      const soft = isChatLoadError(pollError) || isTransientChatLookupError(pollError);
+      const soft =
+        isChatLoadError(pollError) ||
+        isTransientChatLookupError(pollError) ||
+        isPuppeteerProtocolTimeout(pollError);
       if (soft) {
-        // Ошибки Store/@lid не считаем смертью сессии и не атакуем Chromium
-        // повторным getChats каждые 3 секунды.
+        // Store/@lid/CDP timeout — не считаем смертью сессии и не долбим Chromium.
         softErrorStreak++;
+        const cdpSlow = isPuppeteerProtocolTimeout(pollError);
+        if (cdpSlow) markChromiumSlow(60000);
         const backoffMs = Math.min(
-          Math.max(pollMs, 5000) * Math.pow(2, Math.min(softErrorStreak - 1, 4)),
-          60000
+          Math.max(pollMs, cdpSlow ? 15000 : 5000) * Math.pow(2, Math.min(softErrorStreak - 1, 4)),
+          cdpSlow ? 120000 : 60000
         );
         nextPollAt = Date.now() + backoffMs;
         const now = Date.now();
         if (softErrorStreak === 1 || now - lastSoftErrorLogAt >= 5 * 60 * 1000) {
           console.warn(
-            `⚠️ [POLLING] Store недоступен (${pollError.message}); повтор через ${Math.round(backoffMs / 1000)} с`
+            `⚠️ [POLLING] ${cdpSlow ? 'Chromium/CDP медленный' : 'Store недоступен'} (${pollError.message}); повтор через ${Math.round(backoffMs / 1000)} с`
           );
           lastSoftErrorLogAt = now;
         }
@@ -673,9 +699,14 @@ function startMessagePolling() {
       if (!soft && consecutivePollingErrors >= reconnectThreshold) {
         let stillConnected = false;
         try {
-          stillConnected = (await client.getState()) === 'CONNECTED';
-        } catch {
-          /* ignore */
+          if (!isChromiumSlow()) {
+            stillConnected = (await client.getState()) === 'CONNECTED';
+          }
+        } catch (stateErr) {
+          if (isPuppeteerProtocolTimeout(stateErr)) {
+            markChromiumSlow(60000);
+            stillConnected = true;
+          }
         }
         if (stillConnected) {
           console.warn(
@@ -1214,13 +1245,22 @@ client.on('ready', async () => {
         console.log(`📋 Первые 3 чата: ${chats.slice(0, 3).map(c => c.name || c.id.user || 'без имени').join(', ')}`);
       }
     } catch (chatsError) {
-      console.warn('⚠️ Не удалось получить список чатов:', chatsError.message);
+      if (isChatLoadError(chatsError) || isPuppeteerProtocolTimeout(chatsError)) {
+        console.warn(
+          `⚠️ Список чатов пока недоступен (${chatsError.message}) — Store/CDP ещё прогревается, это не FATAL`
+        );
+        markChromiumSlow(20000);
+      } else {
+        console.warn('⚠️ Не удалось получить список чатов:', chatsError.message);
+      }
     }
     
     console.log('🔍 Диагностика завершена. Бот готов получать сообщения.');
     
     console.log('📡 Входящие: события message + message_create + polling (резерв), очередь по чату');
     startMessageMaintenance();
+    // Даём WA Web/Store чуть осесть после ready, иначе getChats → «r» + CDP timeouts.
+    markChromiumSlow(15000);
     startMessagePolling();
   } catch (error) {
     console.warn('⚠️ Не удалось подтвердить состояние клиента:', error.message);
@@ -1682,29 +1722,22 @@ async function logoutWhatsAppSession() {
 
 /** Актуальный статус для /status и Telegram — не только флаг botReady. */
 async function getServiceStatus() {
-  let liveState = waWatchState;
-  let liveReady = botReady;
+  const snap = await getClientStateFast(2500);
+  let liveState = snap.state;
+  let liveReady = Boolean(snap.ready);
 
-  try {
-    const state = await client.getState();
-    liveState = state;
-    waWatchState = state;
-
-    if (state === 'CONNECTED') {
-      if (!botReady) {
-        console.log('📊 Статус: WhatsApp CONNECTED (синхронизация botReady)');
-        botReady = true;
-      }
-      liveReady = true;
-    } else if (state === 'OPENING' || state === 'PAIRING') {
-      liveReady = false;
-    } else {
-      liveReady = false;
+  if (liveState === 'CONNECTED') {
+    if (!botReady) {
+      console.log('📊 Статус: WhatsApp CONNECTED (синхронизация botReady)');
+      botReady = true;
     }
-  } catch (err) {
-    // getState() иногда падает на Railway при живой сессии — опираемся на флаг
+    liveReady = true;
+  } else if (liveState === 'OPENING' || liveState === 'PAIRING') {
+    liveReady = false;
+  } else if (!snap.cached) {
+    liveReady = false;
+  } else {
     liveReady = botReady;
-    if (!liveState) liveState = 'unknown';
   }
 
   return {
@@ -1712,7 +1745,78 @@ async function getServiceStatus() {
     clientState: liveState,
     accountPhone: accountInfo?.phone || null,
     processedIds: processedMessageIds.size,
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    stateCached: Boolean(snap.cached),
+  };
+}
+
+/** Один общий getState — админка/watchdog/входящие не плодят параллельные CDP. */
+let getStateInFlight = null;
+
+function requestClientState() {
+  if (!getStateInFlight) {
+    getStateInFlight = Promise.resolve()
+      .then(() => client.getState())
+      .finally(() => {
+        getStateInFlight = null;
+      });
+  }
+  return getStateInFlight;
+}
+
+/**
+ * Быстрый снимок сессии для админки / входящих.
+ * Никогда не ждёт CDP дольше timeoutMs — иначе UI «Проверка…» и очередь сообщений зависают.
+ */
+async function getClientStateFast(timeoutMs = 2500) {
+  const cachedState = waWatchState || (botReady ? 'CONNECTED' : 'unknown');
+  if (isChromiumSlow() || isManualLogoutInProgress || isReconnecting) {
+    return {
+      state: cachedState,
+      ready: botReady || cachedState === 'CONNECTED',
+      cached: true,
+    };
+  }
+
+  try {
+    const state = await Promise.race([
+      requestClientState(),
+      new Promise((_, reject) => {
+        setTimeout(() => {
+          const err = new Error(`getState soft timeout after ${timeoutMs}ms`);
+          err.code = 'WA_GETSTATE_SOFT_TIMEOUT';
+          reject(err);
+        }, timeoutMs);
+      }),
+    ]);
+    if (state) waWatchState = state;
+    if (state === 'CONNECTED' && !botReady) botReady = true;
+    return {
+      state: state || cachedState,
+      ready: state === 'CONNECTED' || botReady,
+      cached: false,
+    };
+  } catch (err) {
+    if (err?.code === 'WA_GETSTATE_SOFT_TIMEOUT' || isPuppeteerProtocolTimeout(err)) {
+      markChromiumSlow(45000);
+    }
+    return {
+      state: cachedState,
+      ready: botReady || cachedState === 'CONNECTED',
+      cached: true,
+      error: String(err?.message || err),
+    };
+  }
+}
+
+async function getAdminSessionSnapshot() {
+  const snap = await getClientStateFast(2500);
+  return {
+    ready: Boolean(snap.ready),
+    clientState: snap.state || 'unknown',
+    stateCached: Boolean(snap.cached),
+    hasQr: Boolean(currentQr),
+    account: accountInfo,
   };
 }
 
@@ -1731,7 +1835,7 @@ function startWhatsAppSessionWatchdog() {
     // Иначе при нагрузке несколько Runtime.callFunctionOn зависают одновременно.
     if (probeInFlight) return;
 
-    const stateProbe = Promise.resolve().then(() => client.getState());
+    const stateProbe = Promise.resolve().then(() => requestClientState());
     probeInFlight = stateProbe;
     try {
       const state = await Promise.race([
@@ -1783,6 +1887,7 @@ function startWhatsAppSessionWatchdog() {
       // но не доказательство отключения WhatsApp. Не отправляем ложный алерт.
       if (transientTimeout && browserConnected) {
         watchErrors = 0;
+        markChromiumSlow(Math.max(probeTimeoutMs, 45000));
         const now = Date.now();
         if (now - lastTransientLogAt >= 5 * 60 * 1000) {
           console.warn(
@@ -1846,19 +1951,22 @@ async function handleIncomingMessage(msg, options = {}) {
     // Проверяем, готов ли бот к работе
     if (!botReady) {
       console.log('⚠️ [DEBUG] botReady = false, проверяем состояние клиента...');
-      try {
-        const state = await client.getState();
-        console.log(`📊 [DEBUG] Состояние клиента: ${state}`);
-        if (state === 'CONNECTED') {
-          console.log('✅ Бот готов к работе! (определено при получении сообщения)');
-          botReady = true;
-        } else {
-          console.warn(`⚠️ Бот не готов к работе (состояние: ${state}), отложим сообщение`);
-          return 'retry';
-        }
-      } catch (stateError) {
-        console.warn('⚠️ Не удалось проверить состояние клиента:', stateError.message);
-        // Продолжаем обработку, так как это может быть временная проблема
+      const snap = await getClientStateFast(2000);
+      console.log(
+        `📊 [DEBUG] Состояние клиента: ${snap.state}${snap.cached ? ' (кэш/soft)' : ''}`
+      );
+      if (snap.state === 'CONNECTED') {
+        console.log('✅ Бот готов к работе! (определено при получении сообщения)');
+        botReady = true;
+      } else if (snap.cached && (accountInfo?.phone || waWatchState === 'CONNECTED')) {
+        // CDP завис — не блокируем ответ клиенту, опираемся на ready/account
+        botReady = true;
+        console.warn('⚠️ botReady восстановлен из кэша при медленном Chromium');
+      } else if (!snap.cached) {
+        console.warn(`⚠️ Бот не готов к работе (состояние: ${snap.state}), отложим сообщение`);
+        return 'retry';
+      } else {
+        console.warn('⚠️ Не удалось подтвердить CONNECTED, продолжаем обработку');
       }
     }
     
@@ -2424,7 +2532,11 @@ registerAdminRoutes(app, {
   get accountInfo() {
     return accountInfo;
   },
+  get waWatchState() {
+    return waWatchState;
+  },
   client,
+  getAdminSessionSnapshot,
   logoutWhatsAppSession,
   sendManagerMessage,
 });

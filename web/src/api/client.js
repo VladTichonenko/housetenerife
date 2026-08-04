@@ -44,18 +44,38 @@ async function request(path, options = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, { ...options, headers });
-  const data = await res.json().catch(() => ({}));
+  const { timeoutMs: timeoutOpt, ...fetchOptions } = options;
+  const isSessionPath =
+    path.includes('/api/admin/session') && !path.includes('/logout');
+  const timeoutMs = timeoutOpt ?? (isSessionPath ? 8000 : 60000);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (res.status === 401 && token) {
-    clearToken();
-    window.dispatchEvent(new Event('ht:unauthorized'));
-  }
+  try {
+    const res = await fetch(url, {
+      ...fetchOptions,
+      headers,
+      signal: controller.signal,
+    });
+    const data = await res.json().catch(() => ({}));
 
-  if (!res.ok) {
-    throw new Error(data.message || `Ошибка ${res.status}`);
+    if (res.status === 401 && token) {
+      clearToken();
+      window.dispatchEvent(new Event('ht:unauthorized'));
+    }
+
+    if (!res.ok) {
+      throw new Error(data.message || `Ошибка ${res.status}`);
+    }
+    return data;
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error('Сервер долго не отвечает (статус WhatsApp). Обновите позже.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return data;
 }
 
 export const api = {

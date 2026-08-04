@@ -70,7 +70,10 @@ export default function SessionSection({ session, qr, loading, onRefresh, onLogo
                   WhatsApp подключён. Бот готов принимать сообщения.
                 </p>
                 {session?.clientState && (
-                  <span className="session-connected__meta">Состояние: {session.clientState}</span>
+                  <span className="session-connected__meta">
+                    Состояние: {session.clientState}
+                    {session.stateCached ? ' (кэш, CDP медленный)' : ''}
+                  </span>
                 )}
               </div>
             </div>
