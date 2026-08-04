@@ -1131,8 +1131,22 @@ function runDeterministicTests() {
       rememberBudget.budget.maxPrice === 2_000_000
   );
   check(
-    'memory: инструкция «запомнил» бюджет',
-    /запомнил|ПАМЯТЬ КОНТЕКСТА/i.test(rememberBudget.stageInstruction)
+    'memory: инструкция без «запомнил», с «Отлично»',
+    /ПАМЯТЬ КОНТЕКСТА/i.test(rememberBudget.stageInstruction) &&
+      /Отлично/i.test(rememberBudget.stageInstruction) &&
+      !/запомнил/i.test(rememberBudget.stageInstruction)
+  );
+  check(
+    'memory: для 1M — «миллион евро»',
+    /миллион евро/i.test(
+      require('../dialog-context').formatBudgetAckFigure({ maxPrice: 1_000_000 }, 'ru')
+    )
+  );
+  const investAsk = analyzeConversation(user('ищу инвестиции'), 'ru');
+  check(
+    'invest: спрашивает размер инвестиций',
+    investAsk.stage === 'NEED_BUDGET' &&
+      /размер инвестиций/i.test(investAsk.stageInstruction)
   );
   check(
     'memory: запрет снова спрашивать бюджет',
@@ -1293,7 +1307,7 @@ const MANUAL_DIALOGS = [
       { who: 'user', text: 'Хочу инвестировать в недвижимость' },
       { who: 'bot', expect: 'Спрашивает бюджет.' },
       { who: 'user', text: 'Мой бюджет 2 миллиона' },
-      { who: 'bot', expect: '«Отлично, запомнил…» + срок: 2 месяца / 3 месяца / позже. ❌ НЕ сразу финансы без срока. ❌ НЕ снова бюджет.' },
+      { who: 'bot', expect: '«Отлично» / «Отлично, миллион евро» (без «запомнил») + срок: 2 месяца / 3 месяца / позже. ❌ НЕ сразу финансы без срока. ❌ НЕ снова бюджет.' },
       { who: 'user', text: 'Скинь ссылки' },
       { who: 'bot', expect: 'Всё ещё ждёт срок. ❌ НЕ объекты.' },
       { who: 'user', text: 'Через 3 месяца' },

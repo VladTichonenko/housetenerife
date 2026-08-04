@@ -59,19 +59,19 @@ function formatOffTopicInstruction(lang = 'ru', opts = {}) {
           ? 'Ask for budget in €.'
           : code === 'es'
             ? 'Pregunta el presupuesto en €.'
-            : 'Спроси бюджет в €.'
+            : 'Спроси размер инвестиций в €.'
         : code === 'en'
-          ? 'Ask: looking to live or to invest? (or budget in € if they already lean investment).'
+          ? 'Ask: looking to live or to invest? (or investment size in € if they already lean investment).'
           : code === 'es'
-            ? 'Pregunta: ¿para vivir o invertir? (o presupuesto en € si ya van a inversión).'
-            : 'Спроси: для себя или под инвестиции? (если уже про инвестиции — бюджет в €).';
+            ? 'Pregunta: ¿para vivir o invertir? (o tamaño de inversión en € si ya van a inversión).'
+            : 'Спроси: для себя или под инвестиции? (если уже про инвестиции — размер инвестиций в €).';
 
   if (code === 'en') {
     return `**KEYWORD FILTER / OFF-TOPIC (critical):**
 Client wrote greeting/small talk without property keywords (e.g. «Hi, how are you?»).
 FORBIDDEN: villas, apartments, prices, catalog links, «here are some options…».
 DO: warm short reply + you help with real estate / investments + ONE next funnel question.
-Example vibe: «Hi! I'm here to help with real estate investments. What's your budget?» (or purpose if still unknown).
+Example vibe: «Hi! I'm here to help with real estate investments. What’s your investment size?» (or purpose if still unknown).
 ${nextStep}`;
   }
   if (code === 'es') {
@@ -79,15 +79,15 @@ ${nextStep}`;
 El cliente escribió saludo/charla sin keywords de inmuebles (p. ej. «Hola, ¿qué tal?»).
 PROHIBIDO: villas, precios, enlaces, «aquí tiene opciones…».
 HAZ: saludo breve + ayudas con inmuebles/inversiones + UNA pregunta del embudo.
-Ejemplo: «¡Hola! Estoy aquí para ayudar con inversiones inmobiliarias. ¿Cuál es su presupuesto?»
+Ejemplo: «¡Hola! Estoy aquí para ayudar con inversiones inmobiliarias. ¿Cuál es el tamaño de su inversión?»
 ${nextStep}`;
   }
   return `**ФИЛЬТР ПО КЛЮЧЕВЫМ СЛОВАМ / НЕ ПО ТЕМЕ (критично):**
 Клиент написал приветствие/small talk без ключевых слов недвижимости (напр. «Привет, как дела?»).
 ЗАПРЕЩЕНО: виллы, апартаменты, цены, ссылки, «вот вам варианты…» — это не по теме.
 НУЖНО: коротко поздороваться + сказать, что помогаешь с недвижимостью/инвестициями + ОДИН следующий вопрос воронки.
-Образец: «Привет! Я здесь, чтобы помочь с инвестициями в недвижимость. Какой у вас бюджет?»
-(Если цель ещё не ясна — можно вместо бюджета спросить: для себя или под инвестиции.)
+Образец: «Привет! Я здесь, чтобы помочь с инвестициями в недвижимость. Какой у вас размер инвестиций?»
+(Если цель ещё не ясна — можно вместо этого спросить: для себя или под инвестиции.)
 ${nextStep}`;
 }
 

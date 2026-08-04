@@ -304,7 +304,9 @@ function analyzeConversation(history, lang = 'ru') {
     isInvestment,
   };
   if (stage === 'NEED_BUDGET') {
-    dialogCtx.budgetQuestionExample = pickBudgetQuestionExample(salesLang);
+    dialogCtx.budgetQuestionExample = pickBudgetQuestionExample(salesLang, {
+      investment: isInvestment,
+    });
     dialogCtx.askedForListingsWithoutBudget = askedForListingsWithoutBudget;
   }
   if (stage === 'SHOW_LISTINGS' && hasBudget && !ignoreBudget) {
@@ -342,7 +344,7 @@ function analyzeConversation(history, lang = 'ru') {
     stageInstruction = `${getInvestmentSelectionPreamble(salesLang)}\n\n${stageInstruction}`;
   }
 
-  // Правило 9: клиент только что назвал бюджет — подтвердить «запомнил» и не переспрашивать
+  // Клиент только что назвал бюджет — короткое «Отлично» (без «запомнил») и не переспрашивать
   if (lastHasBudget && hasBudget && stage !== 'NEED_BUDGET') {
     stageInstruction = `${getJustRememberedBudgetInstruction(salesLang, budget)}\n\n${stageInstruction}`;
   }
@@ -468,9 +470,9 @@ const stageInstructions = {
 
   NEED_LOCATION: `Уточни район в ${'{regionLabel}'}. Предлагай ТОЛЬКО реальные зоны из каталога и копируй их написание БУКВАЛЬНО: ${'{areaOptionsPrompt}'}. Если бюджет известен — предложи 2–3 зоны, которые обычно хорошо стыкуются с этим бюджетом (из списка выше, без выдумок). Один короткий вопрос. Без подборки.`,
 
-  NEED_BUDGET: `Спроси о бюджете мягко — не в лоб «какой у вас бюджет?». Смысл: подобрать подходящие варианты и не показывать заведомо неподходящие. Образец: «{budgetQuestionExample}». Ориентиры по €: до 300k / 300–600k / от 600k. Уже известное (тип/регион/район) не переспрашивай. Один вопрос. Объекты НЕ показывай. Тон чата, не анкета.`,
+  NEED_BUDGET: `Спроси о бюджете / размере инвестиций мягко — не в лоб «какой у вас бюджет?». Для инвестиций лучше: «какой у вас размер инвестиций?». Образец: «{budgetQuestionExample}». Ориентиры по €: до 300k / 300–600k / от 600k. Уже известное (тип/регион/район) не переспрашивай. Один вопрос. Объекты НЕ показывай. Тон чата, не анкета.`,
 
-  NEED_TIMELINE: `Бюджет уже известен — НЕ переспрашивай. Если клиент только что назвал сумму — коротко: «Отлично, запомнил — …». Подборку пока не высылай. Затем один мягкий вопрос про *срок покупки/инвестирования*. Образец из правил: «Когда вы планируете совершить покупку? Через 2 месяца, 3 месяца или позже?» Коротко, тепло.`,
+  NEED_TIMELINE: `Бюджет / размер инвестиций уже известен — НЕ переспрашивай. Если клиент только что назвал сумму — коротко подтверди: «Отлично» или «Отлично, миллион евро» / «Отлично — 2 миллиона евро». Без канцелярита про память или запись. Подборку пока не высылай. Затем один мягкий вопрос про *срок покупки/инвестирования*. Образец: «Когда вы планируете совершить покупку? Через 2 месяца, 3 месяца или позже?» Коротко, тепло.`,
 
   NEED_FUNDS_NOW: `Финансы ДО подборки. Один вопрос: сколько денег есть *сейчас* на руках — «все своими», «часть + ипотека» или сумма в €. Это не бюджет поиска. Объекты НЕ показывай.`,
 
@@ -508,8 +510,8 @@ NUNCA envíes fichas antes del presupuesto y las finanzas.`;
   }
   return isInvestment
     ? `**АКТИВНАЯ ВЕТКА: ИНВЕСТИЦИИ** (строгий порядок — не перескакивай к объектам):
-1) Бюджет для инвестиций в € → 2) Срок инвестирования → 3) Деньги сейчас (все / часть / ипотека) → 4) Потом критерии подбора БЕЗ переспроса цены (тип → регион → район) → 5) Подборка ±20%.
-ЗАПРЕЩЕНО предлагать виллы/проекты до бюджета, срока и финансов.`
+1) Размер инвестиций в € → 2) Срок инвестирования → 3) Деньги сейчас (все / часть / ипотека) → 4) Потом критерии подбора БЕЗ переспроса цены (тип → регион → район) → 5) Подборка ±20%.
+ЗАПРЕЩЕНО предлагать виллы/проекты до размера инвестиций, срока и финансов.`
     : `**АКТИВНАЯ ВЕТКА: ДЛЯ СЕБЯ / ЖИЗНЬ** (строгий порядок):
 1) Цель (для себя или инвестиции) → 2) Город/регион → 3) Район → 4) Тип → 5) Бюджет € → 6) Деньги на руках / ипотека → 7) Подборка ±20%.
 ЗАПРЕЩЕНО слать объекты до бюджета и финансов.`;
@@ -519,12 +521,14 @@ function getAskBudgetBeforeListingsInstruction(lang, opts = {}) {
   const isInvestment = Boolean(opts.isInvestment);
   const example =
     opts.budgetQuestionExample ||
-    pickBudgetQuestionExample(lang === 'en' ? 'en' : lang === 'es' ? 'es' : 'ru');
+    pickBudgetQuestionExample(lang === 'en' ? 'en' : lang === 'es' ? 'es' : 'ru', {
+      investment: isInvestment,
+    });
 
   if (lang === 'en') {
     return `Client asked to SHOW properties, but budget is UNKNOWN. Thank them briefly for the interest. Ask explicitly for ${
-      isInvestment ? 'their *investment budget* in €' : 'their *budget* in €'
-    }. Example vibe: «${example}». Say that once you have the budget you’ll shortlist around ±20% of that figure. FORBIDDEN: any villas, prices, ranges like 500k–9M, or catalog links. One question only.`;
+      isInvestment ? 'their *investment size* in €' : 'their *budget* in €'
+    }. Example vibe: «${example}». Say that once you have the figure you’ll shortlist around ±20%. FORBIDDEN: any villas, prices, ranges like 500k–9M, or catalog links. One question only.`;
   }
   if (lang === 'es') {
     return `El cliente pide VER inmuebles, pero el presupuesto es DESCONOCIDO. Agradece el interés. Pregunta explícitamente el ${
@@ -532,8 +536,8 @@ function getAskBudgetBeforeListingsInstruction(lang, opts = {}) {
     }. Ejemplo: «${example}». Di que con el presupuesto mostrarás opciones en torno a ±20%. PROHIBIDO: villas, precios, rangos 500k–9M o enlaces. Solo una pregunta.`;
   }
   return `Клиент просит ПОКАЗАТЬ объекты, но бюджет НЕ известен. Коротко поблагодари за интерес. ЯВНО спроси ${
-    isInvestment ? '*бюджет для инвестиции* в €' : '*бюджет* / диапазон стоимости в €'
-  }. Образец: «${example}». Скажи, что после бюджета покажешь варианты в коридоре ±20% от названной суммы. ЗАПРЕЩЕНО: виллы, цены, вилки вроде 500k–9M, любые ссылки на объекты. Только один вопрос — про бюджет.`;
+    isInvestment ? '*размер инвестиций* в €' : '*бюджет* / диапазон стоимости в €'
+  }. Образец: «${example}». Скажи, что после этого покажешь варианты в коридоре ±20% от названной суммы. ЗАПРЕЩЕНО: виллы, цены, вилки вроде 500k–9M, любые ссылки на объекты. Только один вопрос.`;
 }
 
 function formatBudgetBandLabel(budget, lang = 'ru') {
@@ -548,39 +552,81 @@ function formatBudgetBandLabel(budget, lang = 'ru') {
 
 function getInvestmentBudgetInstruction(lang, dialog) {
   const example =
-    dialog?.budgetQuestionExample || pickBudgetQuestionExample(lang === 'en' ? 'en' : 'ru');
+    dialog?.budgetQuestionExample ||
+    pickBudgetQuestionExample(lang === 'en' ? 'en' : lang === 'es' ? 'es' : 'ru', {
+      investment: true,
+    });
   if (lang === 'en') {
-    return `Investment path. Ask the *investment budget* in € softly (not "what's your budget?"). Example vibe: «${example}». Hints: up to €300k / €300–600k / €600k+. One question. No listings yet. Timeline and cash-on-hand come next.`;
+    return `Investment path. Ask *investment size* in € softly (not blunt "what's your budget?"). Example: «${example}». Hints: up to €300k / €300–600k / €600k+. One question. No listings yet. Timeline and cash-on-hand come next.`;
   }
   if (lang === 'es') {
-    return `Rama inversión. Pregunta el *presupuesto de inversión* en € con suavidad. Ejemplo: «${example}». Orientación: hasta 300k / 300–600k / desde 600k. Una pregunta. Sin fichas. Luego plazo y dinero ahora.`;
+    return `Rama inversión. Pregunta el *tamaño de la inversión* en € con suavidad (no «¿cuál es su presupuesto?» en bruto). Ejemplo: «${example}». Orientación: hasta 300k / 300–600k / desde 600k. Una pregunta. Sin fichas. Luego plazo y dinero ahora.`;
   }
-  return `Ветка инвестиций. Спроси *бюджет для инвестиций* в € мягко (не в лоб). Образец: «${example}». Ориентиры: до 300k / 300–600k / от 600k. Один вопрос. Объекты НЕ показывай. Дальше — срок и деньги на руках.`;
+  return `Ветка инвестиций. Спроси *размер инвестиций* в € мягко (не «какой у вас бюджет?» и не «диапазон бюджета»). Образец: «${example}». Ориентиры: до 300k / 300–600k / от 600k. Один вопрос. Объекты НЕ показывай. Дальше — срок и деньги на руках.`;
 }
 
 function getInvestmentTimelineInstruction(lang) {
   if (lang === 'en') {
-    return `Investment budget is known — do not re-ask. No listings yet. First briefly confirm you remembered the budget (e.g. «Got it — €2M.» / use the exact figure from criteria). Then one short warm question about *when they plan to buy/invest*. Preferred wording: «When do you plan to make the purchase? In 2 months, 3 months, or later?» Separate message, not with budget.`;
+    return `Investment size is known — do not re-ask. No listings yet. First briefly confirm warmly WITHOUT “I remembered / noted”: «Great» or «Great — €1M» / «Perfect, two million euros.» Then one short question about *when they plan to buy/invest*. Preferred wording: «When do you plan to make the purchase? In 2 months, 3 months, or later?»`;
   }
   if (lang === 'es') {
-    return `Presupuesto de inversión ya conocido — no lo repitas. Sin fichas. Primero confirma en breve que lo recordaste (p. ej. «Perfecto, anotado — 2 millones.» con la cifra de criterios). Luego una pregunta clara: *cuándo planean comprar/invertir*. Formulación preferida: «¿Cuándo planean realizar la compra? ¿En 2 meses, 3 meses o más adelante?»`;
+    return `Tamaño de inversión ya conocido — no lo repitas. Sin fichas. Primero confirma en breve SIN «lo anoté / recordé»: «Perfecto» o «Perfecto, un millón de euros.» Luego: *cuándo planean comprar/invertir*. Formulación: «¿Cuándo planean realizar la compra? ¿En 2 meses, 3 meses o más adelante?»`;
   }
-  return `Бюджет для инвестиций уже известен — НЕ переспрашивай. Подборку пока не высылай. Сначала коротко подтверди, что запомнил бюджет (как в правиле: «Отлично, запомнил — …» с цифрой из критериев, напр. 2 миллиона). Затем один вопрос про *срок покупки/инвестирования*. Формулировка из правил: «Когда вы планируете совершить покупку? Через 2 месяца, 3 месяца или позже?» Отдельным сообщением, не вместе с бюджетом.`;
+  return `Размер инвестиций уже известен — НЕ переспрашивай. Подборку пока не высылай. Сначала коротко подтверди: «Отлично» или «Отлично, миллион евро» / «Отлично — 2 миллиона евро». Без канцелярита про память или запись. Затем срок: «Когда вы планируете совершить покупку? Через 2 месяца, 3 месяца или позже?»`;
 }
 
-/** Клиент только что назвал бюджет — явное «запомнил» + запрет переспроса. */
-function getJustRememberedBudgetInstruction(lang, budget) {
-  const label = formatBudgetLabel(budget, lang) || '';
-  const figure =
-    label ||
-    (lang === 'en' ? 'the stated budget' : lang === 'es' ? 'el presupuesto indicado' : 'названный бюджет');
+/** Живая формулировка суммы для подтверждения («миллион евро», не «до €1,000,000»). */
+function formatBudgetAckFigure(budget, lang = 'ru') {
+  if (!budget) return '';
+  const n = budget.maxPrice != null ? budget.maxPrice : budget.minPrice;
+  if (n == null || !Number.isFinite(n)) return formatBudgetLabel(budget, lang);
+
+  if (lang === 'ru') {
+    if (n === 1_000_000) return 'миллион евро';
+    if (n === 1_500_000) return 'полтора миллиона евро';
+    if (n === 500_000) return '500 тысяч евро';
+    if (n === 300_000) return '300 тысяч евро';
+    if (n === 600_000) return '600 тысяч евро';
+    if (n >= 1_000_000 && n % 1_000_000 === 0) {
+      const m = n / 1_000_000;
+      const word = m === 1 ? 'миллион' : m < 5 ? 'миллиона' : 'миллионов';
+      return `${m} ${word} евро`;
+    }
+    if (n >= 1000 && n % 1000 === 0 && n < 1_000_000) {
+      const k = n / 1000;
+      return `${k} тысяч евро`;
+    }
+    return `${Number(n).toLocaleString('ru-RU')} евро`;
+  }
+
   if (lang === 'en') {
-    return `**CONTEXT MEMORY (critical):** Client JUST stated the budget (${figure}). Briefly confirm you remembered it — e.g. «Got it — ${figure}.» — then ask ONLY the next missing step. NEVER ask «what is your budget?» again.`;
+    if (n === 1_000_000) return 'one million euros';
+    if (n >= 1_000_000 && n % 1_000_000 === 0) return `${n / 1_000_000} million euros`;
+    return `€${Number(n).toLocaleString('en-US')}`;
+  }
+
+  if (lang === 'es') {
+    if (n === 1_000_000) return 'un millón de euros';
+    if (n >= 1_000_000 && n % 1_000_000 === 0) return `${n / 1_000_000} millones de euros`;
+    return `${Number(n).toLocaleString('es-ES')} €`;
+  }
+
+  return formatBudgetLabel(budget, lang);
+}
+
+/** Клиент только что назвал бюджет — короткое «Отлично» без «запомнил». */
+function getJustRememberedBudgetInstruction(lang, budget) {
+  const figure =
+    formatBudgetAckFigure(budget, lang) ||
+    formatBudgetLabel(budget, lang) ||
+    (lang === 'en' ? 'that amount' : lang === 'es' ? 'esa cantidad' : 'эта сумма');
+  if (lang === 'en') {
+    return `**CONTEXT MEMORY (critical):** Client JUST stated the investment size/budget (${figure}). Confirm briefly — e.g. «Great» or «Great, ${figure}.» — no “I remembered / noted / saved”. Then ask ONLY the next missing step. NEVER ask the budget again.`;
   }
   if (lang === 'es') {
-    return `**MEMORIA DE CONTEXTO (crítico):** El cliente ACABA de indicar el presupuesto (${figure}). Confirma en breve que lo recordaste — p. ej. «Perfecto, anotado — ${figure}.» — y pregunta SOLO el siguiente paso. NUNCA vuelvas a preguntar el presupuesto.`;
+    return `**MEMORIA DE CONTEXTO (crítico):** El cliente ACABA de indicar el tamaño de inversión/presupuesto (${figure}). Confirma en breve — p. ej. «Perfecto» o «Perfecto, ${figure}.» — sin «anotado / lo guardé». Luego SOLO el siguiente paso. NUNCA vuelvas a preguntar el presupuesto.`;
   }
-  return `**ПАМЯТЬ КОНТЕКСТА (критично):** Клиент ТОЛЬКО ЧТО назвал бюджет (${figure}). Коротко подтверди, что запомнил — например: «Отлично, запомнил — ${figure}.» — и сразу спроси ТОЛЬКО следующий недостающий шаг. НИКОГДА не спрашивай снова «какой у вас бюджет?».`;
+  return `**ПАМЯТЬ КОНТЕКСТА (критично):** Клиент ТОЛЬКО ЧТО назвал размер инвестиций / бюджет (${figure}). Коротко подтверди — например: «Отлично» или «Отлично, ${figure}.» — без канцелярита про память или запись. Сразу спроси ТОЛЬКО следующий недостающий шаг. НИКОГДА не спрашивай снова про бюджет / размер инвестиций.`;
 }
 
 function getInvestmentSelectionPreamble(lang) {
@@ -1075,6 +1121,7 @@ module.exports = {
   resolveEffectiveBudget,
   wantsMoreExpensive,
   formatBudgetLabel,
+  formatBudgetAckFigure,
   formatBudgetBandLabel,
   buildDialogMemoryBlock,
   budgetHasSignal,

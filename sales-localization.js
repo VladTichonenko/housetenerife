@@ -651,7 +651,9 @@ function getStageInstruction(lang, stage, dialog) {
   let budgetQuestionExample = dialog.budgetQuestionExample || '';
   if (!budgetQuestionExample && stage === 'NEED_BUDGET') {
     ({ pickBudgetQuestionExample } = require('./budget-questions'));
-    budgetQuestionExample = pickBudgetQuestionExample(lang);
+    budgetQuestionExample = pickBudgetQuestionExample(lang, {
+      investment: Boolean(dialog.isInvestment),
+    });
   }
   return text
     .replace(/\{propertyTypeLabel\}/g, typeLabel)

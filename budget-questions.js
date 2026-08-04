@@ -59,6 +59,42 @@ const BUDGET_QUESTIONS = {
   ],
 };
 
+/** Инвест-ветка: «размер инвестиций», не «диапазон бюджета». */
+const INVESTMENT_BUDGET_QUESTIONS = {
+  ru: [
+    'Какой у вас размер инвестиций? Ориентиры: до 300к, 300–600к или выше 600к евро',
+    'Подскажите, какой размер инвестиций рассматриваете — до 300к, 300–600к или от 600к?',
+    'Чтобы подобрать подходящие варианты — какой у вас размер инвестиций?',
+    'Какой размер инвестиций вам комфортен: до 300к, 300–600к или выше 600к?',
+  ],
+  en: [
+    'What’s your investment size? Rough guides: up to €300k, €300–600k, or above €600k',
+    'What investment size are you looking at — up to €300k, €300–600k, or €600k+?',
+    'To shortlist the right options — what’s your investment size?',
+  ],
+  es: [
+    '¿Cuál es el tamaño de su inversión? Orientación: hasta 300k, 300–600k o más de 600k €',
+    '¿Qué tamaño de inversión contempla — hasta 300k, 300–600k o desde 600k?',
+    'Para acertar con las opciones — ¿cuál es el tamaño de su inversión?',
+  ],
+  de: [
+    'Wie hoch ist Ihre Investitionssumme? Orientierung: bis €300k, €300–600k oder ab €600k',
+    'Welche Investitionsgröße schwebt Ihnen vor — bis €300k, €300–600k oder €600k+?',
+  ],
+  fr: [
+    'Quelle est la taille de votre investissement ? Repères : jusqu’à 300k, 300–600k ou au-delà de 600k €',
+    'Quel montant d’investissement visez-vous — jusqu’à 300k, 300–600k ou 600k+ ?',
+  ],
+  pl: [
+    'Jaka jest wielkość Państwa inwestycji? Orientacja: do 300k, 300–600k lub powyżej 600k €',
+    'Jaką wielkość inwestycji rozważają Państwo — do 300k, 300–600k czy od 600k?',
+  ],
+  nl: [
+    'Wat is de omvang van uw investering? Richtlijnen: tot €300k, €300–600k of boven €600k',
+    'Welke investeringsomvang past — tot €300k, €300–600k of €600k+?',
+  ],
+};
+
 function normalizeBudgetLang(lang) {
   const code = String(lang || 'ru').toLowerCase().slice(0, 2);
   if (code === 'ru' || code === 'en' || code === 'es' || code === 'de' || code === 'fr' || code === 'pl' || code === 'nl') {
@@ -67,10 +103,22 @@ function normalizeBudgetLang(lang) {
   return 'en';
 }
 
-function pickBudgetQuestionExample(lang) {
-  const code = normalizeBudgetLang(lang);
-  const list = BUDGET_QUESTIONS[code] || BUDGET_QUESTIONS.en;
+function pickFromList(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
-module.exports = { pickBudgetQuestionExample, BUDGET_QUESTIONS };
+function pickBudgetQuestionExample(lang, options = {}) {
+  const code = normalizeBudgetLang(lang);
+  if (options.investment) {
+    const inv = INVESTMENT_BUDGET_QUESTIONS[code] || INVESTMENT_BUDGET_QUESTIONS.en;
+    return pickFromList(inv);
+  }
+  const list = BUDGET_QUESTIONS[code] || BUDGET_QUESTIONS.en;
+  return pickFromList(list);
+}
+
+module.exports = {
+  pickBudgetQuestionExample,
+  BUDGET_QUESTIONS,
+  INVESTMENT_BUDGET_QUESTIONS,
+};
