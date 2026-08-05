@@ -414,17 +414,28 @@ async function runExclusiveCdp(label, fn, softTimeoutMs = 25000) {
       cdpSoftTimeoutStreak += 1;
       lastCdpSoftTimeoutAt = Date.now();
       const isPollingOp = /^polling\.|^sync\./i.test(label);
-      // Polling не должен на 2–10 минут блокировать исходящие.
+      const emergency = emergencyMsgPollingUntil > Date.now();
+      // Polling не должен на минуты блокировать исходящие / страховочный опрос.
       const softCooldownMs = isPollingOp
-        ? Math.min(20000 * Math.pow(2, Math.min(cdpSoftTimeoutStreak - 1, 3)), 120000)
+        ? emergency
+          ? Math.min(8000 * Math.pow(2, Math.min(cdpSoftTimeoutStreak - 1, 2)), 30000)
+          : Math.min(15000 * Math.pow(2, Math.min(cdpSoftTimeoutStreak - 1, 3)), 90000)
         : Math.min(60000 * Math.pow(2, Math.min(cdpSoftTimeoutStreak - 1, 3)), 300000);
-      armCdpCooldown(softCooldownMs, label);
-      markChromiumSlow(Math.min(softCooldownMs, isPollingOp ? 45000 : 120000));
+      // Emergency: не блокируем reply cooldown'ом после polling soft-timeout.
+      if (!emergency || !isPollingOp) {
+        armCdpCooldown(softCooldownMs, label);
+        markChromiumSlow(Math.min(softCooldownMs, isPollingOp ? 30000 : 120000));
+      } else {
+        markChromiumSlow(Math.min(softCooldownMs, 15000));
+      }
       if (isPollingOp) {
-        pauseMessagePolling(Math.max(softCooldownMs, 60000));
+        // Раньше min 60с — бот глух после одного soft-timeout на mid-session ready.
+        pauseMessagePolling(emergency ? Math.min(softCooldownMs, 12000) : Math.min(softCooldownMs, 45000));
       }
       console.warn(
-        `⏳ CDP soft-timeout (${label}, streak ${cdpSoftTimeoutStreak}): пауза ${Math.round(softCooldownMs / 1000)}с, mutex свободен, сессию не рвём`
+        `⏳ CDP soft-timeout (${label}, streak ${cdpSoftTimeoutStreak}): пауза ${Math.round(softCooldownMs / 1000)}с${
+          emergency ? ' [emergency]' : ''
+        }, mutex свободен, сессию не рвём`
       );
     } else if (isPuppeteerProtocolTimeout(err)) {
       releaseMutex();
@@ -1029,7 +1040,7 @@ if (isRailway && !path.isAbsolute(sessionPath)) {
 
 logPuppeteerDiagnostics();
 console.log(
-  '🔧 WA runtime: cdp-mutex-v10 | main-frame inject | soft-reinject | msg-polling-on | no dual Chrome'
+  '🔧 WA runtime: cdp-mutex-v11 | main-frame inject | soft-reinject | msg-polling-on | reready-settle | no dual Chrome'
 );
 
 /**
@@ -1059,16 +1070,21 @@ function cancelInjectRecovery(reason = '') {
   }
 }
 
-function enableEmergencyMsgPolling(ms = 10 * 60 * 1000, reason = '') {
+function enableEmergencyMsgPolling(ms = 10 * 60 * 1000, reason = '', { settleMs = 1500 } = {}) {
   const pauseMs = Math.max(60000, Number(ms) || 600000);
   emergencyMsgPollingUntil = Math.max(emergencyMsgPollingUntil, Date.now() + pauseMs);
-  // Сбрасываем длинную pauseMessagePolling (до 2–3 мин после ответа) — иначе
-  // emergency polling «включён», но цикл спит и бот всё равно глухой.
-  pollingPauseUntil = Math.min(pollingPauseUntil, Date.now() + 1500);
+  // После mid-session ready нужен settle (CDP занят inject/listeners).
+  // Не ставим 1.5с — иначе первый poll ловит soft-timeout и глушит бота.
+  const settle = Math.max(0, Number(settleMs) || 0);
+  pollingPauseUntil = Math.max(pollingPauseUntil, Date.now() + settle);
+  // Но если уже была длинная пауза (2–3 мин) — не держим дольше settle+короткий хвост.
+  if (pollingPauseUntil > Date.now() + settle + 20000) {
+    pollingPauseUntil = Date.now() + settle;
+  }
   console.warn(
-    `🛟 Emergency Store.Msg polling на ${Math.round(pauseMs / 1000)}с${
-      reason ? `: ${String(reason).slice(0, 100)}` : ''
-    }`
+    `🛟 Emergency Store.Msg polling на ${Math.round(pauseMs / 1000)}с` +
+      (settle ? ` (старт через ${Math.round(settle / 1000)}с)` : '') +
+      (reason ? `: ${String(reason).slice(0, 100)}` : '')
   );
   try {
     if (!global.pollingInterval && typeof startMessagePolling === 'function') {
@@ -1811,13 +1827,17 @@ function startMessagePolling() {
     5000,
     parseInt(process.env.POLLING_MESSAGES_TIMEOUT_MS, 10) || 8000
   );
+  const emergencySoftTimeoutMs = Math.max(
+    softTimeoutMs,
+    parseInt(process.env.POLLING_EMERGENCY_TIMEOUT_MS, 10) || 25000
+  );
   let pollingInFlight = false;
   let nextPollAt = 0;
   let errorStreak = 0;
   let lastErrorLogAt = 0;
 
   console.log(
-    `🔄 Polling последних сообщений каждые ${pollMs / 1000}с (Store.Msg, без getChats)`
+    `🔄 Polling последних сообщений каждые ${pollMs / 1000}с (Store.Msg, без getChats; emergency timeout ${Math.round(emergencySoftTimeoutMs / 1000)}с)`
   );
 
   global.pollingInterval = trackedSetInterval(async () => {
@@ -1835,8 +1855,8 @@ function startMessagePolling() {
     try {
       const messages = await runExclusiveCdp(
         'polling.messages',
-        () => fetchRecentMessagesForPolling(100, maxAgeMs),
-        softTimeoutMs
+        () => fetchRecentMessagesForPolling(emergency ? 40 : 80, maxAgeMs),
+        emergency ? emergencySoftTimeoutMs : softTimeoutMs
       );
 
       errorStreak = 0;
@@ -1862,7 +1882,11 @@ function startMessagePolling() {
       }
     } catch (err) {
       errorStreak += 1;
-      const backoffMs = Math.min(30000 * 2 ** Math.min(errorStreak - 1, 4), 5 * 60 * 1000);
+      const emergencyNow = emergencyMsgPollingUntil > Date.now();
+      // Emergency: быстрый retry; обычный режим — мягкий backoff.
+      const backoffMs = emergencyNow
+        ? Math.min(8000 * 2 ** Math.min(errorStreak - 1, 2), 45000)
+        : Math.min(20000 * 2 ** Math.min(errorStreak - 1, 3), 3 * 60 * 1000);
       nextPollAt = Date.now() + backoffMs;
       const now = Date.now();
       const errMsg = String(err?.message || err);
@@ -1878,9 +1902,11 @@ function startMessagePolling() {
         lastErrorLogAt = now;
       }
 
-      // Soft-timeout / busy — только backoff. Reconnect здесь убивал сессию во время ответа.
+      // Soft-timeout уже ставит pause внутри runExclusiveCdp — не удлиняем до минут.
       if (isCdpSoftTimeout(err) || isPuppeteerProtocolTimeout(err)) {
-        pauseMessagePolling(Math.min(backoffMs, 180000));
+        if (!emergencyNow) {
+          pauseMessagePolling(Math.min(backoffMs, 60000));
+        }
         return;
       }
 
@@ -2474,15 +2500,22 @@ client.on('ready', async () => {
       );
     }
 
-    // Повторный ready mid-session — типичный момент, когда Msg.add «отваливается»,
-    // а Node-обработчики ещё на месте. Сразу страховочный polling + reattach.
+    // Повторный ready mid-session — Msg.add часто отваливается.
+    // wwebjs-патч уже делает attachEventListeners в hasSynced; второй вызов здесь
+    // забивал CDP → soft-timeout polling → бот глух на минуту+.
     if (isReready) {
       console.warn(
-        '⚠️ Повторный ready mid-session — emergency Store.Msg polling + reattach listeners'
+        '⚠️ Повторный ready mid-session — emergency Store.Msg polling (settle 20с, без повторного attach)'
       );
-      enableEmergencyMsgPolling(30 * 60 * 1000, 'mid-session ready');
+      enableEmergencyMsgPolling(30 * 60 * 1000, 'mid-session ready', { settleMs: 20000 });
+      // Reattach только если bridge реально мёртв (иначе лишний CDP).
       try {
-        if (typeof client.attachEventListeners === 'function') {
+        const bridgeOk = await Promise.race([
+          client.pupPage.evaluate(() => typeof window.onAddMessageEvent === 'function'),
+          new Promise((resolve) => setTimeout(() => resolve(null), 4000)),
+        ]);
+        if (bridgeOk === false && typeof client.attachEventListeners === 'function') {
+          console.warn('⚠️ Bridge мёртв после reready — attachEventListeners');
           await client.attachEventListeners();
           console.log('✅ attachEventListeners после повторного ready');
         }
@@ -2499,9 +2532,8 @@ client.on('ready', async () => {
     // Не долбим CDP sync-probe на старте: hasSynced часто вечно false,
     // abandoned evaluate вешает исходящие. События message работают сразу после ready.
     if (shouldUseStoreMsgPolling()) {
-      // Mid-session: принудительно короткий pause (не Math.max — иначе тянется pause после ответа).
       if (isReready) {
-        pollingPauseUntil = Date.now() + 1500;
+        // settle уже выставлен enableEmergencyMsgPolling(20с)
         startMessagePolling();
       } else {
         pauseMessagePolling(8000);
