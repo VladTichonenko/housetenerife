@@ -413,7 +413,7 @@ async function runExclusiveCdp(label, fn, softTimeoutMs = 25000) {
       releaseMutex();
       cdpSoftTimeoutStreak += 1;
       lastCdpSoftTimeoutAt = Date.now();
-      const isPollingOp = /^polling\./i.test(label);
+      const isPollingOp = /^polling\.|^sync\./i.test(label);
       // Polling не должен на 2–10 минут блокировать исходящие.
       const softCooldownMs = isPollingOp
         ? Math.min(20000 * Math.pow(2, Math.min(cdpSoftTimeoutStreak - 1, 3)), 120000)
@@ -1556,75 +1556,89 @@ async function fetchRecentMessagesForPolling(limit = 100, maxAgeMs = 10 * 60 * 1
 }
 
 /**
- * Ждём, пока WhatsApp Web досинхронизирует Store.
- * Иначе Store.Msg evaluate зависает, а в телефоне крутится «Держите приложение открытым».
+ * Лёгкая проверка Store (только если включён polling).
+ * hasSynced у WA Web часто вечно false при живой сессии — не ждём его.
+ * Не долбим CDP в цикле: один-два быстрых probe, иначе abandoned evaluate вешает reply.
  */
-async function waitForWhatsAppStoreSync(timeoutMs = 180000) {
-  if (!client.pupPage) return false;
-  const started = Date.now();
-  let lastLog = 0;
-  while (Date.now() - started < timeoutMs) {
-    if (isReconnecting || isManualLogoutInProgress) return false;
-    try {
-      const snap = await Promise.race([
-        client.pupPage.evaluate(() => {
-          try {
-            const stream = window.require('WAWebStreamModel')?.Stream;
-            const socket = window.require('WAWebSocketModel')?.Socket;
-            const msg = window.require('WAWebCollections')?.Msg;
-            return {
-              hasSynced: Boolean(stream?.hasSynced),
-              socketState: socket?.state || null,
-              hasMsgApi: typeof msg?.getModelsArray === 'function',
-              msgCount:
-                typeof msg?.getModelsArray === 'function'
-                  ? msg.getModelsArray().length
-                  : -1,
-            };
-          } catch (e) {
-            return { error: String(e?.message || e) };
-          }
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('sync probe soft timeout')), 4000)
-        ),
-      ]);
-      const ready =
-        snap?.hasMsgApi &&
-        snap.hasSynced === true &&
-        Number(snap.msgCount) >= 0;
-      if (ready) {
-        console.log(
-          `✅ WA Store sync OK (msgs≈${snap.msgCount}, synced=${snap.hasSynced}, socket=${snap.socketState})`
-        );
-        return true;
-      }
-      // Socket CONNECTED без hasSynced — ещё рано для Store.Msg polling
-      if (
-        snap?.hasMsgApi &&
-        snap.socketState === 'CONNECTED' &&
-        snap.hasSynced !== true &&
-        Date.now() - lastLog > 15000
-      ) {
-        console.log(
-          '⏳ WA socket CONNECTED, но Store ещё не синхронизирован (hasSynced=false) — polling ждём…',
-          snap
-        );
-        lastLog = Date.now();
-      } else if (Date.now() - lastLog > 15000) {
-        console.log('⏳ Ждём синхронизацию WhatsApp Web (телефон не блокировать)…', snap);
-        lastLog = Date.now();
-      }
-    } catch (err) {
-      if (Date.now() - lastLog > 15000) {
-        console.warn(`⏳ Sync probe: ${err.message}`);
-        lastLog = Date.now();
-      }
-    }
-    await new Promise((r) => setTimeout(r, 5000));
+let storeSyncWaitInFlight = null;
+
+async function waitForWhatsAppStoreSync(timeoutMs = 20000) {
+  if (!shouldUseStoreMsgPolling()) {
+    return true; // polling выкл — событиям sync не нужен
   }
-  console.warn('⚠️ WA Store sync не подтверждён за отведённое время — polling позже/осторожнее');
-  return false;
+  if (storeSyncWaitInFlight) return storeSyncWaitInFlight;
+  if (!client.pupPage) return false;
+
+  storeSyncWaitInFlight = (async () => {
+    const started = Date.now();
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (Date.now() - started < timeoutMs && attempts < maxAttempts) {
+      if (isReconnecting || isManualLogoutInProgress) return false;
+      if (isCdpBusy() || isCdpCooldown()) {
+        await new Promise((r) => setTimeout(r, 3000));
+        continue;
+      }
+      attempts += 1;
+      try {
+        const snap = await runExclusiveCdp(
+          'sync.probe',
+          () =>
+            client.pupPage.evaluate(() => {
+              try {
+                const stream = window.require('WAWebStreamModel')?.Stream;
+                const socket = window.require('WAWebSocketModel')?.Socket;
+                const msg = window.require('WAWebCollections')?.Msg;
+                return {
+                  hasSynced: Boolean(stream?.hasSynced),
+                  socketState: socket?.state || null,
+                  hasMsgApi: typeof msg?.getModelsArray === 'function',
+                  msgCount:
+                    typeof msg?.getModelsArray === 'function'
+                      ? msg.getModelsArray().length
+                      : -1,
+                };
+              } catch (e) {
+                return { error: String(e?.message || e) };
+              }
+            }),
+          3500
+        );
+
+        // Достаточно живого Store + socket; hasSynced часто никогда не станет true
+        const ready =
+          snap?.hasMsgApi &&
+          Number(snap.msgCount) >= 0 &&
+          (snap.hasSynced === true ||
+            snap.socketState === 'CONNECTED' ||
+            Number(snap.msgCount) > 0);
+
+        if (ready) {
+          console.log(
+            `✅ WA Store готов к polling (msgs≈${snap.msgCount}, synced=${snap.hasSynced}, socket=${snap.socketState})`
+          );
+          return true;
+        }
+        console.log('⏳ WA Store ещё не готов…', snap);
+      } catch (err) {
+        console.warn(`⏳ Sync probe: ${String(err?.message || err).slice(0, 100)}`);
+        pauseMessagePolling(30000);
+        break; // не долбим CDP после timeout
+      }
+      await new Promise((r) => setTimeout(r, 4000));
+    }
+    console.warn(
+      '⚠️ WA Store sync не подтверждён быстро — polling отложен, события message работают'
+    );
+    return false;
+  })();
+
+  try {
+    return await storeSyncWaitInFlight;
+  } finally {
+    storeSyncWaitInFlight = null;
+  }
 }
 
 /** Резервный polling Store.Msg. По умолчанию ВЫКЛ — события message достаточно, polling вешает CDP. */
@@ -2291,28 +2305,32 @@ client.on('ready', async () => {
 
     console.log('🔍 Диагностика завершена. Бот готов получать сообщения.');
 
-    console.log('📡 Входящие: события message + message_create (+ Store.Msg polling если ENABLE_MSG_POLLING=1), очередь по чату');
+    console.log(
+      '📡 Входящие: события message + message_create (+ Store.Msg polling если ENABLE_MSG_POLLING=1), очередь по чату'
+    );
     startMessageMaintenance();
-    // Сначала дождаться sync (иначе зелёный кружок в телефоне + soft-timeout polling).
-    markChromiumSlow(30000);
-    pauseMessagePolling(120000);
-    waitForWhatsAppStoreSync(180000)
-      .then((ok) => {
-        if (!ok) pauseMessagePolling(120000);
-        else pauseMessagePolling(5000);
-        startMessagePolling();
-      })
-      .catch((err) => {
-        console.warn('⚠️ waitForWhatsAppStoreSync:', err.message);
-        pauseMessagePolling(120000);
-        // Без sync — не долбим Store.Msg; события message остаются основным каналом.
-        startMessagePolling();
-      });
+
+    // Не долбим CDP sync-probe на старте: hasSynced часто вечно false,
+    // abandoned evaluate вешает исходящие. События message работают сразу после ready.
+    if (shouldUseStoreMsgPolling()) {
+      pauseMessagePolling(15000);
+      waitForWhatsAppStoreSync(20000)
+        .then((ok) => {
+          if (!ok) pauseMessagePolling(60000);
+          else pauseMessagePolling(3000);
+          startMessagePolling();
+        })
+        .catch((err) => {
+          console.warn('⚠️ waitForWhatsAppStoreSync:', err.message);
+          pauseMessagePolling(60000);
+          startMessagePolling();
+        });
+    } else {
+      startMessagePolling(); // залогирует «выкл»
+    }
   } catch (error) {
     console.warn('⚠️ Не удалось подтвердить состояние клиента:', error.message);
     startMessageMaintenance();
-    markChromiumSlow(60000);
-    pauseMessagePolling(120000);
     startMessagePolling();
   }
 });
