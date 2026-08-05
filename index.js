@@ -218,10 +218,19 @@ let cdpCooldownUntil = 0;
 /** Soft-timeout подряд (не считаем hard hang — сессия обычно жива). */
 let cdpSoftTimeoutStreak = 0;
 let lastCdpSoftTimeoutAt = 0;
+/**
+ * Abandoned evaluate после soft-timeout ещё держит реальный CDP.
+ * Пока не завершится — новые polling.evaluate нельзя (иначе стак зависаний).
+ */
+let cdpAbandonedWork = null;
+let cdpAbandonedLabel = '';
 /** Polling getChats сломан/висит — до рестарта процесса не долбим CDP. */
 let pollingDisabledForProcess = false;
 /** Не запускаем polling, пока найденное сообщение ждёт batch/AI/отправку. */
 let pollingPauseUntil = 0;
+/** Защита от цикла soft reload на каждом mid-session ready. */
+let lastSoftReloadAt = 0;
+let softReloadInFlight = false;
 
 function pauseMessagePolling(ms = 120000) {
   pollingPauseUntil = Math.max(pollingPauseUntil, Date.now() + ms);
@@ -362,7 +371,20 @@ function isCdpSoftTimeout(err) {
   );
 }
 
+function hasAbandonedCdpWork() {
+  return Boolean(cdpAbandonedWork);
+}
+
 async function runExclusiveCdp(label, fn, softTimeoutMs = 25000) {
+  const isPollingOp = /^polling\.|^sync\./i.test(label);
+  // Polling поверх abandoned evaluate = стак зависаний (логи: streak 1→2→3).
+  if (isPollingOp && cdpAbandonedWork) {
+    const err = new Error(
+      `CDP draining abandoned (${cdpAbandonedLabel || 'unknown'}) before ${label}`
+    );
+    err.code = 'WA_CDP_BUSY';
+    throw err;
+  }
   if (isCdpCooldown()) {
     const err = new Error(`CDP cooldown (${label})`);
     err.code = 'WA_CDP_COOLDOWN';
@@ -399,6 +421,12 @@ async function runExclusiveCdp(label, fn, softTimeoutMs = 25000) {
           `ℹ️ CDP late-fail after soft-timeout (${label}): ${String(err?.message || err).slice(0, 120)}`
         );
       }
+    })
+    .finally(() => {
+      if (cdpAbandonedWork === work) {
+        cdpAbandonedWork = null;
+        cdpAbandonedLabel = '';
+      }
     });
 
   try {
@@ -408,34 +436,33 @@ async function runExclusiveCdp(label, fn, softTimeoutMs = 25000) {
     return result;
   } catch (err) {
     if (isCdpSoftTimeout(err)) {
-      // Критично: отпускаем mutex сразу, не ждём hung evaluate.
+      // Mutex отпускаем для reply, но polling ждёт drain abandoned work.
       abandoned = true;
+      cdpAbandonedWork = work;
+      cdpAbandonedLabel = label;
       releaseMutex();
       cdpSoftTimeoutStreak += 1;
       lastCdpSoftTimeoutAt = Date.now();
-      const isPollingOp = /^polling\.|^sync\./i.test(label);
       const emergency = emergencyMsgPollingUntil > Date.now();
-      // Polling не должен на минуты блокировать исходящие / страховочный опрос.
       const softCooldownMs = isPollingOp
         ? emergency
-          ? Math.min(8000 * Math.pow(2, Math.min(cdpSoftTimeoutStreak - 1, 2)), 30000)
+          ? Math.min(12000 * Math.pow(2, Math.min(cdpSoftTimeoutStreak - 1, 2)), 45000)
           : Math.min(15000 * Math.pow(2, Math.min(cdpSoftTimeoutStreak - 1, 3)), 90000)
         : Math.min(60000 * Math.pow(2, Math.min(cdpSoftTimeoutStreak - 1, 3)), 300000);
-      // Emergency: не блокируем reply cooldown'ом после polling soft-timeout.
       if (!emergency || !isPollingOp) {
         armCdpCooldown(softCooldownMs, label);
         markChromiumSlow(Math.min(softCooldownMs, isPollingOp ? 30000 : 120000));
       } else {
-        markChromiumSlow(Math.min(softCooldownMs, 15000));
+        markChromiumSlow(Math.min(softCooldownMs, 20000));
       }
       if (isPollingOp) {
-        // Раньше min 60с — бот глух после одного soft-timeout на mid-session ready.
-        pauseMessagePolling(emergency ? Math.min(softCooldownMs, 12000) : Math.min(softCooldownMs, 45000));
+        // Ждём drain: не долбим CDP новой evaluate, пока висит abandoned.
+        pauseMessagePolling(emergency ? Math.min(softCooldownMs, 20000) : Math.min(softCooldownMs, 45000));
       }
       console.warn(
         `⏳ CDP soft-timeout (${label}, streak ${cdpSoftTimeoutStreak}): пауза ${Math.round(softCooldownMs / 1000)}с${
           emergency ? ' [emergency]' : ''
-        }, mutex свободен, сессию не рвём`
+        }, ждём drain abandoned, сессию не рвём`
       );
     } else if (isPuppeteerProtocolTimeout(err)) {
       releaseMutex();
@@ -1040,7 +1067,7 @@ if (isRailway && !path.isAbsolute(sessionPath)) {
 
 logPuppeteerDiagnostics();
 console.log(
-  '🔧 WA runtime: cdp-mutex-v11 | main-frame inject | soft-reinject | msg-polling-on | reready-settle | no dual Chrome'
+  '🔧 WA runtime: cdp-mutex-v12 | drain-abandoned | light-poll | soft-reload | no dual Chrome'
 );
 
 /**
@@ -1637,10 +1664,10 @@ function startLegacyMessagePolling() {
 }
 
 /**
- * Лёгкий polling последних сообщений прямо из Store.Msg.
- * В отличие от client.getChats(), не сериализует всю историю чатов и group metadata.
+ * Очень лёгкий polling: только хвост Store.Msg (без filter/sort всей истории).
+ * Полный getModelsArray()+sort вешал CDP на 25с+ после mid-session ready.
  */
-async function fetchRecentMessagesForPolling(limit = 100, maxAgeMs = 10 * 60 * 1000) {
+async function fetchRecentMessagesForPolling(limit = 30, maxAgeMs = 10 * 60 * 1000) {
   if (!client.pupPage) {
     throw Object.assign(new Error('WhatsApp page unavailable'), {
       code: 'WA_POLLING_PAGE_UNAVAILABLE',
@@ -1665,39 +1692,93 @@ async function fetchRecentMessagesForPolling(limit = 100, maxAgeMs = 10 * 60 * 1
     };
 
     const cutoffSeconds = Math.floor((Date.now() - ageLimitMs) / 1000);
-
-    return collection
-      .getModelsArray()
-      .filter((message) => {
-        if (!message?.id || message.id.fromMe || message.isStatusV3) return false;
-        const timestamp = Number(message.t || message.timestamp || 0);
-        if (!timestamp || timestamp < cutoffSeconds) return false;
-        const remote =
-          message.id.remote?._serialized ??
-          message.id.remote?.$1 ??
-          message.id.remote ??
-          '';
-        return (
-          typeof remote === 'string' &&
-          !remote.includes('@broadcast') &&
-          remote !== 'status@broadcast'
-        );
-      })
-      .sort((a, b) => Number(b.t || b.timestamp || 0) - Number(a.t || a.timestamp || 0))
-      .slice(0, maxItems)
-      .map((message) => {
-        try {
-          const data = message.serialize();
-          data.id = normalizeId(data.id);
-          return data;
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean);
+    const all = collection.getModelsArray();
+    // Хвост массива ≈ свежие сообщения; не сортируем десятки тысяч моделей.
+    const start = Math.max(0, all.length - Math.max(maxItems * 4, 80));
+    const out = [];
+    for (let i = all.length - 1; i >= start && out.length < maxItems; i -= 1) {
+      const message = all[i];
+      if (!message?.id || message.id.fromMe || message.isStatusV3) continue;
+      const timestamp = Number(message.t || message.timestamp || 0);
+      if (!timestamp || timestamp < cutoffSeconds) continue;
+      const remote =
+        message.id.remote?._serialized ??
+        message.id.remote?.$1 ??
+        message.id.remote ??
+        '';
+      if (
+        typeof remote !== 'string' ||
+        remote.includes('@broadcast') ||
+        remote === 'status@broadcast'
+      ) {
+        continue;
+      }
+      try {
+        const data = message.serialize();
+        data.id = normalizeId(data.id);
+        out.push(data);
+      } catch {
+        /* skip broken model */
+      }
+    }
+    return out;
   }, limit, maxAgeMs);
 
   return rows.map((data) => new Message(client, data));
+}
+
+/**
+ * Мягкий reload страницы WA Web — восстанавливает Msg.add без второго Chrome.
+ * Не чаще раза в 10 минут; ждёт пустые очереди.
+ */
+async function softReloadWhatsAppPage(reason = '') {
+  if (softReloadInFlight || isReconnecting || cdpRecoveryInFlight) return false;
+  if (typeof isManualLogoutInProgress === 'boolean' && isManualLogoutInProgress) return false;
+  const minGapMs = Math.max(
+    10 * 60 * 1000,
+    parseInt(process.env.WA_SOFT_RELOAD_MIN_MS, 10) || 10 * 60 * 1000
+  );
+  if (lastSoftReloadAt && Date.now() - lastSoftReloadAt < minGapMs) {
+    console.warn(
+      `⏳ Soft reload пропущен (cooldown ${Math.round((minGapMs - (Date.now() - lastSoftReloadAt)) / 1000)}с)`
+    );
+    return false;
+  }
+  if (!client?.pupPage) return false;
+  if (pendingOutbound.size > 0 || processingMessageIds.size > 0) {
+    console.warn('⏳ Soft reload отложен: есть исходящие/обработка');
+    return false;
+  }
+
+  softReloadInFlight = true;
+  lastSoftReloadAt = Date.now();
+  pauseMessagePolling(90000);
+  console.warn(
+    `🔄 Soft reload WhatsApp page (${String(reason).slice(0, 120)}) — восстановим listeners без dual Chrome`
+  );
+  try {
+    // Не ждём abandoned forever — reload сбрасывает контекст.
+    cdpAbandonedWork = null;
+    cdpAbandonedLabel = '';
+    cdpActiveOps = 0;
+    cdpActiveLabel = '';
+    cdpCooldownUntil = 0;
+    chromiumSlowUntil = Date.now() + 15000;
+    await client.pupPage.reload({
+      waitUntil: 'domcontentloaded',
+      timeout: Math.max(60000, parseInt(process.env.WA_SOFT_RELOAD_TIMEOUT_MS, 10) || 90000),
+    });
+    // framenavigated → inject → ready; emergency polling подхватит дальше.
+    enableEmergencyMsgPolling(20 * 60 * 1000, 'after soft reload', { settleMs: 25000 });
+    console.log('✅ Soft reload WhatsApp page завершён');
+    return true;
+  } catch (err) {
+    console.warn(`⚠️ Soft reload не удался: ${String(err?.message || err).slice(0, 120)}`);
+    scheduleSoftReinject(`soft reload failed: ${err?.message || err}`);
+    return false;
+  } finally {
+    softReloadInFlight = false;
+  }
 }
 
 /**
@@ -1841,11 +1922,13 @@ function startMessagePolling() {
   );
 
   global.pollingInterval = trackedSetInterval(async () => {
-    if (!botReady || isReconnecting || cdpRecoveryInFlight) return;
+    if (!botReady || isReconnecting || cdpRecoveryInFlight || softReloadInFlight) return;
     if (!shouldUseStoreMsgPolling()) return;
     if (Date.now() < pollingPauseUntil) return;
     if (processingMessageIds.size > 0 || pendingOutbound.size > 0) return;
     if (pollingInFlight || Date.now() < nextPollAt) return;
+    // Abandoned evaluate ещё в CDP — новые polling только усугубят зависание.
+    if (hasAbandonedCdpWork()) return;
     // Emergency polling после inject fail — не блокируем коротким chromiumSlow/cooldown.
     const emergency = emergencyMsgPollingUntil > Date.now();
     if (!emergency && (isCdpBusy() || isCdpCooldown() || isChromiumSlow())) return;
@@ -1855,7 +1938,7 @@ function startMessagePolling() {
     try {
       const messages = await runExclusiveCdp(
         'polling.messages',
-        () => fetchRecentMessagesForPolling(emergency ? 40 : 80, maxAgeMs),
+        () => fetchRecentMessagesForPolling(emergency ? 20 : 30, maxAgeMs),
         emergency ? emergencySoftTimeoutMs : softTimeoutMs
       );
 
@@ -1881,17 +1964,22 @@ function startMessagePolling() {
         break;
       }
     } catch (err) {
-      errorStreak += 1;
       const emergencyNow = emergencyMsgPollingUntil > Date.now();
-      // Emergency: быстрый retry; обычный режим — мягкий backoff.
-      const backoffMs = emergencyNow
-        ? Math.min(8000 * 2 ** Math.min(errorStreak - 1, 2), 45000)
-        : Math.min(20000 * 2 ** Math.min(errorStreak - 1, 3), 3 * 60 * 1000);
+      const isBusy = err?.code === 'WA_CDP_BUSY' || err?.code === 'WA_CDP_COOLDOWN';
+      const isSoft =
+        isCdpSoftTimeout(err) || isPuppeteerProtocolTimeout(err);
+      if (!isBusy) errorStreak += 1;
+      // Emergency: не спамим evaluate; при 2 soft-timeout → soft reload страницы.
+      const backoffMs = isBusy
+        ? 5000
+        : emergencyNow
+          ? Math.min(15000 * 2 ** Math.min(Math.max(errorStreak - 1, 0), 2), 60000)
+          : Math.min(20000 * 2 ** Math.min(Math.max(errorStreak - 1, 0), 3), 3 * 60 * 1000);
       nextPollAt = Date.now() + backoffMs;
       const now = Date.now();
       const errMsg = String(err?.message || err);
-      if (errorStreak === 1 || now - lastErrorLogAt >= 5 * 60 * 1000) {
-        const kind = isCdpSoftTimeout(err)
+      if (!isBusy && (errorStreak === 1 || now - lastErrorLogAt >= 5 * 60 * 1000)) {
+        const kind = isSoft
           ? 'soft-timeout'
           : /Msg unavailable|getModelsArray/i.test(errMsg)
             ? 'Store.Msg недоступен'
@@ -1902,8 +1990,20 @@ function startMessagePolling() {
         lastErrorLogAt = now;
       }
 
+      if (emergencyNow && isSoft && !isBusy && errorStreak >= 2) {
+        pauseMessagePolling(60000);
+        console.warn(
+          '⚠️ Emergency polling 2× soft-timeout — soft reload WhatsApp page вместо спама CDP'
+        );
+        softReloadWhatsAppPage('emergency polling soft-timeout streak').catch((reloadErr) =>
+          console.warn('⚠️ softReload:', reloadErr.message)
+        );
+        errorStreak = 0;
+        return;
+      }
+
       // Soft-timeout уже ставит pause внутри runExclusiveCdp — не удлиняем до минут.
-      if (isCdpSoftTimeout(err) || isPuppeteerProtocolTimeout(err)) {
+      if (isSoft && !isBusy) {
         if (!emergencyNow) {
           pauseMessagePolling(Math.min(backoffMs, 60000));
         }
@@ -2501,30 +2601,25 @@ client.on('ready', async () => {
     }
 
     // Повторный ready mid-session — Msg.add часто отваливается.
-    // wwebjs-патч уже делает attachEventListeners в hasSynced; второй вызов здесь
-    // забивал CDP → soft-timeout polling → бот глух на минуту+.
+    // Не долбим CDP polling сразу: settle + watchdog; при глухоте — soft reload страницы.
     if (isReready) {
+      const readyAt = Date.now();
       console.warn(
-        '⚠️ Повторный ready mid-session — emergency Store.Msg polling (settle 20с, без повторного attach)'
+        '⚠️ Повторный ready mid-session — settle 25с, затем лёгкий polling; при глухоте soft reload'
       );
-      enableEmergencyMsgPolling(30 * 60 * 1000, 'mid-session ready', { settleMs: 20000 });
-      // Reattach только если bridge реально мёртв (иначе лишний CDP).
-      try {
-        const bridgeOk = await Promise.race([
-          client.pupPage.evaluate(() => typeof window.onAddMessageEvent === 'function'),
-          new Promise((resolve) => setTimeout(() => resolve(null), 4000)),
-        ]);
-        if (bridgeOk === false && typeof client.attachEventListeners === 'function') {
-          console.warn('⚠️ Bridge мёртв после reready — attachEventListeners');
-          await client.attachEventListeners();
-          console.log('✅ attachEventListeners после повторного ready');
-        }
-      } catch (reattachErr) {
+      enableEmergencyMsgPolling(30 * 60 * 1000, 'mid-session ready', { settleMs: 25000 });
+      // Через 55с: если events message так и не пришли — reload страницы (раз в 10 мин).
+      setTimeout(() => {
+        if (lastIncomingEventAt >= readyAt) return; // events ожили
+        if (!botReady || isReconnecting || softReloadInFlight) return;
+        if (pendingOutbound.size > 0 || processingMessageIds.size > 0) return;
         console.warn(
-          `⚠️ reattach listeners: ${String(reattachErr?.message || reattachErr).slice(0, 120)}`
+          '⚠️ После mid-session ready нет входящих events 55с — soft reload WhatsApp page'
         );
-        scheduleSoftReinject('reattach after reready failed');
-      }
+        softReloadWhatsAppPage('no events after mid-session ready').catch((err) =>
+          console.warn('⚠️ softReload watchdog:', err.message)
+        );
+      }, 55000);
     }
 
     startMessageMaintenance();
