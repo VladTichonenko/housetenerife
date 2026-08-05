@@ -38,7 +38,8 @@ function resolvePuppeteerExecutablePath() {
 
 function resolveProtocolTimeoutMs() {
   const configured = parseInt(process.env.PROTOCOL_TIMEOUT_MS, 10);
-  return Number.isFinite(configured) && configured >= 30000 ? configured : 300000;
+  // Короче = зависший evaluate отпускает CDP быстрее (дефолт 2 мин, не 5).
+  return Number.isFinite(configured) && configured >= 30000 ? configured : 120000;
 }
 
 function isPuppeteerProtocolTimeout(error) {
@@ -71,6 +72,9 @@ function getPuppeteerLaunchOptions() {
     '--metrics-recording-only',
     '--mute-audio',
     '--no-default-browser-check',
+    '--renderer-process-limit=2',
+    '--disable-hang-monitor',
+    '--disable-ipc-flooding-protection',
   ];
 
   if (container) {

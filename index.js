@@ -209,15 +209,53 @@ let cdpHangCount = 0;
 let cdpRecoveryInFlight = false;
 /** Последняя живая активность WA (входящее/исходящее/ack) — getState может тупить при живой сессии. */
 let lastWhatsAppActivityAt = 0;
+/** Последнее входящее через события message/message_create (не polling). */
+let lastIncomingEventAt = 0;
+/** Глобальный mutex CDP: зависший getChats/getState блокирует новые evaluate до завершения. */
+let cdpActiveOps = 0;
+let cdpActiveLabel = '';
+let cdpCooldownUntil = 0;
 
 function touchWhatsAppActivity() {
   lastWhatsAppActivityAt = Date.now();
-  // Живой трафик снимает «hang» — иначе watchdog перезапустит рабочую сессию.
   if (cdpHangSince) clearCdpHang();
+}
+
+function touchIncomingEvent() {
+  lastIncomingEventAt = Date.now();
+  touchWhatsAppActivity();
 }
 
 function hasRecentWhatsAppActivity(withinMs = 120000) {
   return lastWhatsAppActivityAt > 0 && Date.now() - lastWhatsAppActivityAt < withinMs;
+}
+
+function isCdpCooldown() {
+  return Date.now() < cdpCooldownUntil;
+}
+
+function isCdpBusy() {
+  return cdpActiveOps > 0;
+}
+
+function armCdpCooldown(ms = 300000, label = '') {
+  const pauseMs = Math.max(60000, Number(ms) || 300000);
+  cdpCooldownUntil = Math.max(cdpCooldownUntil, Date.now() + pauseMs);
+  markChromiumSlow(pauseMs);
+  if (label) cdpActiveLabel = label;
+}
+
+function shouldUseMessagePolling() {
+  if (process.env.DISABLE_POLLING === '1' || process.env.DISABLE_POLLING === 'true') {
+    return false;
+  }
+  // События message работают — polling только долбит getChats и вешает CDP.
+  const autoOff = process.env.POLLING_AUTO_OFF !== '0' && process.env.POLLING_AUTO_OFF !== 'false';
+  if (autoOff && lastIncomingEventAt > 0) {
+    const quietMs = parseInt(process.env.POLLING_AUTO_OFF_QUIET_MS, 10) || 600000;
+    if (Date.now() - lastIncomingEventAt < quietMs) return false;
+  }
+  return true;
 }
 
 function markChromiumSlow(ms = 60000) {
@@ -226,7 +264,7 @@ function markChromiumSlow(ms = 60000) {
 }
 
 function isChromiumSlow() {
-  return Date.now() < chromiumSlowUntil;
+  return Date.now() < chromiumSlowUntil || isCdpCooldown();
 }
 
 function clearCdpHang() {
@@ -234,28 +272,102 @@ function clearCdpHang() {
   cdpHangCount = 0;
 }
 
+/**
+ * Не ждём protocolTimeout (минуты): локальный race.
+ * Пока исходный CDP promise не завершился — cdpActiveOps > 0, новые evaluate не стартуют.
+ */
+async function withCdpSoftTimeout(promise, timeoutMs, code = 'WA_CDP_SOFT_TIMEOUT') {
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const err = new Error(`${code} after ${timeoutMs}ms`);
+          err.code = code;
+          reject(err);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function isCdpSoftTimeout(err) {
+  const code = String(err?.code || '');
+  return (
+    code === 'WA_CDP_SOFT_TIMEOUT' ||
+    code === 'WA_GETCHATS_SOFT_TIMEOUT' ||
+    code === 'WA_FETCH_MSGS_SOFT_TIMEOUT' ||
+    code === 'WA_GETSTATE_SOFT_TIMEOUT' ||
+    code === 'WA_WATCH_PROBE_TIMEOUT' ||
+    code === 'WA_CDP_COOLDOWN' ||
+    code === 'WA_CDP_BUSY'
+  );
+}
+
+async function runExclusiveCdp(label, fn, softTimeoutMs = 12000) {
+  if (isCdpCooldown()) {
+    const err = new Error(`CDP cooldown (${label})`);
+    err.code = 'WA_CDP_COOLDOWN';
+    throw err;
+  }
+  if (cdpActiveOps > 0) {
+    const err = new Error(`CDP busy: ${cdpActiveLabel || 'unknown'} (${label})`);
+    err.code = 'WA_CDP_BUSY';
+    throw err;
+  }
+
+  cdpActiveOps += 1;
+  cdpActiveLabel = label;
+  const work = Promise.resolve().then(fn);
+  try {
+    return await withCdpSoftTimeout(work, softTimeoutMs, 'WA_CDP_SOFT_TIMEOUT');
+  } catch (err) {
+    if (isCdpSoftTimeout(err) || isPuppeteerProtocolTimeout(err)) {
+      armCdpCooldown(300000, label);
+      noteCdpHang(300000);
+    }
+    throw err;
+  } finally {
+    work
+      .finally(() => {
+        cdpActiveOps = Math.max(0, cdpActiveOps - 1);
+        if (cdpActiveOps === 0) cdpActiveLabel = '';
+      })
+      .catch(() => {});
+  }
+}
+
 /** Таймаут CDP (не intentional warmup) — копим для recovery. */
 function noteCdpHang(pauseMs = 60000) {
-  // Не копим hang и не глушим polling надолго, если сообщения/ack только что ходили.
-  if (hasRecentWhatsAppActivity(300000)) {
-    markChromiumSlow(Math.min(pauseMs, 15000));
+  if (hasRecentWhatsAppActivity(15 * 60 * 1000)) {
+    markChromiumSlow(Math.min(pauseMs, 45000));
     return;
   }
-  markChromiumSlow(pauseMs);
+  markChromiumSlow(Math.max(pauseMs, 180000));
   if (!cdpHangSince) cdpHangSince = Date.now();
   cdpHangCount += 1;
 }
 
 function isCdpRecoveryEnabled() {
-  // По умолчанию ВЫКЛ: getState timeout ≠ мёртвая сессия (сообщения могут идти).
-  // Включить только явно: WA_CDP_RECOVERY=1
-  return process.env.WA_CDP_RECOVERY === '1' || process.env.WA_CDP_RECOVERY === 'true';
+  const v = process.env.WA_CDP_RECOVERY;
+  if (v === '0' || v === 'false') return false;
+  // По умолчанию auto: рестарт только если долго нет активности И CDP молчит.
+  return true;
 }
 
 function getCdpRecoveryThresholdMs() {
   const configured = parseInt(process.env.WA_CDP_RECOVERY_MS, 10);
-  // Минимум 10 мин — короткие пороги ложно роняли живую сессию после ack.
+  // Минимум 10 мин без ответа CDP.
   return Number.isFinite(configured) && configured >= 600000 ? configured : 600000;
+}
+
+function getCdpRecoveryIdleMs() {
+  const configured = parseInt(process.env.WA_CDP_RECOVERY_IDLE_MS, 10);
+  // Не рестартим, если за последние 15 мин были сообщения/ack.
+  return Number.isFinite(configured) && configured >= 300000 ? configured : 900000;
 }
 
 function shouldRecoverFromCdpHang() {
@@ -263,9 +375,20 @@ function shouldRecoverFromCdpHang() {
   if (!cdpHangSince || cdpRecoveryInFlight || isReconnecting || isManualLogoutInProgress) {
     return false;
   }
-  // Нельзя рестартить Chromium, пока сессия явно живая (ответы/acks).
-  if (hasRecentWhatsAppActivity(300000)) return false;
-  const minHangs = Math.max(3, parseInt(process.env.WA_CDP_RECOVERY_MIN_HANGS, 10) || 3);
+  if (hasRecentWhatsAppActivity(getCdpRecoveryIdleMs())) return false;
+  // Браузер уже мёртв — reconnect имеет смысл.
+  let browserConnected = true;
+  try {
+    browserConnected =
+      typeof client?.pupBrowser?.isConnected === 'function'
+        ? client.pupBrowser.isConnected()
+        : true;
+  } catch {
+    browserConnected = false;
+  }
+  if (!browserConnected) return true;
+
+  const minHangs = Math.max(2, parseInt(process.env.WA_CDP_RECOVERY_MIN_HANGS, 10) || 2);
   return (
     cdpHangCount >= minHangs &&
     Date.now() - cdpHangSince >= getCdpRecoveryThresholdMs()
@@ -545,6 +668,9 @@ if (isRailway && !path.isAbsolute(sessionPath)) {
 }
 
 logPuppeteerDiagnostics();
+console.log(
+  '🔧 WA runtime: cdp-mutex-v3 | session-watch=off (WA_SESSION_WATCH_MS=0) | polling auto-off при message'
+);
 
 const client = new Client({
   authStrategy: new LocalAuth({
@@ -685,8 +811,13 @@ function normalizeMsgTimestamp(ts) {
 function startMessagePolling() {
   if (global.pollingInterval) return;
 
-  const pollMs = parseInt(process.env.POLLING_INTERVAL_MS, 10) || 3000;
+  // Реже = меньше нагрузка на CDP. События message — основной канал.
+  const pollMs = parseInt(process.env.POLLING_INTERVAL_MS, 10) || 15000;
   const maxAgeMs = parseInt(process.env.POLLING_MAX_AGE_MS, 10) || 600000;
+  const getChatsSoftMs = Math.max(
+    5000,
+    parseInt(process.env.POLLING_GETCHATS_TIMEOUT_MS, 10) || 12000
+  );
   const reconnectThreshold = 3;
   let pollingCounter = 0;
   let consecutivePollingErrors = 0;
@@ -697,16 +828,14 @@ function startMessagePolling() {
   let lastSoftErrorLogAt = 0;
 
   console.log(
-    `🔄 Polling входящих каждые ${pollMs / 1000} с (резерв к событиям message/message_create; только ЛС${process.env.POLLING_INCLUDE_GROUPS === '1' ? ', группы включены' : ''})`
+    `🔄 Polling входящих каждые ${pollMs / 1000} с (резерв; getChats soft ${getChatsSoftMs / 1000}с; auto-off при событиях: ${process.env.POLLING_AUTO_OFF === '0' ? 'нет' : 'да'}; только ЛС${process.env.POLLING_INCLUDE_GROUPS === '1' ? ', группы включены' : ''})`
   );
 
   global.pollingInterval = trackedSetInterval(async () => {
     if (!botReady) return;
+    if (!shouldUseMessagePolling()) return;
     if (pollingInFlight || Date.now() < nextPollAt) return;
-    if (isChromiumSlow()) {
-      // Watchdog уже видит медленный CDP — не добавляем getChats поверх.
-      return;
-    }
+    if (isChromiumSlow() || isCdpBusy()) return;
     pollingInFlight = true;
 
     pollingCounter++;
@@ -718,13 +847,21 @@ function startMessagePolling() {
     }
 
     try {
-      const chats = await client.getChats();
+      const chats = await runExclusiveCdp(
+        'polling.getChats',
+        () => client.getChats(),
+        getChatsSoftMs
+      );
       const activeChats = chats.filter(isSafePollingChat);
       let dispatched = 0;
 
       for (const chat of activeChats) {
         try {
-          const messages = await fetchChatMessagesSafe(chat);
+          const messages = await runExclusiveCdp(
+            `polling.fetchMessages:${getChatPollingKey(chat)}`,
+            () => fetchChatMessagesSafe(chat),
+            Math.min(getChatsSoftMs, 10000)
+          );
           const sorted = [...messages].sort(
             (a, b) => normalizeMsgTimestamp(b.timestamp) - normalizeMsgTimestamp(a.timestamp)
           );
@@ -756,8 +893,8 @@ function startMessagePolling() {
             dispatchIncomingMessage(msg, 'polling');
           }
         } catch (chatErr) {
-          if (isPuppeteerProtocolTimeout(chatErr)) {
-            noteCdpHang(45000);
+          if (isPuppeteerProtocolTimeout(chatErr) || isCdpSoftTimeout(chatErr)) {
+            noteCdpHang(180000);
             break;
           }
           if (!isChatLoadError(chatErr) && pollingCounter % 20 === 0) {
@@ -780,13 +917,19 @@ function startMessagePolling() {
       const soft =
         isChatLoadError(pollError) ||
         isTransientChatLookupError(pollError) ||
-        isPuppeteerProtocolTimeout(pollError);
+        isPuppeteerProtocolTimeout(pollError) ||
+        isCdpSoftTimeout(pollError);
       if (soft) {
-        // Store/@lid/CDP timeout — не считаем смертью сессии и не долбим Chromium.
         softErrorStreak++;
-        const cdpSlow = isPuppeteerProtocolTimeout(pollError);
+        const cdpSlow =
+          isPuppeteerProtocolTimeout(pollError) ||
+          isCdpSoftTimeout(pollError) ||
+          pollError?.code === 'WA_CDP_COOLDOWN' ||
+          pollError?.code === 'WA_CDP_BUSY';
         if (cdpSlow) {
-          noteCdpHang(60000);
+          if (pollError?.code !== 'WA_CDP_BUSY' && pollError?.code !== 'WA_CDP_COOLDOWN') {
+            noteCdpHang(300000);
+          }
           if (shouldRecoverFromCdpHang()) {
             recoverFromCdpHang(pollError.message).catch((err) =>
               console.error('❌ CDP recovery после polling:', err.message)
@@ -794,12 +937,14 @@ function startMessagePolling() {
           }
         }
         const backoffMs = Math.min(
-          Math.max(pollMs, cdpSlow ? 15000 : 5000) * Math.pow(2, Math.min(softErrorStreak - 1, 4)),
-          cdpSlow ? 120000 : 60000
+          Math.max(pollMs, cdpSlow ? 120000 : 5000) * Math.pow(2, Math.min(softErrorStreak - 1, 3)),
+          cdpSlow ? 600000 : 60000
         );
         nextPollAt = Date.now() + backoffMs;
         const now = Date.now();
-        if (softErrorStreak === 1 || now - lastSoftErrorLogAt >= 5 * 60 * 1000) {
+        const quietLog =
+          pollError?.code === 'WA_CDP_BUSY' || pollError?.code === 'WA_CDP_COOLDOWN';
+        if (!quietLog && (softErrorStreak === 1 || now - lastSoftErrorLogAt >= 5 * 60 * 1000)) {
           console.warn(
             `⚠️ [POLLING] ${cdpSlow ? 'Chromium/CDP медленный' : 'Store недоступен'} (${pollError.message}); повтор через ${Math.round(backoffMs / 1000)} с`
           );
@@ -818,7 +963,7 @@ function startMessagePolling() {
           }
         } catch (stateErr) {
           if (isPuppeteerProtocolTimeout(stateErr)) {
-            noteCdpHang(60000);
+            noteCdpHang(180000);
             stillConnected = true;
           }
         }
@@ -871,7 +1016,11 @@ async function withChatTyping(msg, work) {
 
 function dispatchIncomingMessage(msg, source) {
   if (msg.fromMe) return;
-  touchWhatsAppActivity();
+  if (source === 'message' || source === 'message_create') {
+    touchIncomingEvent();
+  } else {
+    touchWhatsAppActivity();
+  }
   const chatId = msg.from || msg.id?.remote || '?';
   enqueueForChat(chatId, () => processIncomingMessage(msg, source)).catch((error) => {
     console.error(`❌ Ошибка обработки сообщения (${source}):`, error.message);
@@ -1860,13 +2009,18 @@ async function getServiceStatus() {
 /** Один общий getState — админка/watchdog/входящие не плодят параллельные CDP. */
 let getStateInFlight = null;
 
-function requestClientState() {
+function requestClientState(softTimeoutMs = 8000) {
+  if (isCdpCooldown() || isCdpBusy()) {
+    return Promise.reject(
+      Object.assign(new Error('CDP busy/cooldown (getState skipped)'), { code: 'WA_CDP_BUSY' })
+    );
+  }
   if (!getStateInFlight) {
-    getStateInFlight = Promise.resolve()
-      .then(() => client.getState())
-      .finally(() => {
+    getStateInFlight = runExclusiveCdp('getState', () => client.getState(), softTimeoutMs).finally(
+      () => {
         getStateInFlight = null;
-      });
+      }
+    );
   }
   return getStateInFlight;
 }
@@ -1877,7 +2031,7 @@ function requestClientState() {
  */
 async function getClientStateFast(timeoutMs = 2500) {
   const cachedState = waWatchState || (botReady ? 'CONNECTED' : 'unknown');
-  if (isChromiumSlow() || isManualLogoutInProgress || isReconnecting) {
+  if (isChromiumSlow() || isManualLogoutInProgress || isReconnecting || isCdpBusy()) {
     return {
       state: cachedState,
       ready: botReady || cachedState === 'CONNECTED',
@@ -1887,7 +2041,7 @@ async function getClientStateFast(timeoutMs = 2500) {
 
   try {
     const state = await Promise.race([
-      requestClientState(),
+      requestClientState(Math.max(timeoutMs, 5000)),
       new Promise((_, reject) => {
         setTimeout(() => {
           const err = new Error(`getState soft timeout after ${timeoutMs}ms`);
@@ -1904,6 +2058,13 @@ async function getClientStateFast(timeoutMs = 2500) {
       cached: false,
     };
   } catch (err) {
+    if (err?.code === 'WA_CDP_BUSY' || err?.code === 'WA_CDP_COOLDOWN') {
+      return {
+        state: cachedState,
+        ready: botReady || cachedState === 'CONNECTED',
+        cached: true,
+      };
+    }
     if (err?.code === 'WA_GETSTATE_SOFT_TIMEOUT' || isPuppeteerProtocolTimeout(err)) {
       noteCdpHang(45000);
     }
@@ -1929,8 +2090,13 @@ async function getAdminSessionSnapshot() {
 
 // Следим за сессией WhatsApp — если событие disconnected не пришло, алерт всё равно уйдёт
 function startWhatsAppSessionWatchdog() {
-  const intervalMs = parseInt(process.env.WA_SESSION_WATCH_MS, 10) || 60000;
-  const probeTimeoutMs = parseInt(process.env.WA_SESSION_PROBE_TIMEOUT_MS, 10) || 30000;
+  const intervalMs = parseInt(process.env.WA_SESSION_WATCH_MS, 10);
+  // По умолчанию ВЫКЛ: getState только грузит CDP; disconnected/ready достаточно.
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    console.log('👁️ WhatsApp session watch: выкл (WA_SESSION_WATCH_MS=0, только события disconnected)');
+    return;
+  }
+  const probeTimeoutMs = parseInt(process.env.WA_SESSION_PROBE_TIMEOUT_MS, 10) || 15000;
   let watchErrors = 0;
   const maxWatchErrors = parseInt(process.env.WA_SESSION_MAX_ERRORS, 10) || 3;
   let probeInFlight = null;
@@ -1938,20 +2104,23 @@ function startWhatsAppSessionWatchdog() {
 
   trackedSetInterval(async () => {
     if (!botReady || isManualLogoutInProgress || isReconnecting || cdpRecoveryInFlight) return;
-    // Не запускаем новый CDP-вызов, пока предыдущий getState ещё не завершился.
-    // Иначе при нагрузке несколько Runtime.callFunctionOn зависают одновременно.
-    if (probeInFlight) {
-      // Не рестартим из‑за зависшего getState: soft-timeout уже есть, сессия может быть жива.
-      // Recovery только если явно включён WA_CDP_RECOVERY=1 и нет недавней активности.
+    // Не долбим getState, пока CDP уже медленный или недавно были сообщения.
+    if (isChromiumSlow() || isCdpBusy()) {
       if (shouldRecoverFromCdpHang()) {
-        recoverFromCdpHang('watchdog probe stuck').catch((reconnectError) =>
-          console.error('❌ CDP recovery (stuck probe):', reconnectError.message)
+        recoverFromCdpHang('chromium slow too long').catch((reconnectError) =>
+          console.error('❌ CDP recovery (slow):', reconnectError.message)
         );
       }
       return;
     }
+    if (hasRecentWhatsAppActivity(300000)) {
+      return;
+    }
+    if (probeInFlight) {
+      return;
+    }
 
-    const stateProbe = Promise.resolve().then(() => requestClientState());
+    const stateProbe = requestClientState(probeTimeoutMs);
     probeInFlight = stateProbe;
     try {
       const state = await Promise.race([
@@ -2004,9 +2173,8 @@ function startWhatsAppSessionWatchdog() {
       // но не доказательство отключения WhatsApp. Не отправляем ложный алерт.
       if (transientTimeout && browserConnected) {
         watchErrors = 0;
-        // getState часто тупит под нагрузкой WA Web, хотя message/ack живые.
-        if (hasRecentWhatsAppActivity(300000)) {
-          markChromiumSlow(15000);
+        if (hasRecentWhatsAppActivity(getCdpRecoveryIdleMs())) {
+          markChromiumSlow(30000);
           const now = Date.now();
           if (now - lastTransientLogAt >= 10 * 60 * 1000) {
             console.log(
@@ -2016,7 +2184,7 @@ function startWhatsAppSessionWatchdog() {
           }
           return;
         }
-        noteCdpHang(Math.max(probeTimeoutMs, 45000));
+        noteCdpHang(Math.max(probeTimeoutMs, 180000));
         const now = Date.now();
         if (now - lastTransientLogAt >= 5 * 60 * 1000) {
           console.warn(
@@ -2024,7 +2192,6 @@ function startWhatsAppSessionWatchdog() {
           );
           lastTransientLogAt = now;
         }
-        // Авто-рестарт по умолчанию выключен (см. WA_CDP_RECOVERY).
         if (shouldRecoverFromCdpHang()) {
           recoverFromCdpHang(err.message).catch((reconnectError) =>
             console.error('❌ CDP recovery (watchdog):', reconnectError.message)
