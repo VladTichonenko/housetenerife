@@ -432,10 +432,8 @@ function noteCdpHang(pauseMs = 60000, { hard = false } = {}) {
 }
 
 function isCdpRecoveryEnabled() {
-  const v = process.env.WA_CDP_RECOVERY;
-  if (v === '0' || v === 'false') return false;
-  // По умолчанию auto: рестарт только если долго нет активности И CDP молчит.
-  return true;
+  // По умолчанию ВЫКЛ: destroy/reinit плодит вторую Chrome-сессию в телефоне.
+  return process.env.WA_CDP_RECOVERY === '1' || process.env.WA_CDP_RECOVERY === 'true';
 }
 
 function getCdpRecoveryThresholdMs() {
@@ -995,7 +993,7 @@ if (isRailway && !path.isAbsolute(sessionPath)) {
 
 logPuppeteerDiagnostics();
 console.log(
-  '🔧 WA runtime: cdp-mutex-v7 | no false reconnect on soft-timeout | outbound first'
+  '🔧 WA runtime: cdp-mutex-v8 | wait Store sync | no auto-reconnect (no dual Chrome)'
 );
 
 /**
@@ -1027,6 +1025,16 @@ function scheduleInjectRecovery(reason) {
     );
     markChromiumSlow(60000);
     armCdpCooldown(60000, 'soft-no-recovery');
+    return;
+  }
+  // По умолчанию ВЫКЛ: force reconnect плодит вторую Chrome-сессию
+  // («зелёный кружок / держите приложение открытым» в Связанных устройствах).
+  if (process.env.WA_INJECT_RECOVERY !== '1' && process.env.WA_INJECT_RECOVERY !== 'true') {
+    console.warn(
+      `⏳ Inject fail без reconnect (${reasonText.slice(0, 100)}). Включить: WA_INJECT_RECOVERY=1`
+    );
+    markChromiumSlow(90000);
+    armCdpCooldown(90000, 'inject-no-recovery');
     return;
   }
   if (injectRecoveryTimer) return;
@@ -1102,10 +1110,13 @@ const client = new Client({
     60000,
     parseInt(process.env.WA_AUTH_TIMEOUT_MS, 10) || 90000
   ),
-  // Дополнительные настройки для стабильности
+  // Имя в «Связанные устройства» — чтобы отличать бота от лишнего Chrome.
+  deviceName: process.env.WA_DEVICE_NAME || 'House Tenerife Bot',
+  browserName: process.env.WA_BROWSER_NAME || 'Chrome',
   restartOnAuthFail: true,
-  takeoverOnConflict: false,
-  takeoverTimeoutMs: 0
+  // Не плодим вторую Web-сессию поверх первой при конфликте.
+  takeoverOnConflict: true,
+  takeoverTimeoutMs: 10000
 });
 
 // Хранилище истории сообщений для каждого пользователя
@@ -1506,6 +1517,66 @@ async function fetchRecentMessagesForPolling(limit = 100, maxAgeMs = 10 * 60 * 1
   }, limit, maxAgeMs);
 
   return rows.map((data) => new Message(client, data));
+}
+
+/**
+ * Ждём, пока WhatsApp Web досинхронизирует Store.
+ * Иначе Store.Msg evaluate зависает, а в телефоне крутится «Держите приложение открытым».
+ */
+async function waitForWhatsAppStoreSync(timeoutMs = 180000) {
+  if (!client.pupPage) return false;
+  const started = Date.now();
+  let lastLog = 0;
+  while (Date.now() - started < timeoutMs) {
+    if (isReconnecting || isManualLogoutInProgress) return false;
+    try {
+      const snap = await Promise.race([
+        client.pupPage.evaluate(() => {
+          try {
+            const stream = window.require('WAWebStreamModel')?.Stream;
+            const socket = window.require('WAWebSocketModel')?.Socket;
+            const msg = window.require('WAWebCollections')?.Msg;
+            return {
+              hasSynced: Boolean(stream?.hasSynced),
+              socketState: socket?.state || null,
+              hasMsgApi: typeof msg?.getModelsArray === 'function',
+              msgCount:
+                typeof msg?.getModelsArray === 'function'
+                  ? msg.getModelsArray().length
+                  : -1,
+            };
+          } catch (e) {
+            return { error: String(e?.message || e) };
+          }
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('sync probe soft timeout')), 4000)
+        ),
+      ]);
+      const ready =
+        snap?.hasMsgApi &&
+        (snap.hasSynced || snap.socketState === 'CONNECTED') &&
+        Number(snap.msgCount) >= 0;
+      if (ready) {
+        console.log(
+          `✅ WA Store sync OK (msgs≈${snap.msgCount}, synced=${snap.hasSynced}, socket=${snap.socketState})`
+        );
+        return true;
+      }
+      if (Date.now() - lastLog > 15000) {
+        console.log('⏳ Ждём синхронизацию WhatsApp Web (телефон не блокировать)…', snap);
+        lastLog = Date.now();
+      }
+    } catch (err) {
+      if (Date.now() - lastLog > 15000) {
+        console.warn(`⏳ Sync probe: ${err.message}`);
+        lastLog = Date.now();
+      }
+    }
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  console.warn('⚠️ WA Store sync не подтверждён за отведённое время — polling позже/осторожнее');
+  return false;
 }
 
 /** Резервный polling без getChats; включён по умолчанию. */
@@ -2151,15 +2222,25 @@ client.on('ready', async () => {
 
     console.log('📡 Входящие: события message + message_create + Store.Msg polling, очередь по чату');
     startMessageMaintenance();
-    // Даём WA Web/Store осесть; polling не стартуем сразу — иначе soft-timeout → ложный reconnect.
-    markChromiumSlow(30000);
-    pauseMessagePolling(45000);
-    startMessagePolling();
+    // Сначала дождаться sync (иначе зелёный кружок в телефоне + soft-timeout polling).
+    markChromiumSlow(60000);
+    pauseMessagePolling(120000);
+    waitForWhatsAppStoreSync(180000)
+      .then((ok) => {
+        if (!ok) pauseMessagePolling(60000);
+        else pauseMessagePolling(5000);
+        startMessagePolling();
+      })
+      .catch((err) => {
+        console.warn('⚠️ waitForWhatsAppStoreSync:', err.message);
+        pauseMessagePolling(60000);
+        startMessagePolling();
+      });
   } catch (error) {
     console.warn('⚠️ Не удалось подтвердить состояние клиента:', error.message);
     startMessageMaintenance();
-    markChromiumSlow(30000);
-    pauseMessagePolling(45000);
+    markChromiumSlow(60000);
+    pauseMessagePolling(120000);
     startMessagePolling();
   }
 });
