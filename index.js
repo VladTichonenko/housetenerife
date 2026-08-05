@@ -255,9 +255,10 @@ function isCdpBusy() {
 }
 
 function armCdpCooldown(ms = 300000, label = '') {
-  const pauseMs = Math.max(60000, Number(ms) || 300000);
+  // Минимум 15с: короткий backoff после polling soft-timeout не должен блокировать reply на минуту.
+  const pauseMs = Math.max(15000, Number(ms) || 300000);
   cdpCooldownUntil = Math.max(cdpCooldownUntil, Date.now() + pauseMs);
-  markChromiumSlow(pauseMs);
+  markChromiumSlow(Math.min(pauseMs, 120000));
   if (label) cdpActiveLabel = label;
 }
 
@@ -326,7 +327,8 @@ function isBrowserConnected() {
 
 /**
  * Не ждём protocolTimeout (минуты): локальный race.
- * Пока исходный CDP promise не завершился — cdpActiveOps > 0, новые evaluate не стартуют.
+ * При soft-timeout сразу освобождаем mutex — иначе зависший evaluate
+ * блокирует reply/send навсегда (бот «молчит», HTTP жив).
  */
 async function withCdpSoftTimeout(promise, timeoutMs, code = 'WA_CDP_SOFT_TIMEOUT') {
   let timer;
@@ -374,38 +376,64 @@ async function runExclusiveCdp(label, fn, softTimeoutMs = 25000) {
 
   cdpActiveOps += 1;
   cdpActiveLabel = label;
+  let released = false;
+  let abandoned = false;
+  const releaseMutex = () => {
+    if (released) return;
+    released = true;
+    cdpActiveOps = Math.max(0, cdpActiveOps - 1);
+    if (cdpActiveOps === 0 && !isCdpCooldown()) cdpActiveLabel = '';
+  };
+
   const work = Promise.resolve().then(fn);
+  // Поздний результат abandoned evaluate — только логируем, mutex уже свободен.
+  work
+    .then(() => {
+      if (abandoned) {
+        console.log(`ℹ️ CDP late-ok after soft-timeout (${label})`);
+      }
+    })
+    .catch((err) => {
+      if (abandoned) {
+        console.warn(
+          `ℹ️ CDP late-fail after soft-timeout (${label}): ${String(err?.message || err).slice(0, 120)}`
+        );
+      }
+    });
+
   try {
     const result = await withCdpSoftTimeout(work, softTimeoutMs, 'WA_CDP_SOFT_TIMEOUT');
     cdpSoftTimeoutStreak = 0;
+    releaseMutex();
     return result;
   } catch (err) {
     if (isCdpSoftTimeout(err)) {
-      // Soft race: Chromium часто просто медленный. Не считаем hard hang и не рвём сессию.
+      // Критично: отпускаем mutex сразу, не ждём hung evaluate.
+      abandoned = true;
+      releaseMutex();
       cdpSoftTimeoutStreak += 1;
       lastCdpSoftTimeoutAt = Date.now();
-      const softCooldownMs = Math.min(
-        120000 * Math.pow(2, Math.min(cdpSoftTimeoutStreak - 1, 3)),
-        600000
-      );
+      const isPollingOp = /^polling\./i.test(label);
+      // Polling не должен на 2–10 минут блокировать исходящие.
+      const softCooldownMs = isPollingOp
+        ? Math.min(20000 * Math.pow(2, Math.min(cdpSoftTimeoutStreak - 1, 3)), 120000)
+        : Math.min(60000 * Math.pow(2, Math.min(cdpSoftTimeoutStreak - 1, 3)), 300000);
       armCdpCooldown(softCooldownMs, label);
-      markChromiumSlow(Math.min(softCooldownMs, 180000));
+      markChromiumSlow(Math.min(softCooldownMs, isPollingOp ? 45000 : 120000));
+      if (isPollingOp) {
+        pauseMessagePolling(Math.max(softCooldownMs, 60000));
+      }
       console.warn(
-        `⏳ CDP soft-timeout (${label}, streak ${cdpSoftTimeoutStreak}): пауза ${Math.round(softCooldownMs / 1000)}с, сессию не рвём`
+        `⏳ CDP soft-timeout (${label}, streak ${cdpSoftTimeoutStreak}): пауза ${Math.round(softCooldownMs / 1000)}с, mutex свободен, сессию не рвём`
       );
     } else if (isPuppeteerProtocolTimeout(err)) {
-      // Реальный protocolTimeout Puppeteer — браузер может быть мёртв.
+      releaseMutex();
       armCdpCooldown(300000, label);
       noteCdpHang(300000, { hard: true });
+    } else {
+      releaseMutex();
     }
     throw err;
-  } finally {
-    work
-      .finally(() => {
-        cdpActiveOps = Math.max(0, cdpActiveOps - 1);
-        if (cdpActiveOps === 0) cdpActiveLabel = '';
-      })
-      .catch(() => {});
   }
 }
 
@@ -887,10 +915,18 @@ async function sendMessageSafely(msg, text, clientRef = client) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
-  // CDP занят зависшим evaluate (часто после soft-timeout polling) — не долбим reply поверх.
-  if (isCdpBusy() || isCdpCooldown()) {
+  // CDP занят зависшим evaluate — не долбим reply поверх.
+  // @lid при cooldown всё же пробуем reply: иначе 20–120с тишины после polling soft-timeout.
+  if (isCdpBusy()) {
     console.warn(
-      `⏳ CDP занят (${cdpActiveLabel || 'cooldown'}) — ответ ${chatId} в очередь, без reconnect`
+      `⏳ CDP занят (${cdpActiveLabel || 'op'}) — ответ ${chatId} в очередь, без reconnect`
+    );
+    enqueueOutboundRetry(chatId, text, { delayMs: 4000 });
+    return { queued: true };
+  }
+  if (isCdpCooldown() && !lid) {
+    console.warn(
+      `⏳ CDP cooldown — ответ ${chatId} в очередь`
     );
     enqueueOutboundRetry(chatId, text, { delayMs: 4000 });
     return { queued: true };
@@ -1555,7 +1591,7 @@ async function waitForWhatsAppStoreSync(timeoutMs = 180000) {
       ]);
       const ready =
         snap?.hasMsgApi &&
-        (snap.hasSynced || snap.socketState === 'CONNECTED') &&
+        snap.hasSynced === true &&
         Number(snap.msgCount) >= 0;
       if (ready) {
         console.log(
@@ -1563,7 +1599,19 @@ async function waitForWhatsAppStoreSync(timeoutMs = 180000) {
         );
         return true;
       }
-      if (Date.now() - lastLog > 15000) {
+      // Socket CONNECTED без hasSynced — ещё рано для Store.Msg polling
+      if (
+        snap?.hasMsgApi &&
+        snap.socketState === 'CONNECTED' &&
+        snap.hasSynced !== true &&
+        Date.now() - lastLog > 15000
+      ) {
+        console.log(
+          '⏳ WA socket CONNECTED, но Store ещё не синхронизирован (hasSynced=false) — polling ждём…',
+          snap
+        );
+        lastLog = Date.now();
+      } else if (Date.now() - lastLog > 15000) {
         console.log('⏳ Ждём синхронизацию WhatsApp Web (телефон не блокировать)…', snap);
         lastLog = Date.now();
       }
@@ -1579,11 +1627,30 @@ async function waitForWhatsAppStoreSync(timeoutMs = 180000) {
   return false;
 }
 
-/** Резервный polling без getChats; включён по умолчанию. */
+/** Резервный polling Store.Msg. По умолчанию ВЫКЛ — события message достаточно, polling вешает CDP. */
+function shouldUseStoreMsgPolling() {
+  if (process.env.DISABLE_POLLING === '1' || process.env.DISABLE_POLLING === 'true') {
+    return false;
+  }
+  // Явное включение резерва
+  if (
+    process.env.ENABLE_MSG_POLLING === '1' ||
+    process.env.ENABLE_MSG_POLLING === 'true' ||
+    process.env.ENABLE_POLLING === '1' ||
+    process.env.ENABLE_POLLING === 'true'
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Резервный polling без getChats; по умолчанию выкл (см. ENABLE_MSG_POLLING=1). */
 function startMessagePolling() {
   if (global.pollingInterval) return;
-  if (process.env.DISABLE_POLLING === '1' || process.env.DISABLE_POLLING === 'true') {
-    console.log('🔄 Polling последних сообщений: выключен (DISABLE_POLLING=1)');
+  if (!shouldUseStoreMsgPolling()) {
+    console.log(
+      '🔄 Polling Store.Msg: выкл (по умолчанию). Входящие: события message/message_create. Включить: ENABLE_MSG_POLLING=1'
+    );
     return;
   }
 
@@ -1591,7 +1658,7 @@ function startMessagePolling() {
   const maxAgeMs = parseInt(process.env.POLLING_MAX_AGE_MS, 10) || 10 * 60 * 1000;
   const softTimeoutMs = Math.max(
     5000,
-    parseInt(process.env.POLLING_MESSAGES_TIMEOUT_MS, 10) || 12000
+    parseInt(process.env.POLLING_MESSAGES_TIMEOUT_MS, 10) || 8000
   );
   let pollingInFlight = false;
   let nextPollAt = 0;
@@ -1607,7 +1674,7 @@ function startMessagePolling() {
     if (Date.now() < pollingPauseUntil) return;
     if (processingMessageIds.size > 0 || pendingOutbound.size > 0) return;
     if (pollingInFlight || Date.now() < nextPollAt) return;
-    if (isCdpBusy() || isCdpCooldown()) return;
+    if (isCdpBusy() || isCdpCooldown() || isChromiumSlow()) return;
     pollingInFlight = true;
 
     try {
@@ -1645,9 +1712,15 @@ function startMessagePolling() {
       const backoffMs = Math.min(30000 * 2 ** Math.min(errorStreak - 1, 4), 5 * 60 * 1000);
       nextPollAt = Date.now() + backoffMs;
       const now = Date.now();
+      const errMsg = String(err?.message || err);
       if (errorStreak === 1 || now - lastErrorLogAt >= 5 * 60 * 1000) {
+        const kind = isCdpSoftTimeout(err)
+          ? 'soft-timeout'
+          : /Msg unavailable|getModelsArray/i.test(errMsg)
+            ? 'Store.Msg недоступен'
+            : 'ошибка';
         console.warn(
-          `⚠️ [POLLING] Store.Msg недоступен (${err.message}); повтор через ${Math.round(backoffMs / 1000)}с`
+          `⚠️ [POLLING] ${kind} (${errMsg.slice(0, 120)}); повтор через ${Math.round(backoffMs / 1000)}с`
         );
         lastErrorLogAt = now;
       }
@@ -1659,11 +1732,9 @@ function startMessagePolling() {
       }
 
       if (
-        /Execution context was destroyed|WhatsApp page unavailable/i.test(
-          String(err?.message || err)
-        )
+        /Execution context was destroyed|WhatsApp page unavailable/i.test(errMsg)
       ) {
-        scheduleInjectRecovery(`polling page destroyed: ${err.message}`);
+        scheduleInjectRecovery(`polling page destroyed: ${errMsg}`);
       }
     } finally {
       pollingInFlight = false;
@@ -2220,20 +2291,21 @@ client.on('ready', async () => {
 
     console.log('🔍 Диагностика завершена. Бот готов получать сообщения.');
 
-    console.log('📡 Входящие: события message + message_create + Store.Msg polling, очередь по чату');
+    console.log('📡 Входящие: события message + message_create (+ Store.Msg polling если ENABLE_MSG_POLLING=1), очередь по чату');
     startMessageMaintenance();
     // Сначала дождаться sync (иначе зелёный кружок в телефоне + soft-timeout polling).
-    markChromiumSlow(60000);
+    markChromiumSlow(30000);
     pauseMessagePolling(120000);
     waitForWhatsAppStoreSync(180000)
       .then((ok) => {
-        if (!ok) pauseMessagePolling(60000);
+        if (!ok) pauseMessagePolling(120000);
         else pauseMessagePolling(5000);
         startMessagePolling();
       })
       .catch((err) => {
         console.warn('⚠️ waitForWhatsAppStoreSync:', err.message);
-        pauseMessagePolling(60000);
+        pauseMessagePolling(120000);
+        // Без sync — не долбим Store.Msg; события message остаются основным каналом.
         startMessagePolling();
       });
   } catch (error) {
