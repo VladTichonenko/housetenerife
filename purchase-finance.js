@@ -107,7 +107,9 @@ function extractFundsAvailableNow(text, opts = {}) {
 
   const tryExtract = (chunk) => {
     const c = String(chunk || '').toLowerCase();
-    if (!c || budgetOnly.test(c)) return null;
+    if (!c) return null;
+    // Бюджет поиска в этом же сообщении — не путать с «на руках»
+    if (budgetOnly.test(c) && !fundsContext.test(c)) return null;
 
     if (fundsContext.test(c)) {
       const num = c.match(/(\d[\d\s.]{3,})\s*(?:€|eur|евро|e)?/i);
@@ -129,6 +131,15 @@ function extractFundsAvailableNow(text, opts = {}) {
 
   const fromScoped = tryExtract(s);
   if (fromScoped) return fromScoped;
+
+  const segments = String(s || '')
+    .split(/\n+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  for (const segment of segments) {
+    const fromSegment = tryExtract(segment);
+    if (fromSegment) return fromSegment;
+  }
 
   if (last && !budgetOnly.test(last)) {
     if (fundsContext.test(last)) {
@@ -182,7 +193,7 @@ function analyzeFinanceCapability(text, opts = {}) {
   const combined = [full, last].filter(Boolean).join('\n');
 
   const allCash =
-    /(?:все\s+(?:своими|наличн|деньг)|полностью\s+(?:своими|наличн)|100\s*%|без\s+(?:ипотек|кредит)|наличными|только\s+сво|cash\s+only|all\s+cash|tout\s+cash|todo\s+(?:en\s+)?efectivo|volle\s+bar|sin\s+hipoteca|sans\s+(?:cr[eé]dit|hypoth[eè]que)|ohne\s+hypothek|полная\s+оплата)/i.test(
+    /(?:все\s+(?:своими|наличн|деньг)|вся\s+сумм|полностью\s+(?:своими|наличн)|100\s*%|без\s+(?:ипотек|кредит)|наличными|только\s+сво|cash\s+only|all\s+cash|tout\s+cash|todo\s+(?:en\s+)?efectivo|volle\s+bar|sin\s+hipoteca|sans\s+(?:cr[eé]dit|hypoth[eè]que)|ohne\s+hypothek|полная\s+оплата)/i.test(
       combined
     );
   const partial =

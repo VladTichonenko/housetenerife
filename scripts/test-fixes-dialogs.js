@@ -438,6 +438,70 @@ function runDeterministicTests() {
     'gate: смена Dubai → Tenerife обнаружена',
     tenerifeTopic.action === 'new_topic' && tenerifeTopic.reason === 'region_changed'
   );
+  const investFunnelHistory = user(
+    'ищу инвестиционный проект',
+    'бюджет 1 миллион евро',
+    'планирую покупку через 1 или 2 месяца',
+    'у меня есть вся сумма на руках'
+  );
+  let investGatePrev = null;
+  let investGate = null;
+  for (const message of investFunnelHistory) {
+    investGate = evaluateIntentGate(
+      investFunnelHistory.slice(0, investFunnelHistory.indexOf(message) + 1),
+      'ru',
+      investGatePrev
+    );
+    investGatePrev = investGate;
+  }
+  const businessHistory = [
+    ...investFunnelHistory,
+    {
+      sender: 'user',
+      text: 'я ищу готовый бизнес, в каких регионах можете предложить такую недвижимость',
+    },
+  ];
+  const businessRefine = evaluateIntentGate(businessHistory, 'ru', investGate);
+  check(
+    'gate: готовый бизнес = refine типа, не new_topic',
+    businessRefine.action === 'continue' && businessRefine.reason === 'property_type_refined'
+  );
+  const businessDialog = analyzeConversation(
+    [
+      ...investFunnelHistory,
+      {
+        sender: 'user',
+        text: 'я ищу готовый бизнес, в каких регионах можете предложить такую недвижимость',
+      },
+    ],
+    'ru'
+  );
+  check(
+    'gate: бюджет 1M жив после уточнения бизнеса',
+    businessDialog.hasBudget && businessDialog.budget.maxPrice === 1_000_000
+  );
+  check(
+    'gate: после бизнеса — не переспрос бюджета',
+    businessDialog.hasBudget && businessDialog.stage !== 'NEED_BUDGET'
+  );
+  const topicStoreBiz = { version: 1, chats: {}, updatedAt: null };
+  const bizTopicCtx = prepareTopicContext(
+    topicStoreBiz,
+    'biz@test',
+    [
+      ...investFunnelHistory,
+      {
+        sender: 'user',
+        text: 'я ищу готовый бизнес, в каких регионах можете предложить такую недвижимость',
+      },
+    ],
+    businessRefine
+  );
+  check(
+    'topics: refine бизнеса не сбрасывает историю',
+    bizTopicCtx.history.some((m) => /1\s*миллион|миллион/i.test(m.text)) &&
+      bizTopicCtx.history.some((m) => /готовый бизнес/i.test(m.text))
+  );
   const shortContinuation = evaluateIntentGate(
     user('до 350000 евро'),
     'ru',
@@ -1371,6 +1435,24 @@ const MANUAL_DIALOGS = [
       { who: 'bot', expect: 'Финансы. ❌ НЕ переспрашивать бюджет.' },
       { who: 'user', text: 'А что по виллам?' },
       { who: 'bot', expect: 'Продолжает воронку с уже известным бюджетом. ❌ НЕ лекция про инвестиции. ❌ НЕ сброс бюджета.' },
+    ],
+  },
+  {
+    id: 'qa-7b-business-memory',
+    title: 'QA-7b. Уточнение «готовый бизнес» — память бюджета',
+    lang: 'ru',
+    note: 'Регрессия: после «готовый бизнес» не «Привет» и не переспрос бюджета',
+    steps: [
+      { who: 'user', text: 'Ищу инвестиционный проект' },
+      { who: 'bot', expect: 'Бюджет?' },
+      { who: 'user', text: 'бюджет 1 миллион евро' },
+      { who: 'bot', expect: 'Срок. ❌ НЕ снова бюджет.' },
+      { who: 'user', text: 'планирую покупку через 1 или 2 месяца' },
+      { who: 'bot', expect: 'Финансы на руках. ❌ НЕ бюджет.' },
+      { who: 'user', text: 'у меня есть вся сумма на руках' },
+      { who: 'bot', expect: 'Тип/регион. ❌ НЕ бюджет снова.' },
+      { who: 'user', text: 'я ищу готовый бизнес, в каких регионах можете предложить такую недвижимость' },
+      { who: 'bot', expect: 'Регионы с готовым бизнесом (Тенерифе, Дубай…). ❌ НЕ «Привет» снова. ❌ НЕ «какой бюджет?».' },
     ],
   },
   {

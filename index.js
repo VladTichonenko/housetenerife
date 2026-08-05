@@ -203,7 +203,7 @@ function buildFallbackChatFromMessage(msg) {
 
 /** CDP/Chromium временно «тупит» — не долбим getChats/getState параллельно. */
 let chromiumSlowUntil = 0;
-/** С какого момента CDP реально зависает (таймауты), не warmup-пауза. */
+/** С какого момента CDP реально зависает (hard protocol timeout), не soft race. */
 let cdpHangSince = 0;
 let cdpHangCount = 0;
 let cdpRecoveryInFlight = false;
@@ -215,10 +215,14 @@ let lastIncomingEventAt = 0;
 let cdpActiveOps = 0;
 let cdpActiveLabel = '';
 let cdpCooldownUntil = 0;
+/** Soft-timeout подряд (не считаем hard hang — сессия обычно жива). */
+let cdpSoftTimeoutStreak = 0;
+let lastCdpSoftTimeoutAt = 0;
 
 function touchWhatsAppActivity() {
   lastWhatsAppActivityAt = Date.now();
   if (cdpHangSince) clearCdpHang();
+  cdpSoftTimeoutStreak = 0;
 }
 
 function touchIncomingEvent() {
@@ -252,7 +256,8 @@ function shouldUseMessagePolling() {
   // События message работают — polling только долбит getChats и вешает CDP.
   const autoOff = process.env.POLLING_AUTO_OFF !== '0' && process.env.POLLING_AUTO_OFF !== 'false';
   if (autoOff && lastIncomingEventAt > 0) {
-    const quietMs = parseInt(process.env.POLLING_AUTO_OFF_QUIET_MS, 10) || 600000;
+    // 30 мин: после живых events не будим getChats — иначе idle soft-timeout → ложный reconnect.
+    const quietMs = parseInt(process.env.POLLING_AUTO_OFF_QUIET_MS, 10) || 30 * 60 * 1000;
     if (Date.now() - lastIncomingEventAt < quietMs) return false;
   }
   return true;
@@ -270,6 +275,17 @@ function isChromiumSlow() {
 function clearCdpHang() {
   cdpHangSince = 0;
   cdpHangCount = 0;
+}
+
+function isBrowserConnected() {
+  try {
+    if (typeof client?.pupBrowser?.isConnected === 'function') {
+      return client.pupBrowser.isConnected();
+    }
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -302,12 +318,13 @@ function isCdpSoftTimeout(err) {
     code === 'WA_FETCH_MSGS_SOFT_TIMEOUT' ||
     code === 'WA_GETSTATE_SOFT_TIMEOUT' ||
     code === 'WA_WATCH_PROBE_TIMEOUT' ||
+    code === 'WA_SEND_SOFT_TIMEOUT' ||
     code === 'WA_CDP_COOLDOWN' ||
     code === 'WA_CDP_BUSY'
   );
 }
 
-async function runExclusiveCdp(label, fn, softTimeoutMs = 12000) {
+async function runExclusiveCdp(label, fn, softTimeoutMs = 25000) {
   if (isCdpCooldown()) {
     const err = new Error(`CDP cooldown (${label})`);
     err.code = 'WA_CDP_COOLDOWN';
@@ -323,11 +340,27 @@ async function runExclusiveCdp(label, fn, softTimeoutMs = 12000) {
   cdpActiveLabel = label;
   const work = Promise.resolve().then(fn);
   try {
-    return await withCdpSoftTimeout(work, softTimeoutMs, 'WA_CDP_SOFT_TIMEOUT');
+    const result = await withCdpSoftTimeout(work, softTimeoutMs, 'WA_CDP_SOFT_TIMEOUT');
+    cdpSoftTimeoutStreak = 0;
+    return result;
   } catch (err) {
-    if (isCdpSoftTimeout(err) || isPuppeteerProtocolTimeout(err)) {
+    if (isCdpSoftTimeout(err)) {
+      // Soft race: Chromium часто просто медленный. Не считаем hard hang и не рвём сессию.
+      cdpSoftTimeoutStreak += 1;
+      lastCdpSoftTimeoutAt = Date.now();
+      const softCooldownMs = Math.min(
+        120000 * Math.pow(2, Math.min(cdpSoftTimeoutStreak - 1, 3)),
+        600000
+      );
+      armCdpCooldown(softCooldownMs, label);
+      markChromiumSlow(Math.min(softCooldownMs, 180000));
+      console.warn(
+        `⏳ CDP soft-timeout (${label}, streak ${cdpSoftTimeoutStreak}): пауза ${Math.round(softCooldownMs / 1000)}с, сессию не рвём`
+      );
+    } else if (isPuppeteerProtocolTimeout(err)) {
+      // Реальный protocolTimeout Puppeteer — браузер может быть мёртв.
       armCdpCooldown(300000, label);
-      noteCdpHang(300000);
+      noteCdpHang(300000, { hard: true });
     }
     throw err;
   } finally {
@@ -340,8 +373,19 @@ async function runExclusiveCdp(label, fn, softTimeoutMs = 12000) {
   }
 }
 
-/** Таймаут CDP (не intentional warmup) — копим для recovery. */
-function noteCdpHang(pauseMs = 60000) {
+/**
+ * Таймаут CDP. Soft — только backoff; hard (protocolTimeout / мёртвый browser) — копим для recovery.
+ */
+function noteCdpHang(pauseMs = 60000, { hard = false } = {}) {
+  if (!hard) {
+    // Soft: не копим hang-счётчик — иначе idle getChats каждые ~20 мин рвёт сессию.
+    if (hasRecentWhatsAppActivity(15 * 60 * 1000)) {
+      markChromiumSlow(Math.min(pauseMs, 45000));
+    } else {
+      markChromiumSlow(Math.min(Math.max(pauseMs, 60000), 180000));
+    }
+    return;
+  }
   if (hasRecentWhatsAppActivity(15 * 60 * 1000)) {
     markChromiumSlow(Math.min(pauseMs, 45000));
     return;
@@ -360,14 +404,14 @@ function isCdpRecoveryEnabled() {
 
 function getCdpRecoveryThresholdMs() {
   const configured = parseInt(process.env.WA_CDP_RECOVERY_MS, 10);
-  // Минимум 10 мин без ответа CDP.
-  return Number.isFinite(configured) && configured >= 600000 ? configured : 600000;
+  // Минимум 15 мин hard-hang без ответа CDP.
+  return Number.isFinite(configured) && configured >= 900000 ? configured : 900000;
 }
 
 function getCdpRecoveryIdleMs() {
   const configured = parseInt(process.env.WA_CDP_RECOVERY_IDLE_MS, 10);
-  // Не рестартим, если за последние 15 мин были сообщения/ack.
-  return Number.isFinite(configured) && configured >= 300000 ? configured : 900000;
+  // Не рестартим, если за последние 20 мин были сообщения/ack.
+  return Number.isFinite(configured) && configured >= 600000 ? configured : 20 * 60 * 1000;
 }
 
 function shouldRecoverFromCdpHang() {
@@ -376,19 +420,13 @@ function shouldRecoverFromCdpHang() {
     return false;
   }
   if (hasRecentWhatsAppActivity(getCdpRecoveryIdleMs())) return false;
-  // Браузер уже мёртв — reconnect имеет смысл.
-  let browserConnected = true;
-  try {
-    browserConnected =
-      typeof client?.pupBrowser?.isConnected === 'function'
-        ? client.pupBrowser.isConnected()
-        : true;
-  } catch {
-    browserConnected = false;
-  }
+
+  const browserConnected = isBrowserConnected();
+  // Браузер уже мёртв — reconnect имеет смысл сразу.
   if (!browserConnected) return true;
 
-  const minHangs = Math.max(2, parseInt(process.env.WA_CDP_RECOVERY_MIN_HANGS, 10) || 2);
+  // Soft-timeout сам по себе НЕ повод рвать сессию.
+  const minHangs = Math.max(3, parseInt(process.env.WA_CDP_RECOVERY_MIN_HANGS, 10) || 3);
   return (
     cdpHangCount >= minHangs &&
     Date.now() - cdpHangSince >= getCdpRecoveryThresholdMs()
@@ -428,6 +466,21 @@ async function forceCloseWhatsAppBrowser(timeoutMs = 15000) {
 
 async function recoverFromCdpHang(reason) {
   if (cdpRecoveryInFlight || isReconnecting || isManualLogoutInProgress) return;
+  // Soft-timeout — никогда не эскалируем в destroy/reconnect.
+  if (/WA_CDP_SOFT_TIMEOUT|WA_GETCHATS_SOFT_TIMEOUT|WA_FETCH_MSGS_SOFT_TIMEOUT|WA_GETSTATE_SOFT_TIMEOUT|WA_WATCH_PROBE_TIMEOUT/i.test(
+    String(reason || '')
+  )) {
+    console.warn(
+      `⏳ CDP soft-timeout (${reason}) — recovery пропущен, сессию сохраняем`
+    );
+    markChromiumSlow(180000);
+    armCdpCooldown(180000, 'soft-recovery-skip');
+    return;
+  }
+  if (!shouldRecoverFromCdpHang() && isBrowserConnected()) {
+    console.warn(`⏳ CDP recovery отложен (${reason}): критерии hard-hang не выполнены`);
+    return;
+  }
   cdpRecoveryInFlight = true;
   clearCdpHang();
   markChromiumSlow(30000);
@@ -585,9 +638,117 @@ function getOutboundDelayMs(text) {
   return delayMs;
 }
 
-async function sendMessageSafely(msg, text, client) {
-  const chatId = msg.from;
+const SEND_SOFT_TIMEOUT_MS = Math.max(
+  15000,
+  parseInt(process.env.WA_SEND_SOFT_TIMEOUT_MS, 10) || 45000
+);
+const OUTBOUND_RETRY_MAX = Math.max(1, parseInt(process.env.WA_OUTBOUND_RETRY_MAX, 10) || 8);
+/** @type {Map<string, { chatId: string, text: string, attempts: number, nextAt: number, enqueuedAt: number }>} */
+const pendingOutbound = new Map();
 
+function outboundKey(chatId, text) {
+  return `${chatId}::${String(text || '').slice(0, 200)}`;
+}
+
+function isSendCdpFailure(err) {
+  return (
+    isPuppeteerProtocolTimeout(err) ||
+    isCdpSoftTimeout(err) ||
+    /WA_SEND_SOFT_TIMEOUT/i.test(String(err?.code || err?.message || ''))
+  );
+}
+
+async function withSendSoftTimeout(promise, timeoutMs = SEND_SOFT_TIMEOUT_MS) {
+  return withCdpSoftTimeout(promise, timeoutMs, 'WA_SEND_SOFT_TIMEOUT');
+}
+
+function enqueueOutboundRetry(chatId, text, { delayMs = 20000 } = {}) {
+  if (!chatId || !text) return;
+  const key = outboundKey(chatId, text);
+  const existing = pendingOutbound.get(key);
+  if (existing) {
+    existing.nextAt = Math.min(existing.nextAt, Date.now() + delayMs);
+    return;
+  }
+  if (pendingOutbound.size >= 50) {
+    const oldest = [...pendingOutbound.entries()].sort(
+      (a, b) => a[1].enqueuedAt - b[1].enqueuedAt
+    )[0];
+    if (oldest) pendingOutbound.delete(oldest[0]);
+  }
+  pendingOutbound.set(key, {
+    chatId: String(chatId),
+    text: String(text),
+    attempts: 0,
+    nextAt: Date.now() + delayMs,
+    enqueuedAt: Date.now(),
+  });
+  console.warn(
+    `📬 Исходящее в очередь retry (${chatId}), повтор через ~${Math.round(delayMs / 1000)}с; в очереди: ${pendingOutbound.size}`
+  );
+}
+
+async function flushPendingOutbound() {
+  if (!botReady || isReconnecting || cdpRecoveryInFlight || isChromiumSlow() || isCdpBusy()) {
+    return;
+  }
+  if (!pendingOutbound.size) return;
+
+  const now = Date.now();
+  const due = [...pendingOutbound.entries()].filter(([, item]) => item.nextAt <= now);
+  for (const [key, item] of due.slice(0, 3)) {
+    if (isChromiumSlow() || isCdpBusy()) break;
+    pendingOutbound.delete(key);
+    try {
+      await withSendSoftTimeout(
+        client.sendMessage(item.chatId, item.text, { sendSeen: false })
+      );
+      touchWhatsAppActivity();
+      console.log(`✅ Исходящее из очереди доставлено: ${item.chatId}`);
+    } catch (err) {
+      if (isMarkedUnreadError(err)) {
+        touchWhatsAppActivity();
+        console.log(`⚠️ markedUnread на retry — считаем доставленным (${item.chatId})`);
+        continue;
+      }
+      item.attempts += 1;
+      if (item.attempts >= OUTBOUND_RETRY_MAX) {
+        console.error(
+          `❌ Исходящее сдано после ${item.attempts} попыток (${item.chatId}):`,
+          err.message
+        );
+        continue;
+      }
+      const delayMs = Math.min(20000 * Math.pow(2, item.attempts), 300000);
+      item.nextAt = Date.now() + delayMs;
+      pendingOutbound.set(key, item);
+      if (isSendCdpFailure(err)) {
+        noteCdpHang(120000, { hard: isPuppeteerProtocolTimeout(err) });
+        armCdpCooldown(Math.min(delayMs, 180000), 'outbound-retry');
+      }
+      console.warn(
+        `⏳ Retry исходящего не удался (${item.chatId}, попытка ${item.attempts}): ${err.message}; ещё через ${Math.round(delayMs / 1000)}с`
+      );
+    }
+  }
+}
+
+function startOutboundRetryLoop() {
+  if (global.outboundRetryInterval) return;
+  global.outboundRetryInterval = trackedSetInterval(() => {
+    flushPendingOutbound().catch((err) =>
+      console.warn('⚠️ flushPendingOutbound:', err.message)
+    );
+  }, 10000);
+  console.log('📬 Очередь исходящих: flush каждые 10 с');
+}
+
+/**
+ * Отправка без каскада 2+2+2 мин на мёртвом CDP.
+ * При protocol/soft timeout — одна быстрая серия + постановка в очередь retry.
+ */
+async function sendMessageSafely(msg, text, clientRef = client) {
+  const chatId = msg.from;
   const delayMs = getOutboundDelayMs(text);
   if (delayMs > 0) {
     const hasLink = outboundContainsLink(text);
@@ -597,10 +758,18 @@ async function sendMessageSafely(msg, text, client) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
-  // Обычные сообщения, не «ответ с цитатой». msg.reply() всегда цитирует входящее —
-  // поэтому reply только как крайний fallback (часто нужен для @lid, если sendMessage падает).
+  // CDP уже в cooldown/busy — не долбим protocolTimeout, сразу в очередь.
+  if (isChromiumSlow() || isCdpBusy()) {
+    console.warn(
+      `⏳ CDP занят/медленный — ответ ${chatId} в очередь (не ждём protocolTimeout)`
+    );
+    enqueueOutboundRetry(chatId, text, { delayMs: 15000 });
+    return { queued: true };
+  }
+
+  // Обычные сообщения без цитаты. reply — только fallback для @lid.
   const attempts = [
-    ['sendMessage', async () => client.sendMessage(chatId, text, { sendSeen: false })],
+    ['sendMessage', async () => clientRef.sendMessage(chatId, text, { sendSeen: false })],
     [
       'chat.sendMessage',
       async () => {
@@ -613,33 +782,53 @@ async function sendMessageSafely(msg, text, client) {
 
   let lastError = null;
   for (const [label, fn] of attempts) {
+    if (isChromiumSlow() || isCdpBusy()) break;
     try {
-      await fn();
+      await withSendSoftTimeout(fn());
       touchWhatsAppActivity();
-      return;
+      return { queued: false };
     } catch (err) {
       lastError = err;
       if (isMarkedUnreadError(err)) {
         console.log(`⚠️ markedUnread при ${label} — сообщение могло уйти`);
         touchWhatsAppActivity();
-        return;
+        return { queued: false };
       }
       console.error(`❌ Ошибка отправки через ${label}:`, err.message || err);
+      if (isSendCdpFailure(err)) {
+        // Дальнейшие методы тоже упрутся в CDP на 2 мин — сразу очередь.
+        noteCdpHang(120000, { hard: isPuppeteerProtocolTimeout(err) });
+        armCdpCooldown(120000, `send:${label}`);
+        enqueueOutboundRetry(chatId, text, { delayMs: 20000 });
+        return { queued: true };
+      }
     }
   }
 
   try {
     console.log('⏳ Последняя попытка отправки с задержкой...');
     await new Promise((resolve) => setTimeout(resolve, 2000));
-    await client.sendMessage(chatId, text, { sendSeen: false });
+    if (isChromiumSlow() || isCdpBusy()) {
+      enqueueOutboundRetry(chatId, text, { delayMs: 20000 });
+      return { queued: true };
+    }
+    await withSendSoftTimeout(
+      clientRef.sendMessage(chatId, text, { sendSeen: false })
+    );
     console.log('✅ Сообщение отправлено после задержки');
     touchWhatsAppActivity();
-    return;
+    return { queued: false };
   } catch (finalError) {
     if (isMarkedUnreadError(finalError)) {
       console.log('⚠️ Ошибка markedUnread, но сообщение может быть отправлено');
       touchWhatsAppActivity();
-      return;
+      return { queued: false };
+    }
+    if (isSendCdpFailure(finalError) || isSendCdpFailure(lastError)) {
+      noteCdpHang(120000, { hard: isPuppeteerProtocolTimeout(finalError) });
+      armCdpCooldown(120000, 'send:final');
+      enqueueOutboundRetry(chatId, text, { delayMs: 25000 });
+      return { queued: true };
     }
     console.error('❌ Все методы отправки не сработали:', finalError.message || lastError?.message);
     throw finalError;
@@ -669,7 +858,7 @@ if (isRailway && !path.isAbsolute(sessionPath)) {
 
 logPuppeteerDiagnostics();
 console.log(
-  '🔧 WA runtime: cdp-mutex-v3 | session-watch=off (WA_SESSION_WATCH_MS=0) | polling auto-off при message'
+  '🔧 WA runtime: cdp-mutex-v4 | send soft-timeout+outbound-queue | session-watch=off | polling auto-off'
 );
 
 const client = new Client({
@@ -800,6 +989,7 @@ function startMessageMaintenance() {
     cleanupProcessedIds();
   }, 300000);
   console.log('🧹 Очистка кэша ID сообщений — каждые 5 мин');
+  startOutboundRetryLoop();
 }
 
 function normalizeMsgTimestamp(ts) {
@@ -815,8 +1005,8 @@ function startMessagePolling() {
   const pollMs = parseInt(process.env.POLLING_INTERVAL_MS, 10) || 15000;
   const maxAgeMs = parseInt(process.env.POLLING_MAX_AGE_MS, 10) || 600000;
   const getChatsSoftMs = Math.max(
-    5000,
-    parseInt(process.env.POLLING_GETCHATS_TIMEOUT_MS, 10) || 12000
+    8000,
+    parseInt(process.env.POLLING_GETCHATS_TIMEOUT_MS, 10) || 25000
   );
   const reconnectThreshold = 3;
   let pollingCounter = 0;
@@ -893,8 +1083,12 @@ function startMessagePolling() {
             dispatchIncomingMessage(msg, 'polling');
           }
         } catch (chatErr) {
-          if (isPuppeteerProtocolTimeout(chatErr) || isCdpSoftTimeout(chatErr)) {
-            noteCdpHang(180000);
+          if (isPuppeteerProtocolTimeout(chatErr)) {
+            noteCdpHang(180000, { hard: true });
+            break;
+          }
+          if (isCdpSoftTimeout(chatErr)) {
+            // Soft: cooldown уже в runExclusiveCdp — не рвём сессию.
             break;
           }
           if (!isChatLoadError(chatErr) && pollingCounter % 20 === 0) {
@@ -927,10 +1121,17 @@ function startMessagePolling() {
           pollError?.code === 'WA_CDP_COOLDOWN' ||
           pollError?.code === 'WA_CDP_BUSY';
         if (cdpSlow) {
-          if (pollError?.code !== 'WA_CDP_BUSY' && pollError?.code !== 'WA_CDP_COOLDOWN') {
-            noteCdpHang(300000);
+          const isSoft =
+            isCdpSoftTimeout(pollError) && !isPuppeteerProtocolTimeout(pollError);
+          const isBusyOrCooldown =
+            pollError?.code === 'WA_CDP_BUSY' || pollError?.code === 'WA_CDP_COOLDOWN';
+          if (isPuppeteerProtocolTimeout(pollError)) {
+            noteCdpHang(300000, { hard: true });
+          } else if (!isBusyOrCooldown && !isSoft) {
+            noteCdpHang(180000);
           }
-          if (shouldRecoverFromCdpHang()) {
+          // Soft-timeout / busy / cooldown — только backoff, без destroy браузера.
+          if (!isSoft && !isBusyOrCooldown && shouldRecoverFromCdpHang()) {
             recoverFromCdpHang(pollError.message).catch((err) =>
               console.error('❌ CDP recovery после polling:', err.message)
             );
@@ -963,7 +1164,7 @@ function startMessagePolling() {
           }
         } catch (stateErr) {
           if (isPuppeteerProtocolTimeout(stateErr)) {
-            noteCdpHang(180000);
+            noteCdpHang(180000, { hard: true });
             stillConnected = true;
           }
         }
@@ -992,21 +1193,40 @@ function startMessagePolling() {
 }
 
 async function withChatTyping(msg, work) {
+  // Не трогаем CDP для typing, если Chromium уже медленный — иначе AI ждёт зависший getChat.
+  if (isChromiumSlow() || isCdpBusy()) {
+    return work();
+  }
   let chat;
   try {
-    chat = await msg.getChat();
+    chat = await Promise.race([
+      msg.getChat(),
+      new Promise((_, reject) =>
+        setTimeout(() => {
+          const err = new Error('typing getChat soft timeout');
+          err.code = 'WA_SEND_SOFT_TIMEOUT';
+          reject(err);
+        }, 8000)
+      ),
+    ]);
     if (typeof chat.sendStateTyping === 'function') {
-      await chat.sendStateTyping();
+      await Promise.race([
+        chat.sendStateTyping(),
+        new Promise((resolve) => setTimeout(resolve, 3000)),
+      ]);
     }
   } catch {
-    /* ignore */
+    chat = null;
   }
   try {
     return await work();
   } finally {
     try {
-      if (chat && typeof chat.clearState === 'function') {
-        await chat.clearState();
+      if (chat && typeof chat.clearState === 'function' && !isChromiumSlow()) {
+        await Promise.race([
+          chat.clearState(),
+          new Promise((resolve) => setTimeout(resolve, 2000)),
+        ]);
       }
     } catch {
       /* ignore */
@@ -1583,11 +1803,11 @@ client.on('authenticated', async () => {
       }
     }
     if (snap.error && isPuppeteerProtocolTimeout({ message: snap.error })) {
-      noteCdpHang(45000);
+      noteCdpHang(45000, { hard: true });
     }
   } catch (error) {
     console.warn('⚠️ Не удалось проверить состояние клиента:', error.message);
-    if (isPuppeteerProtocolTimeout(error)) noteCdpHang(45000);
+    if (isPuppeteerProtocolTimeout(error)) noteCdpHang(45000, { hard: true });
   }
 });
 
@@ -2065,8 +2285,10 @@ async function getClientStateFast(timeoutMs = 2500) {
         cached: true,
       };
     }
-    if (err?.code === 'WA_GETSTATE_SOFT_TIMEOUT' || isPuppeteerProtocolTimeout(err)) {
-      noteCdpHang(45000);
+    if (err?.code === 'WA_GETSTATE_SOFT_TIMEOUT') {
+      noteCdpHang(45000); // soft: только backoff
+    } else if (isPuppeteerProtocolTimeout(err)) {
+      noteCdpHang(45000, { hard: true });
     }
     return {
       state: cachedState,
@@ -2184,7 +2406,8 @@ function startWhatsAppSessionWatchdog() {
           }
           return;
         }
-        noteCdpHang(Math.max(probeTimeoutMs, 180000));
+        const hard = isPuppeteerProtocolTimeout(err);
+        noteCdpHang(Math.max(probeTimeoutMs, 180000), { hard });
         const now = Date.now();
         if (now - lastTransientLogAt >= 5 * 60 * 1000) {
           console.warn(
@@ -2192,7 +2415,8 @@ function startWhatsAppSessionWatchdog() {
           );
           lastTransientLogAt = now;
         }
-        if (shouldRecoverFromCdpHang()) {
+        // Soft probe timeout — не destroy. Hard protocolTimeout — только при накопленных hang.
+        if (hard && shouldRecoverFromCdpHang()) {
           recoverFromCdpHang(err.message).catch((reconnectError) =>
             console.error('❌ CDP recovery (watchdog):', reconnectError.message)
           );
@@ -2688,13 +2912,15 @@ async function handleIncomingMessage(msg, options = {}) {
         );
         const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
 
-        // Добавляем ответ AI в историю
-        addToHistory(chatId, 'assistant', outgoing);
-
-        // Отправляем ответ пользователю
+        // Отправляем ответ пользователю (история — только после успеха / постановки в очередь)
         console.log(`📤 Отправка ответа от AI на ${chatId}`);
-        await sendMessageSafely(msg, outgoing, client);
-        console.log(`✅ Ответ от AI отправлен успешно`);
+        const sendResult = await sendMessageSafely(msg, outgoing, client);
+        addToHistory(chatId, 'assistant', outgoing);
+        if (sendResult?.queued) {
+          console.log(`📬 Ответ AI для ${chatId} в очереди — доставим когда CDP оживёт`);
+        } else {
+          console.log(`✅ Ответ от AI отправлен успешно`);
+        }
 
         const dialog = analyzeConversation(getHistory(chatId), dialogLanguage);
         if (shouldTrackCallOfferAfterReply(dialog, outgoing)) {
@@ -2707,9 +2933,17 @@ async function handleIncomingMessage(msg, options = {}) {
         }
       } catch (aiError) {
         console.error('❌ Ошибка при запросе к AI:', aiError);
-        // В случае ошибки отправляем сообщение об ошибке
+        // CDP hang при отправке уже ставит сообщение в очередь — не шлём ещё и «error» в тот же CDP.
+        if (isSendCdpFailure(aiError) || isChromiumSlow()) {
+          console.warn(`⏳ Пропуск error-reply для ${chatId}: CDP медленный`);
+          return 'processed';
+        }
         const errorText = getTranslation(dialogLanguage, 'error');
-        await sendMessageSafely(msg, errorText, client);
+        try {
+          await sendMessageSafely(msg, errorText, client);
+        } catch (sendErr) {
+          console.error('❌ Не удалось отправить error-reply:', sendErr.message);
+        }
       }
     }
     return 'processed';

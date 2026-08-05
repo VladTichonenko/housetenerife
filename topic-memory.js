@@ -286,6 +286,13 @@ function findLatestPausedDealTopic(chat, gate) {
   return candidates[0] || null;
 }
 
+function shouldUseTurnOnlySeed(active, gate) {
+  if (!active || !gate) return false;
+  if (gate.reason === 'region_changed') return true;
+  if (gate.action === 'scenario_change' && gate.scenario === 'support_other') return true;
+  return false;
+}
+
 /**
  * Создаёт/переключает активную ветку и возвращает историю только этой темы.
  * Ипотека и handoff считаются продолжением сделки и наследуют текущий контекст.
@@ -322,8 +329,23 @@ function prepareTopicContext(store, chatId, fullHistory, gate) {
       active.status = 'paused';
       active.lastActivityAt = now;
     }
-    const seedMessages = active ? currentTurn : fullHistory;
+    const seedMessages = shouldUseTurnOnlySeed(active, gate) ? currentTurn : fullHistory;
     topic = createTopic(gate, seedMessages, now);
+    // Бюджет/срок/финансы из прошлой ветки не теряем при region_changed
+    if (active && gate.reason === 'region_changed') {
+      const inherited = buildStructuredTopicSummary(fullHistory, gate.language || 'ru', now);
+      if (inherited) {
+        inherited.scenario = gate.scenario;
+        inherited.regions = gate.regions?.length
+          ? gate.regions
+          : inherited.regions || [];
+        inherited.propertyTypes = gate.propertyTypes?.length
+          ? gate.propertyTypes
+          : inherited.propertyTypes || [];
+        inherited.stage = inherited.stage || 'NEED_REGION';
+        topic.summary = inherited;
+      }
+    }
     chat.topics[topic.id] = topic;
     chat.activeTopicId = topic.id;
   } else {

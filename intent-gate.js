@@ -155,8 +155,9 @@ function evaluateIntentGate(conversationHistory, language = 'ru', previousTopic 
     inheritedScenario === SCENARIOS.PROPERTY_SEARCH &&
     arraysDifferWhenExplicit(propertyTypes, previous.propertyTypes)
   ) {
-    action = 'new_topic';
-    reason = 'property_type_changed';
+    // Уточнение типа в той же сделке (вилла → бизнес) — не новая ветка, память бюджета/срока/финансов
+    action = 'continue';
+    reason = 'property_type_refined';
   }
 
   const effectiveRegions = regions.length ? regions : previous?.regions || [];
@@ -229,11 +230,15 @@ Follow soft-call and handoff rules. Complaints or complex specialist topics — 
     const educationBlock = gate.educationAsk
       ? `\n**INVESTMENT EDUCATION REQUEST:** Client explicitly asked about investing — you may briefly explain pros of the property type for investment, then return to the next funnel question. Keep WhatsApp tone (short, warm, not a brochure).`
       : `\n**NO EDUCATION PITCH (global):** Unless the client clearly asks to explain investing («tell me about…», «why villas for investment»), do NOT lecture why villas/apartments are good investments — continue the selection algorithm. Casual «What about villas?» = next funnel step, not a sales pitch.`;
+    const memoryBlock =
+      gate.reason === 'property_type_refined'
+        ? `\n**TYPE REFINED (same deal):** Client clarified property type — keep budget, timeline, finances and purpose from earlier messages. Do NOT greet again or re-ask budget.`
+        : '';
     return gate.action === 'new_topic'
       ? `**ACTIVE TOPIC: NEW PROPERTY SEARCH**
-Use only the criteria from the active topic history. Older profile facts are background and must not override this new region or property type. Filter by relevant keywords (type/region/budget) — stay in property search.${resumeBlock}${educationBlock}`
+Use criteria from active topic + inherited summary (budget/timeline if present). Older profile facts are background. Filter by relevant keywords — stay in property search.${resumeBlock}${educationBlock}`
       : `**ACTIVE SCENARIO: PROPERTY SEARCH**
-Stay in the property funnel. Filter the message by relevant keywords (goal, type, region, area, budget). Do not switch to mortgage/support unless the client clearly asks.${resumeBlock}${educationBlock}`;
+Stay in the property funnel. Filter the message by relevant keywords (goal, type, region, area, budget). Do not switch to mortgage/support unless the client clearly asks.${memoryBlock}${resumeBlock}${educationBlock}`;
   }
   return '';
 }
