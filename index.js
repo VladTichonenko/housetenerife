@@ -220,6 +220,16 @@ let cdpSoftTimeoutStreak = 0;
 let lastCdpSoftTimeoutAt = 0;
 /** Polling getChats сломан/висит — до рестарта процесса не долбим CDP. */
 let pollingDisabledForProcess = false;
+/** Не запускаем polling, пока найденное сообщение ждёт batch/AI/отправку. */
+let pollingPauseUntil = 0;
+
+function pauseMessagePolling(ms = 120000) {
+  pollingPauseUntil = Math.max(pollingPauseUntil, Date.now() + ms);
+}
+
+function resumeMessagePollingSoon(ms = 15000) {
+  pollingPauseUntil = Date.now() + ms;
+}
 
 function touchWhatsAppActivity() {
   lastWhatsAppActivityAt = Date.now();
@@ -546,6 +556,11 @@ async function resolveIncomingChat(msg) {
   if (!msg || typeof msg.getChat !== 'function') {
     return buildFallbackChatFromMessage(msg);
   }
+  // getChat для новых @lid регулярно висит и не нужен для личного сообщения:
+  // sender/chat id уже есть в Message.
+  if (isLidChatId(msg.from || msg.id?.remote)) {
+    return buildFallbackChatFromMessage(msg);
+  }
   try {
     const chat = await Promise.race([
       msg.getChat(),
@@ -681,8 +696,8 @@ const SEND_SOFT_TIMEOUT_MS = Math.max(
   parseInt(process.env.WA_SEND_SOFT_TIMEOUT_MS, 10) || 25000
 );
 const SEND_SOFT_TIMEOUT_LID_MS = Math.max(
-  5000,
-  parseInt(process.env.WA_SEND_SOFT_TIMEOUT_LID_MS, 10) || 12000
+  8000,
+  parseInt(process.env.WA_SEND_SOFT_TIMEOUT_LID_MS, 10) || 25000
 );
 const OUTBOUND_RETRY_MAX = Math.max(1, parseInt(process.env.WA_OUTBOUND_RETRY_MAX, 10) || 8);
 /** @type {Map<string, { chatId: string, text: string, attempts: number, nextAt: number, enqueuedAt: number }>} */
@@ -794,13 +809,14 @@ async function flushPendingOutbound() {
   if (!botReady || isReconnecting || cdpRecoveryInFlight) return;
   if (isCdpBusy()) return;
   if (!pendingOutbound.size) return;
+  cancelInjectRecovery('flush исходящих');
 
   const now = Date.now();
   const due = [...pendingOutbound.entries()].filter(([, item]) => item.nextAt <= now);
   for (const [key, item] of due.slice(0, 3)) {
     if (isCdpBusy()) break;
     // @lid не блокируем cooldown'ом — иначе 5 минут в очереди
-    if (isChromiumSlow() && !isLidChatId(item.chatId)) {
+    if ((isChromiumSlow() || isCdpCooldown()) && !isLidChatId(item.chatId)) {
       item.nextAt = Date.now() + 8000;
       pendingOutbound.set(key, item);
       continue;
@@ -829,12 +845,11 @@ async function flushPendingOutbound() {
         );
         continue;
       }
-      // Быстрые повторы сначала (3с, 6с, 12с…), не 15→30→60→180
       const delayMs = Math.min(3000 * Math.pow(2, item.attempts - 1), 60000);
       item.nextAt = Date.now() + delayMs;
       pendingOutbound.set(key, item);
       if (isSendCdpFailure(err)) {
-        markChromiumSlow(isLidChatId(item.chatId) ? 8000 : 20000);
+        markChromiumSlow(isLidChatId(item.chatId) ? 10000 : 20000);
       }
       console.warn(
         `⏳ Retry исходящего не удался (${item.chatId}, попытка ${item.attempts}): ${err.message}; ещё через ${Math.round(delayMs / 1000)}с`
@@ -862,6 +877,8 @@ async function sendMessageSafely(msg, text, clientRef = client) {
   const chatId = msg.from;
   const lid = isLidChatId(chatId);
   rememberInboundMessage(msg);
+  cancelInjectRecovery('отправка ответа');
+  pauseMessagePolling(3 * 60 * 1000);
 
   const delayMs = getOutboundDelayMs(text);
   if (delayMs > 0) {
@@ -872,31 +889,48 @@ async function sendMessageSafely(msg, text, clientRef = client) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
-  if ((isCdpBusy() || isChromiumSlow()) && !lid) {
-    console.warn(`⏳ CDP занят/медленный — ответ ${chatId} в очередь`);
+  // CDP занят зависшим evaluate (часто после soft-timeout polling) — не долбим reply поверх.
+  if (isCdpBusy() || isCdpCooldown()) {
+    console.warn(
+      `⏳ CDP занят (${cdpActiveLabel || 'cooldown'}) — ответ ${chatId} в очередь, без reconnect`
+    );
+    enqueueOutboundRetry(chatId, text, { delayMs: 4000 });
+    return { queued: true };
+  }
+
+  if (isChromiumSlow() && !lid) {
+    console.warn(`⏳ CDP медленный — ответ ${chatId} в очередь`);
     enqueueOutboundRetry(chatId, text, { delayMs: 3000 });
     return { queued: true };
   }
 
   const softMs = lid ? SEND_SOFT_TIMEOUT_LID_MS : SEND_SOFT_TIMEOUT_MS;
 
-  // @lid: один быстрый reply. Второй sendMessage(lid) почти всегда висит — сразу очередь.
+  // @lid: reply, затем короткий sendMessage. Не рвём сессию при timeout.
   if (lid) {
-    try {
-      if (typeof msg.reply === 'function') {
-        await withSendSoftTimeout(msg.reply(text), softMs);
+    const lidAttempts = [
+      ['reply', async () => msg.reply(text)],
+      [
+        'sendMessage',
+        async () => clientRef.sendMessage(chatId, text, { sendSeen: false }),
+      ],
+    ];
+    for (const [label, fn] of lidAttempts) {
+      if (isCdpBusy()) break;
+      try {
+        await withSendSoftTimeout(fn(), softMs);
         touchWhatsAppActivity();
         return { queued: false };
+      } catch (err) {
+        if (isMarkedUnreadError(err)) {
+          touchWhatsAppActivity();
+          return { queued: false };
+        }
+        console.error(`❌ Ошибка отправки через ${label} (@lid):`, err.message || err);
       }
-    } catch (err) {
-      if (isMarkedUnreadError(err)) {
-        touchWhatsAppActivity();
-        return { queued: false };
-      }
-      console.error(`❌ Ошибка отправки через reply (@lid):`, err.message || err);
     }
-    markChromiumSlow(8000);
-    enqueueOutboundRetry(chatId, text, { delayMs: 2500 });
+    markChromiumSlow(15000);
+    enqueueOutboundRetry(chatId, text, { delayMs: 4000 });
     return { queued: true };
   }
 
@@ -961,34 +995,70 @@ if (isRailway && !path.isAbsolute(sessionPath)) {
 
 logPuppeteerDiagnostics();
 console.log(
-  '🔧 WA runtime: cdp-mutex-v6 | Store.Msg polling | no background getState'
+  '🔧 WA runtime: cdp-mutex-v7 | no false reconnect on soft-timeout | outbound first'
 );
 
 /**
  * whatsapp-web.js вешает framenavigated → inject() без .catch().
- * При Runtime.evaluate timed out получаем unhandledRejection и «мёртвый» ready.
- * Патч: после успешного ready глотаем CDP/auth timeout и планируем мягкий reconnect.
+ * Только реальный inject/auth timeout → reconnect. Soft-timeout polling/send — НЕ повод.
  */
 let injectRecoveryTimer = null;
 let lastInjectFailAt = 0;
 
+function cancelInjectRecovery(reason = '') {
+  if (!injectRecoveryTimer) return;
+  clearTimeout(injectRecoveryTimer);
+  injectRecoveryTimer = null;
+  if (reason) {
+    console.log(`✅ Inject-recovery отменён: ${reason}`);
+  }
+}
+
 function scheduleInjectRecovery(reason) {
-  const now = Date.now();
+  const reasonText = String(reason || '');
+  // Soft-timeout / polling evaluate — Chromium жив, сессию не рвём.
+  if (
+    /WA_CDP_SOFT_TIMEOUT|WA_SEND_SOFT_TIMEOUT|WA_GETSTATE_SOFT_TIMEOUT|WA_WATCH_PROBE|polling Store\.Msg/i.test(
+      reasonText
+    )
+  ) {
+    console.warn(
+      `⏳ CDP soft/polling timeout — reconnect не нужен (${reasonText.slice(0, 100)})`
+    );
+    markChromiumSlow(60000);
+    armCdpCooldown(60000, 'soft-no-recovery');
+    return;
+  }
   if (injectRecoveryTimer) return;
   if (typeof isReconnecting === 'boolean' && isReconnecting) return;
   if (cdpRecoveryInFlight) return;
   if (typeof isManualLogoutInProgress === 'boolean' && isManualLogoutInProgress) return;
+  // Есть исходящие / обработка — reconnect убьёт доставку.
+  if (pendingOutbound.size > 0 || processingMessageIds.size > 0) {
+    console.warn(
+      `⏳ Inject-recovery отложен: очередь исходящих=${pendingOutbound.size}, processing=${processingMessageIds.size}`
+    );
+    return;
+  }
+  if (hasRecentWhatsAppActivity(120000)) {
+    console.warn('⏳ Inject-recovery отложен: недавняя активность WhatsApp');
+    return;
+  }
 
-  lastInjectFailAt = now;
-  botReady = false;
+  lastInjectFailAt = Date.now();
   markChromiumSlow(60000);
   armCdpCooldown(60000, 'inject-fail');
   console.warn(
-    `⚠️ WA inject failed (${String(reason).slice(0, 120)}) — мягкий reconnect через 45с`
+    `⚠️ WA inject failed (${reasonText.slice(0, 120)}) — мягкий reconnect через 45с`
   );
   injectRecoveryTimer = setTimeout(() => {
     injectRecoveryTimer = null;
     if (typeof isManualLogoutInProgress === 'boolean' && isManualLogoutInProgress) return;
+    if (pendingOutbound.size > 0 || processingMessageIds.size > 0) {
+      console.warn('⏳ Inject-recovery пропущен: есть исходящие/обработка');
+      return;
+    }
+    botReady = false;
     reconnectClient({ force: true }).catch((err) =>
       console.error('❌ reconnect после inject fail:', err.message)
     );
@@ -1378,14 +1448,14 @@ function startLegacyMessagePolling() {
  * Лёгкий polling последних сообщений прямо из Store.Msg.
  * В отличие от client.getChats(), не сериализует всю историю чатов и group metadata.
  */
-async function fetchRecentMessagesForPolling(limit = 200) {
+async function fetchRecentMessagesForPolling(limit = 100, maxAgeMs = 10 * 60 * 1000) {
   if (!client.pupPage) {
     throw Object.assign(new Error('WhatsApp page unavailable'), {
       code: 'WA_POLLING_PAGE_UNAVAILABLE',
     });
   }
 
-  const rows = await client.pupPage.evaluate((maxItems) => {
+  const rows = await client.pupPage.evaluate((maxItems, ageLimitMs) => {
     const collection = window.require?.('WAWebCollections')?.Msg;
     if (!collection || typeof collection.getModelsArray !== 'function') {
       throw new Error('WAWebCollections.Msg unavailable');
@@ -1402,10 +1472,14 @@ async function fetchRecentMessagesForPolling(limit = 200) {
       return normalized;
     };
 
+    const cutoffSeconds = Math.floor((Date.now() - ageLimitMs) / 1000);
+
     return collection
       .getModelsArray()
       .filter((message) => {
         if (!message?.id || message.id.fromMe || message.isStatusV3) return false;
+        const timestamp = Number(message.t || message.timestamp || 0);
+        if (!timestamp || timestamp < cutoffSeconds) return false;
         const remote =
           message.id.remote?._serialized ??
           message.id.remote?.$1 ??
@@ -1429,7 +1503,7 @@ async function fetchRecentMessagesForPolling(limit = 200) {
         }
       })
       .filter(Boolean);
-  }, limit);
+  }, limit, maxAgeMs);
 
   return rows.map((data) => new Message(client, data));
 }
@@ -1459,6 +1533,8 @@ function startMessagePolling() {
 
   global.pollingInterval = trackedSetInterval(async () => {
     if (!botReady || isReconnecting || cdpRecoveryInFlight) return;
+    if (Date.now() < pollingPauseUntil) return;
+    if (processingMessageIds.size > 0 || pendingOutbound.size > 0) return;
     if (pollingInFlight || Date.now() < nextPollAt) return;
     if (isCdpBusy() || isCdpCooldown()) return;
     pollingInFlight = true;
@@ -1466,7 +1542,7 @@ function startMessagePolling() {
     try {
       const messages = await runExclusiveCdp(
         'polling.messages',
-        () => fetchRecentMessagesForPolling(200),
+        () => fetchRecentMessagesForPolling(100, maxAgeMs),
         softTimeoutMs
       );
 
@@ -1487,7 +1563,11 @@ function startMessagePolling() {
           body: msg.body ? msg.body.slice(0, 50) : '(нет текста)',
           ageSec: Math.round(age / 1000),
         });
+        // Сначала полностью обработать и отправить найденное сообщение.
+        // Следующий evaluate во время batch/AI блокировал reply через тот же CDP.
+        pauseMessagePolling(2 * 60 * 1000);
         dispatchIncomingMessage(msg, 'polling');
+        break;
       }
     } catch (err) {
       errorStreak += 1;
@@ -1501,16 +1581,18 @@ function startMessagePolling() {
         lastErrorLogAt = now;
       }
 
+      // Soft-timeout / busy — только backoff. Reconnect здесь убивал сессию во время ответа.
+      if (isCdpSoftTimeout(err) || isPuppeteerProtocolTimeout(err)) {
+        pauseMessagePolling(Math.min(backoffMs, 180000));
+        return;
+      }
+
       if (
-        /WAWebCollections\.Msg unavailable|WhatsApp page unavailable|Execution context was destroyed/i.test(
+        /Execution context was destroyed|WhatsApp page unavailable/i.test(
           String(err?.message || err)
         )
       ) {
-        scheduleInjectRecovery(`polling Store.Msg: ${err.message}`);
-      } else if (isCdpSoftTimeout(err)) {
-        // Этот evaluate читает только несколько объектов из памяти и обычно занимает <1с.
-        // 12с timeout означает реально залипший execution context — нужен новый Chromium.
-        scheduleInjectRecovery(`polling Store.Msg timeout: ${err.message}`);
+        scheduleInjectRecovery(`polling page destroyed: ${err.message}`);
       }
     } finally {
       pollingInFlight = false;
@@ -1520,7 +1602,7 @@ function startMessagePolling() {
 
 async function withChatTyping(msg, work) {
   // Не трогаем CDP для typing, если Chromium уже медленный — иначе AI ждёт зависший getChat.
-  if (isChromiumSlow() || isCdpBusy()) {
+  if (isChromiumSlow() || isCdpBusy() || isLidChatId(msg?.from || msg?.id?.remote)) {
     return work();
   }
   let chat;
@@ -1562,6 +1644,8 @@ async function withChatTyping(msg, work) {
 
 function dispatchIncomingMessage(msg, source) {
   if (msg.fromMe) return;
+  cancelInjectRecovery('входящее сообщение');
+  pauseMessagePolling(2 * 60 * 1000);
   if (source === 'message' || source === 'message_create') {
     touchIncomingEvent();
   } else {
@@ -1621,6 +1705,7 @@ async function processIncomingMessage(msg, source = 'unknown', opts = {}) {
     return status;
   } finally {
     processingMessageIds.delete(msgId);
+    resumeMessagePollingSoon(15000);
   }
 }
 
@@ -1640,6 +1725,7 @@ async function processReplyBatchFlush(chatId, messages, source) {
     for (const m of pending) {
       processingMessageIds.delete(getMessageId(m));
     }
+    resumeMessagePollingSoon(15000);
   }
 }
 
@@ -2065,13 +2151,15 @@ client.on('ready', async () => {
 
     console.log('📡 Входящие: события message + message_create + Store.Msg polling, очередь по чату');
     startMessageMaintenance();
-    // Даём WA Web/Store чуть осесть после ready (warmup, не CDP hang).
-    markChromiumSlow(20000);
+    // Даём WA Web/Store осесть; polling не стартуем сразу — иначе soft-timeout → ложный reconnect.
+    markChromiumSlow(30000);
+    pauseMessagePolling(45000);
     startMessagePolling();
   } catch (error) {
     console.warn('⚠️ Не удалось подтвердить состояние клиента:', error.message);
     startMessageMaintenance();
-    markChromiumSlow(20000);
+    markChromiumSlow(30000);
+    pauseMessagePolling(45000);
     startMessagePolling();
   }
 });
@@ -3598,17 +3686,13 @@ process.on('unhandledRejection', (reason) => {
       `⏳ CDP protocol timeout (unhandledRejection): ${String(reason?.message || reason).slice(0, 160)} — процесс не роняем`
     );
     try {
-      noteCdpHang(180000, { hard: true });
-      armCdpCooldown(120000, 'unhandled-protocol');
-      // inject после navigation часто приходит сюда, если патч не перехватил
-      if (botReady || /inject|evaluate timed out/i.test(String(reason?.stack || reason?.message || ''))) {
-        scheduleInjectRecovery(reason?.message || reason);
-      }
+      noteCdpHang(120000, { hard: false });
+      armCdpCooldown(60000, 'unhandled-protocol');
+      // Не reconnect из soft-abandoned evaluate: это и убивало сессию во время ответа.
     } catch (e) {
       console.warn('⚠️ handler unhandledRejection CDP:', e.message);
     }
     return;
   }
   console.error('❌ Необработанный rejection:', reason);
-  // Не завершаем процесс при unhandledRejection, только логируем
 });
