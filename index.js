@@ -218,6 +218,8 @@ let cdpCooldownUntil = 0;
 /** Soft-timeout подряд (не считаем hard hang — сессия обычно жива). */
 let cdpSoftTimeoutStreak = 0;
 let lastCdpSoftTimeoutAt = 0;
+/** Polling getChats сломан/висит — до рестарта процесса не долбим CDP. */
+let pollingDisabledForProcess = false;
 
 function touchWhatsAppActivity() {
   lastWhatsAppActivityAt = Date.now();
@@ -249,7 +251,31 @@ function armCdpCooldown(ms = 300000, label = '') {
   if (label) cdpActiveLabel = label;
 }
 
+function isPollingGetChatsBrokenError(err) {
+  const msg = String(err?.message || err || '');
+  return (
+    /reading ['"]getChats['"]/i.test(msg) ||
+    /WWebJS is not defined/i.test(msg) ||
+    /Cannot read properties of undefined \(reading ['"]getChats['"]\)/i.test(msg)
+  );
+}
+
+function disablePollingForProcess(reason) {
+  if (pollingDisabledForProcess) return;
+  pollingDisabledForProcess = true;
+  console.warn(
+    `🛑 Polling отключён до рестарта (${reason}). Входящие только через события message/message_create.`
+  );
+  console.warn('   Включить снова: ENABLE_POLLING=1 и рестарт (на Railway обычно не нужно).');
+}
+
 function shouldUseMessagePolling() {
+  if (pollingDisabledForProcess) return false;
+  // По умолчанию ВЫКЛ: getChats на idle вешает CDP. События message — основной канал.
+  // Включить резерв: ENABLE_POLLING=1
+  const enabled =
+    process.env.ENABLE_POLLING === '1' || process.env.ENABLE_POLLING === 'true';
+  if (!enabled) return false;
   if (process.env.DISABLE_POLLING === '1' || process.env.DISABLE_POLLING === 'true') {
     return false;
   }
@@ -935,7 +961,7 @@ if (isRailway && !path.isAbsolute(sessionPath)) {
 
 logPuppeteerDiagnostics();
 console.log(
-  '🔧 WA runtime: cdp-mutex-v4 | send soft-timeout+outbound-queue | safe-inject | polling auto-off'
+  '🔧 WA runtime: cdp-mutex-v5 | polling off by default | send soft-timeout+outbound-queue'
 );
 
 /**
@@ -1135,9 +1161,18 @@ function normalizeMsgTimestamp(ts) {
   return ts < 1000000000000 ? ts * 1000 : ts;
 }
 
-/** Резервный опрос чатов — в whatsapp-web.js 1.34.x события message часто не приходят. */
+/** Резервный опрос чатов — только при ENABLE_POLLING=1 (иначе getChats вешает CDP). */
 function startMessagePolling() {
   if (global.pollingInterval) return;
+
+  const pollingEnabled =
+    process.env.ENABLE_POLLING === '1' || process.env.ENABLE_POLLING === 'true';
+  if (!pollingEnabled) {
+    console.log(
+      '🔄 Polling выкл (по умолчанию). Входящие: события message/message_create. Включить резерв: ENABLE_POLLING=1'
+    );
+    return;
+  }
 
   // Реже = меньше нагрузка на CDP. События message — основной канал.
   const pollMs = parseInt(process.env.POLLING_INTERVAL_MS, 10) || 15000;
@@ -1156,7 +1191,7 @@ function startMessagePolling() {
   let lastSoftErrorLogAt = 0;
 
   console.log(
-    `🔄 Polling входящих каждые ${pollMs / 1000} с (резерв; getChats soft ${getChatsSoftMs / 1000}с; auto-off при событиях: ${process.env.POLLING_AUTO_OFF === '0' ? 'нет' : 'да'}; только ЛС${process.env.POLLING_INCLUDE_GROUPS === '1' ? ', группы включены' : ''})`
+    `🔄 Polling входящих каждые ${pollMs / 1000} с (резерв ENABLE_POLLING=1; getChats soft ${getChatsSoftMs / 1000}с; только ЛС${process.env.POLLING_INCLUDE_GROUPS === '1' ? ', группы включены' : ''})`
   );
 
   global.pollingInterval = trackedSetInterval(async () => {
@@ -1226,7 +1261,6 @@ function startMessagePolling() {
             break;
           }
           if (isCdpSoftTimeout(chatErr)) {
-            // Soft: cooldown уже в runExclusiveCdp — не рвём сессию.
             break;
           }
           if (!isChatLoadError(chatErr) && pollingCounter % 20 === 0) {
@@ -1246,6 +1280,12 @@ function startMessagePolling() {
     } catch (pollError) {
       lastPollingError = pollError;
       consecutivePollingErrors++;
+      if (isPollingGetChatsBrokenError(pollError)) {
+        disablePollingForProcess(pollError.message);
+        nextPollAt = Date.now() + 600000;
+        consecutivePollingErrors = 0;
+        return;
+      }
       const soft =
         isChatLoadError(pollError) ||
         isTransientChatLookupError(pollError) ||
@@ -1268,12 +1308,16 @@ function startMessagePolling() {
           } else if (!isBusyOrCooldown && !isSoft) {
             noteCdpHang(180000);
           }
-          // Soft-timeout / busy / cooldown — только backoff, без destroy браузера.
           if (!isSoft && !isBusyOrCooldown && shouldRecoverFromCdpHang()) {
             recoverFromCdpHang(pollError.message).catch((err) =>
               console.error('❌ CDP recovery после polling:', err.message)
             );
           }
+        }
+        if (softErrorStreak >= 3) {
+          disablePollingForProcess(
+            `getChats soft-timeout ${softErrorStreak}× подряд`
+          );
         }
         const backoffMs = Math.min(
           Math.max(pollMs, cdpSlow ? 120000 : 5000) * Math.pow(2, Math.min(softErrorStreak - 1, 3)),
