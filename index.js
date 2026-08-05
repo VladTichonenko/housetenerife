@@ -1029,7 +1029,7 @@ if (isRailway && !path.isAbsolute(sessionPath)) {
 
 logPuppeteerDiagnostics();
 console.log(
-  '🔧 WA runtime: cdp-mutex-v9 | main-frame inject | soft-reinject | no dual Chrome'
+  '🔧 WA runtime: cdp-mutex-v10 | main-frame inject | soft-reinject | msg-polling-on | no dual Chrome'
 );
 
 /**
@@ -1047,6 +1047,8 @@ const SOFT_REINJECT_MAX = Math.max(
 );
 /** Временный Store.Msg polling, пока события message молчат после inject fail. */
 let emergencyMsgPollingUntil = 0;
+/** Сколько раз уже был ready — повторный mid-session ready часто глушит Msg.add. */
+let waReadyCount = 0;
 
 function cancelInjectRecovery(reason = '') {
   if (!injectRecoveryTimer) return;
@@ -1060,6 +1062,9 @@ function cancelInjectRecovery(reason = '') {
 function enableEmergencyMsgPolling(ms = 10 * 60 * 1000, reason = '') {
   const pauseMs = Math.max(60000, Number(ms) || 600000);
   emergencyMsgPollingUntil = Math.max(emergencyMsgPollingUntil, Date.now() + pauseMs);
+  // Сбрасываем длинную pauseMessagePolling (до 2–3 мин после ответа) — иначе
+  // emergency polling «включён», но цикл спит и бот всё равно глухой.
+  pollingPauseUntil = Math.min(pollingPauseUntil, Date.now() + 1500);
   console.warn(
     `🛟 Emergency Store.Msg polling на ${Math.round(pauseMs / 1000)}с${
       reason ? `: ${String(reason).slice(0, 100)}` : ''
@@ -1765,38 +1770,42 @@ async function waitForWhatsAppStoreSync(timeoutMs = 20000) {
   }
 }
 
-/** Резервный polling Store.Msg. По умолчанию ВЫКЛ — события message достаточно, polling вешает CDP. */
+/**
+ * Store.Msg polling — страховка, когда events message «засыпают» после повторного ready.
+ * Выключить: DISABLE_POLLING=1. Раньше выкл по умолчанию → бот глух после mid-session ready.
+ */
 function shouldUseStoreMsgPolling() {
   if (process.env.DISABLE_POLLING === '1' || process.env.DISABLE_POLLING === 'true') {
     return false;
   }
-  // После inject fail — временно, пока снова не пойдут события message.
+  // После inject fail / повторного ready — обязательно.
   if (emergencyMsgPollingUntil > Date.now()) {
     return true;
   }
-  // Явное включение резерва
+  // Явное выключение только через DISABLE_POLLING; ENABLE_*=0 тоже гасит.
   if (
-    process.env.ENABLE_MSG_POLLING === '1' ||
-    process.env.ENABLE_MSG_POLLING === 'true' ||
-    process.env.ENABLE_POLLING === '1' ||
-    process.env.ENABLE_POLLING === 'true'
+    process.env.ENABLE_MSG_POLLING === '0' ||
+    process.env.ENABLE_MSG_POLLING === 'false' ||
+    process.env.ENABLE_POLLING === '0' ||
+    process.env.ENABLE_POLLING === 'false'
   ) {
-    return true;
+    return false;
   }
-  return false;
+  return true;
 }
 
-/** Резервный polling без getChats; по умолчанию выкл (см. ENABLE_MSG_POLLING=1). */
+/** Резервный polling без getChats (Store.Msg). По умолчанию ВКЛ. */
 function startMessagePolling() {
   if (global.pollingInterval) return;
   if (!shouldUseStoreMsgPolling()) {
     console.log(
-      '🔄 Polling Store.Msg: выкл (по умолчанию). Входящие: события message/message_create. Включить: ENABLE_MSG_POLLING=1'
+      '🔄 Polling Store.Msg: выкл (DISABLE_POLLING/ENABLE_MSG_POLLING=0). Входящие только через события.'
     );
     return;
   }
 
-  const pollMs = Math.max(5000, parseInt(process.env.POLLING_INTERVAL_MS, 10) || 10000);
+  // ed83bc2 опрашивал каждые 3с через getChats; Store.Msg легче — 8с достаточно.
+  const pollMs = Math.max(5000, parseInt(process.env.POLLING_INTERVAL_MS, 10) || 8000);
   const maxAgeMs = parseInt(process.env.POLLING_MAX_AGE_MS, 10) || 10 * 60 * 1000;
   const softTimeoutMs = Math.max(
     5000,
@@ -1847,9 +1856,7 @@ function startMessagePolling() {
           body: msg.body ? msg.body.slice(0, 50) : '(нет текста)',
           ageSec: Math.round(age / 1000),
         });
-        // Сначала полностью обработать и отправить найденное сообщение.
-        // Следующий evaluate во время batch/AI блокировал reply через тот же CDP.
-        pauseMessagePolling(2 * 60 * 1000);
+        // pause задаёт dispatchIncomingMessage; не растягиваем на 2 мин.
         dispatchIncomingMessage(msg, 'polling');
         break;
       }
@@ -1933,7 +1940,9 @@ async function withChatTyping(msg, work) {
 function dispatchIncomingMessage(msg, source) {
   if (msg.fromMe) return;
   cancelInjectRecovery('входящее сообщение');
-  pauseMessagePolling(2 * 60 * 1000);
+  // Короткая пауза на время обработки — не 2 мин (иначе при «глухих» events
+  // страховочный polling тоже спит, как после отключения getChats-polling).
+  pauseMessagePolling(source === 'polling' ? 45000 : 20000);
   if (source === 'message' || source === 'message_create') {
     touchIncomingEvent();
     clearEmergencyMsgPolling('события message снова работают');
@@ -2371,7 +2380,13 @@ client.on('authenticated', () => {
 
 // Обработка готовности клиента
 client.on('ready', async () => {
-  console.log('✅ Бот готов к работе!');
+  const isReready = waReadyCount > 0;
+  waReadyCount += 1;
+  console.log(
+    isReready
+      ? `✅ Бот готов к работе! (повторный ready #${waReadyCount} mid-session)`
+      : '✅ Бот готов к работе!'
+  );
   console.log('📱 WhatsApp бот запущен и готов получать сообщения');
   botReady = true;
   waWatchState = 'CONNECTED';
@@ -2440,7 +2455,7 @@ client.on('ready', async () => {
     console.log('🔍 Диагностика завершена. Бот готов получать сообщения.');
 
     console.log(
-      '📡 Входящие: события message + message_create (+ Store.Msg polling если ENABLE_MSG_POLLING=1), очередь по чату'
+      '📡 Входящие: события message + message_create + Store.Msg polling (выкл: DISABLE_POLLING=1), очередь по чату'
     );
 
     // Повторный ready после navigation: WWebJS может быть, а bridge message — нет.
@@ -2459,29 +2474,58 @@ client.on('ready', async () => {
       );
     }
 
+    // Повторный ready mid-session — типичный момент, когда Msg.add «отваливается»,
+    // а Node-обработчики ещё на месте. Сразу страховочный polling + reattach.
+    if (isReready) {
+      console.warn(
+        '⚠️ Повторный ready mid-session — emergency Store.Msg polling + reattach listeners'
+      );
+      enableEmergencyMsgPolling(30 * 60 * 1000, 'mid-session ready');
+      try {
+        if (typeof client.attachEventListeners === 'function') {
+          await client.attachEventListeners();
+          console.log('✅ attachEventListeners после повторного ready');
+        }
+      } catch (reattachErr) {
+        console.warn(
+          `⚠️ reattach listeners: ${String(reattachErr?.message || reattachErr).slice(0, 120)}`
+        );
+        scheduleSoftReinject('reattach after reready failed');
+      }
+    }
+
     startMessageMaintenance();
 
     // Не долбим CDP sync-probe на старте: hasSynced часто вечно false,
     // abandoned evaluate вешает исходящие. События message работают сразу после ready.
     if (shouldUseStoreMsgPolling()) {
-      pauseMessagePolling(15000);
-      waitForWhatsAppStoreSync(20000)
-        .then((ok) => {
-          if (!ok) pauseMessagePolling(60000);
-          else pauseMessagePolling(3000);
-          startMessagePolling();
-        })
-        .catch((err) => {
-          console.warn('⚠️ waitForWhatsAppStoreSync:', err.message);
-          pauseMessagePolling(60000);
-          startMessagePolling();
-        });
+      // Mid-session: принудительно короткий pause (не Math.max — иначе тянется pause после ответа).
+      if (isReready) {
+        pollingPauseUntil = Date.now() + 1500;
+        startMessagePolling();
+      } else {
+        pauseMessagePolling(8000);
+        waitForWhatsAppStoreSync(20000)
+          .then((ok) => {
+            if (!ok) pauseMessagePolling(30000);
+            else pauseMessagePolling(1000);
+            startMessagePolling();
+          })
+          .catch((err) => {
+            console.warn('⚠️ waitForWhatsAppStoreSync:', err.message);
+            pauseMessagePolling(30000);
+            startMessagePolling();
+          });
+      }
     } else {
       startMessagePolling(); // залогирует «выкл»
     }
   } catch (error) {
     console.warn('⚠️ Не удалось подтвердить состояние клиента:', error.message);
     startMessageMaintenance();
+    if (isReready) {
+      enableEmergencyMsgPolling(30 * 60 * 1000, 'ready handler error');
+    }
     startMessagePolling();
   }
 });

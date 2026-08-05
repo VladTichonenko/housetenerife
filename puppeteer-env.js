@@ -38,9 +38,9 @@ function resolvePuppeteerExecutablePath() {
 
 function resolveProtocolTimeoutMs() {
   const configured = parseInt(process.env.PROTOCOL_TIMEOUT_MS, 10);
-  // Inject/evaluate на Railway часто > 60с; слишком коротко → Runtime.evaluate timed out на старте.
-  // Слишком длинно → зависший CDP держит очередь. 180с — компромисс.
-  return Number.isFinite(configured) && configured >= 30000 ? configured : 180000;
+  // Как в стабильном ed83bc2: 300с. Короткий timeout → Runtime.callFunctionOn timed out
+  // на inject после ready → бот «онлайн», но глухой к message.
+  return Number.isFinite(configured) && configured >= 30000 ? configured : 300000;
 }
 
 function isPuppeteerProtocolTimeout(error) {

@@ -1,8 +1,22 @@
 diff --git a/node_modules/whatsapp-web.js/src/Client.js b/node_modules/whatsapp-web.js/src/Client.js
-index 800109e..855bff4 100644
+index 800109e..6f13fee 100644
 --- a/node_modules/whatsapp-web.js/src/Client.js
 +++ b/node_modules/whatsapp-web.js/src/Client.js
-@@ -493,6 +493,14 @@ class Client extends EventEmitter {
+@@ -365,9 +365,11 @@ class Client extends EventEmitter {
+                     );
+ 
+                     this.interface = new InterfaceController(this);
+-
+-                    await this.attachEventListeners();
+                 }
++
++                // Всегда (пере)вешаем listeners: повторный hasSynced/ready иначе
++                // оставляет бота «готовым», но глухим к Msg.add.
++                await this.attachEventListeners();
+                 /**
+                  * Emitted when the client has initialized and is ready to receive messages.
+                  * @event Client#ready
+@@ -493,6 +495,14 @@ class Client extends EventEmitter {
          await this.inject();
  
          this.pupPage.on('framenavigated', async (frame) => {
