@@ -3361,9 +3361,28 @@ async function handleIncomingMessage(msg, options = {}) {
           addToHistory(chatId, 'assistant', bridge);
         }
 
-        const aiResponse = await withChatTyping(msg, () =>
+        let aiResponse = await withChatTyping(msg, () =>
           askAI(history, dialogLanguage, { chatId })
         );
+        // Страховка: этап подборки не должен уходить клиенту без карточек/URL
+        if (
+          willShowListings &&
+          !/housetenerife\.eu[^.\s]*\/property\//i.test(String(aiResponse || ''))
+        ) {
+          console.warn(
+            `⚠️ Подборка без ссылок для ${chatId} — повторный запрос с явным требованием URL`
+          );
+          const forceHistory = [
+            ...getHistory(chatId),
+            {
+              sender: 'user',
+              text: 'дай ссылки на объекты прямо сейчас',
+            },
+          ];
+          aiResponse = await withChatTyping(msg, () =>
+            askAI(forceHistory, dialogLanguage, { chatId })
+          );
+        }
         const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
 
         // Отправляем ответ пользователю (история — только после успеха / постановки в очередь)

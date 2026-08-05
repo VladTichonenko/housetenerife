@@ -558,8 +558,13 @@ function hasUnsupportedDelayedListingPromise(text) {
   return (
     /(?:через|в течение|спустя|за)\s+(?:пару|несколько|1-2|2|3|5|10|90)\s*(?:минут|мин|секунд|сек).{0,80}(?:пришлю|отправлю|скину|подберу|подборк|вариант|объект)/i.test(s) ||
     /(?:пришлю|отправлю|скину).{0,50}(?:позже|через|в течение|пару минут|вариант|подборк)/i.test(s) ||
-    /(?:i(?:'ll| will)|will)\s+(?:send|share).{0,80}(?:in|within|later|shortly|a few minutes|couple of minutes)/i.test(s) ||
-    /(?:te\s+(?:envío|mando|paso)|enviaré|mandaré).{0,80}(?:en|dentro de|luego|unos minutos)/i.test(s)
+    /(?:сейчас|уже)\s+(?:сформирую|подготовлю|подберу|соберу|сделаю)\s+подборк/i.test(s) ||
+    /(?:сформирую|подготовлю|подберу|соберу)\s+подборк.{0,80}(?:минут|мин|секунд|сек|позже)/i.test(s) ||
+    /(?:несколько|пару|пару|1-2|2|3|5)\s+минут(?:ы|у)?(?:\s*[,.]|\s+чтобы|\s+$)/i.test(s) ||
+    /(?:i(?:'ll| will)|will)\s+(?:send|share|prepare).{0,80}(?:in|within|later|shortly|a few minutes|couple of minutes)/i.test(s) ||
+    /(?:a\s+few|couple\s+of|several)\s+minutes/i.test(s) ||
+    /(?:te\s+(?:envío|mando|paso)|enviaré|mandaré).{0,80}(?:en|dentro de|luego|unos minutos)/i.test(s) ||
+    /(?:unos|un\s+par\s+de)\s+minutos/i.test(s)
   );
 }
 
@@ -572,7 +577,17 @@ function sanitizeDelayedListingPromise(text) {
         ''
       )
       .replace(
-        /(?:i(?:'ll| will)|will)\s+(?:send|share)[^.!?\n]*(?:in|within|later|shortly|a few minutes|couple of minutes)[^.!?\n]*/gi,
+        /(?:сейчас|уже)\s+(?:сформирую|подготовлю|подберу|соберу|сделаю)\s+подборк[^.!?\n]*/gi,
+        ''
+      )
+      .replace(
+        /(?:несколько|пару)\s+минут(?:ы|у)?(?:\s*[,.]|\s+чтобы)[^.!?\n]*/gi,
+        ''
+      )
+      .replace(/(?:a\s+few|couple\s+of|several)\s+minutes[^.!?\n]*/gi, '')
+      .replace(/(?:unos|un\s+par\s+de)\s+minutos[^.!?\n]*/gi, '')
+      .replace(
+        /(?:i(?:'ll| will)|will)\s+(?:send|share|prepare)[^.!?\n]*(?:in|within|later|shortly|a few minutes|couple of minutes)[^.!?\n]*/gi,
         ''
       )
       .replace(
@@ -1113,12 +1128,15 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         websiteOnlyNoCards ||
         inventedListings ||
         admitsNoLinks ||
+        hasUnsupportedDelayedListingPromise(reply) ||
         ((listingStage || dialog.wantsPropertyLinks) && !urlsForRepair.length)) &&
       !urlsForRepair.length
     ) {
       const budget = dialog.ignoreBudget
         ? { minPrice: null, maxPrice: null }
-        : extractBudgetRange(dialog.allUserText);
+        : dialog.budget && (dialog.budget.minPrice != null || dialog.budget.maxPrice != null)
+          ? dialog.budget
+          : extractBudgetRange(dialog.allUserText);
       const priceTarget = dialog.ignoreBudget ? null : derivePriceTarget(budget);
       const fallback = searchForContext(
         buildCatalogSearchQuery(conversationHistory) || dialog.allUserText,
@@ -1150,20 +1168,27 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       catalogUrlCount > 0 &&
       catalogUrlCount < Math.min(3, urlsForRepair.length);
 
+    const missingRequiredLinks =
+      (listingStage || dialog.wantsPropertyLinks) &&
+      urlsForRepair.length > 0 &&
+      (!hasValidCatalogPropertyLinks(reply) || hasUnsupportedDelayedListingPromise(reply));
+
     const needsListingLinks =
       urlsForRepair.length > 0 &&
-      (listingStage ||
-        badTypeOrLinks ||
-        websiteOnlyNoCards ||
-        inventedListings ||
-        admitsNoLinks ||
-        dialog.wantsPropertyLinks ||
-        tooFewListings) &&
-      (replyNeedsCatalogForce(reply, dialog.propertyTypes) ||
-        replyHasWrongRegion ||
-        inventedListings ||
-        admitsNoLinks ||
-        tooFewListings);
+      (missingRequiredLinks ||
+        ((listingStage ||
+          badTypeOrLinks ||
+          websiteOnlyNoCards ||
+          inventedListings ||
+          admitsNoLinks ||
+          dialog.wantsPropertyLinks ||
+          tooFewListings) &&
+          (replyNeedsCatalogForce(reply, dialog.propertyTypes) ||
+            replyHasWrongRegion ||
+            inventedListings ||
+            admitsNoLinks ||
+            tooFewListings ||
+            hasUnsupportedDelayedListingPromise(reply))));
 
     if (needsListingLinks) {
       const safe = buildDeterministicListingsReply(
@@ -1466,4 +1491,8 @@ async function checkAIHealth() {
   };
 }
 
-module.exports = { askAI, checkAIHealth };
+module.exports = {
+  askAI,
+  checkAIHealth,
+  hasUnsupportedDelayedListingPromise,
+};

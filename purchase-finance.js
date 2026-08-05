@@ -192,8 +192,9 @@ function analyzeFinanceCapability(text, opts = {}) {
   const last = String(opts.lastUserMessage || '').trim();
   const combined = [full, last].filter(Boolean).join('\n');
 
+  // «весь миллион на руках» / «всё на руках» = оплата своими, ипотека не нужна
   const allCash =
-    /(?:все\s+(?:своими|наличн|деньг)|вся\s+сумм|полностью\s+(?:своими|наличн)|100\s*%|без\s+(?:ипотек|кредит)|наличными|только\s+сво|cash\s+only|all\s+cash|tout\s+cash|todo\s+(?:en\s+)?efectivo|volle\s+bar|sin\s+hipoteca|sans\s+(?:cr[eé]dit|hypoth[eè]que)|ohne\s+hypothek|полная\s+оплата)/i.test(
+    /(?:все\s+(?:своими|наличн|деньг)|вся\s+сумм|весь\s+(?:бюджет|миллион|млн)|(?:весь|вся|всё|все)\s+.{0,35}на\s+руках|на\s+руках\s+(?:весь|вся|всё|все|полный)|полностью\s+(?:своими|наличн)|100\s*%|без\s+(?:ипотек|кредит)|наличными|только\s+сво|cash\s+only|all\s+cash|full\s+amount\s+(?:on\s+hand|available)|tout\s+cash|todo\s+(?:en\s+)?efectivo|volle\s+bar|sin\s+hipoteca|sans\s+(?:cr[eé]dit|hypoth[eè]que)|ohne\s+hypothek|полная\s+оплата)/i.test(
       combined
     );
   const partial =

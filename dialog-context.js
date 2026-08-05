@@ -82,11 +82,16 @@ function analyzeConversation(history, lang = 'ru') {
 
   const budget = resolveEffectiveBudget(history, allUserText, lastUser);
   const lastBudget = extractBudgetRange(lastUser);
-  const lastHasBudget = budgetHasSignal(lastUser, lastBudget);
+  const lastHasBudget =
+    !isFundsOnHandAmountMessage(lastUser) && budgetHasSignal(lastUser, lastBudget);
   // «любой бюджет» / «кроме цены» — не фильтровать каталог по цене
   const ignoreBudget =
     wantsIgnoreBudget(lastUser) || (!lastHasBudget && wantsIgnoreBudget(allUserText));
-  const hasBudget = budgetHasSignal(allUserText, budget) || ignoreBudget || lastHasBudget;
+  const hasBudget =
+    budget?.minPrice != null ||
+    budget?.maxPrice != null ||
+    ignoreBudget ||
+    lastHasBudget;
   const hasTimeline =
     detectInvestmentTimeline(lastUser) || detectInvestmentTimeline(allUserText);
   const needsEscalation = wantsEscalation(lastUser);
@@ -474,9 +479,9 @@ const stageInstructions = {
 
   NEED_TIMELINE: `Бюджет / размер инвестиций уже известен — НЕ переспрашивай. Если клиент только что назвал сумму — коротко подтверди: «Отлично» или «Отлично, миллион евро» / «Отлично — 2 миллиона евро». Без канцелярита про память или запись. Подборку пока не высылай. Затем один мягкий вопрос про *срок покупки/инвестирования*. Образец: «Когда вы планируете совершить покупку? Через 2 месяца, 3 месяца или позже?» Коротко, тепло.`,
 
-  NEED_FUNDS_NOW: `Финансы ДО подборки. Один вопрос: сколько денег есть *сейчас* на руках — «все своими», «часть + ипотека» или сумма в €. Это не бюджет поиска. Объекты НЕ показывай.`,
+  NEED_FUNDS_NOW: `Финансы ДО подборки. Один вопрос: сколько денег есть *сейчас* на руках — «все своими», «часть + ипотека» или сумма в €. Это НЕ бюджет поиска: подборку потом строй по ранее названному размеру инвестиций/бюджету (например миллион), а не по сумме на руках. Объекты НЕ показывай.`,
 
-  NEED_MORTGAGE: `Форма оплаты: один вопрос — нужна ипотека/кредит в Испании или свои средства? Объекты пока НЕ показывай.`,
+  NEED_MORTGAGE: `Форма оплаты: один вопрос — нужна ипотека/кредит в Испании или свои средства? Если клиент сказал «весь миллион / всё на руках» — считай оплату своими, ипотека не нужна, можно к подборке. Объекты пока НЕ показывай, пока ипотека не прояснена.`,
 
   SHOW_LISTINGS: `ОБЯЗАТЕЛЬНО дай подборку 3–5 РАЗНЫХ объектов прямо сейчас (не обещай «пришлю позже», не ограничивайся одной ссылкой): тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, район ${'{microAreaLabel}'}. Только из блока каталога (система уже отфильтровала по бюджету). ЗАПРЕЩЕНО говорить клиенту про «±20%», «коридор €X–€Y» или что вы расширяете/сужаете бюджет — просто покажи варианты. Начни коротко: «Вот варианты…» без вилки цен. Формат:
 • *Название* — €цена
@@ -783,14 +788,29 @@ function extractBudgetRange(text) {
     }
   }
 
-  // словесные: «двух миллионов» / «до двух миллионов»
+  // словесные: «двух миллионов» / «до двух миллионов» / «один миллион»
   const wordMillions = s.match(
-    /(?:до|hasta|up\s*to|около|around)?\s*(одного|одной|двух|трёх|трех|четырех|четырёх|пяти|шести|семи|восьми|девяти|десяти|one|two|three|four|five|un|una|dos|tres|cuatro|cinco)\s+(миллион\w*|million\w*|millon\w*)/i
+    /(?:до|hasta|up\s*to|около|around|бюджет|budget|инвестиц\w*|investment)?\s*(одного|одной|один|одна|двух|трёх|трех|четырех|четырёх|пяти|шести|семи|восьми|девяти|десяти|one|two|three|four|five|un|una|dos|tres|cuatro|cinco)\s+(миллион\w*|million\w*|millon\w*)/i
   );
   if (wordMillions && maxPrice == null && minPrice == null) {
     const n = wordToNumber(wordMillions[1]);
     if (n != null) {
       maxPrice = n * 1_000_000;
+    }
+  }
+
+  // «бюджет миллион» / «инвестиции миллион» / «миллион евро» без цифры = €1M
+  // (\b после кириллицы в JS без флага u не срабатывает)
+  if (minPrice == null && maxPrice == null) {
+    if (
+      /(?:бюджет|инвестиц[а-яё]*|investment|вкладыва[а-яё]*|размер\s+инвестиц[а-яё]*)\s*[:=]?\s*(?:в\s+)?(?:€\s*)?(?:один\s+|одну\s+|one\s+)?(?:миллион[а-яё]*|million[a-z]*|millon[a-z]*|млн)(?![а-яёa-z])/i.test(
+        s
+      ) ||
+      /(?:^|[^\dа-яёa-z])(?:один\s+|одну\s+|one\s+)?(?:миллион[а-яё]*|million[a-z]*|millon[a-z]*)\s*(?:€|eur|евро|euro)(?![а-яёa-z])/i.test(
+        s
+      )
+    ) {
+      maxPrice = 1_000_000;
     }
   }
 
@@ -811,6 +831,8 @@ function wordToNumber(word) {
   const map = {
     одного: 1,
     одной: 1,
+    один: 1,
+    одна: 1,
     one: 1,
     un: 1,
     una: 1,
@@ -881,24 +903,77 @@ function wantsMoreExpensive(text) {
 }
 
 /**
+ * Сумма «на руках» / первый взнос / часть под ипотеку — не бюджет поиска.
+ * Инвестиция «миллион» + «800к на руках, остальное ипотека» → искать до €1M, не до €800k.
+ */
+function isFundsOnHandAmountMessage(text) {
+  const s = String(text || '').toLowerCase();
+  if (!s.trim()) return false;
+  // В той же реплике явно задан бюджет/объём инвестиций — это якорь поиска
+  if (
+    /(?:бюджет|инвестир|вкладыва|покупа\w*\s+на|ищу\s+(?:до|около|за)|budget|presupuesto|invest(?:ment|ir)?|looking\s+(?:up\s+to|around))/i.test(
+      s
+    )
+  ) {
+    return false;
+  }
+  if (
+    /(?:на\s+руках|сейчас\s+(?:есть|могу|готов)|готов\s+внести|накоплен|собственн(?:ые|ых)\s+средств|внесу\s+сразу|имею\s+сейчас|cash\s+(?:on\s+hand|ready|available)|money\s+available|ready\s+to\s+pay|efectivo\s+disponible|dinero\s+ahora|tengo\s+ahora|первый\s+взнос|down\s+payment)/i.test(
+      s
+    )
+  ) {
+    return true;
+  }
+  // «800к, остальное ипотека» / «часть + ипотека»
+  if (
+    /(?:остальное|часть).{0,40}(?:ипотек|кредит|mortgage|hipoteca)|(?:ипотек|кредит|mortgage).{0,40}остальн|(?:часть\s*(?:\+|и|плюс)|частичн).{0,30}(?:ипотек|кредит|mortgage)/i.test(
+      s
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Бюджет: приоритет у последней реплики с цифрами (иначе старое «до 350к» затирает «600к»).
+ * Суммы «на руках» / под ипотеку не затирают ранее названный объём инвестиций.
  */
 function resolveEffectiveBudget(history, allUserText, lastUser) {
   const userMsgs = (history || []).filter((m) => m.sender === 'user');
   const lastBudget = extractBudgetRange(lastUser);
   if (lastBudget.minPrice != null || lastBudget.maxPrice != null) {
+    if (isFundsOnHandAmountMessage(lastUser)) {
+      for (let i = userMsgs.length - 2; i >= 0; i--) {
+        const prevText = userMsgs[i].text;
+        if (isFundsOnHandAmountMessage(prevText)) continue;
+        const b = extractBudgetRange(prevText);
+        if (b.minPrice != null || b.maxPrice != null) {
+          return applyMoreExpensiveIntent(lastUser, b, userMsgs);
+        }
+      }
+      // Только сумма на руках — не считаем её потолком каталога
+      return { minPrice: null, maxPrice: null };
+    }
     return applyMoreExpensiveIntent(lastUser, lastBudget, userMsgs);
   }
 
-  // Идём с конца: первое сообщение с конкретной суммой
+  // Идём с конца: первая сумма, которая не «на руках / ипотека»
   for (let i = userMsgs.length - 1; i >= 0; i--) {
-    const b = extractBudgetRange(userMsgs[i].text);
+    const text = userMsgs[i].text;
+    if (isFundsOnHandAmountMessage(text)) continue;
+    const b = extractBudgetRange(text);
     if (b.minPrice != null || b.maxPrice != null) {
       return applyMoreExpensiveIntent(lastUser, b, userMsgs);
     }
   }
 
-  const fallback = extractBudgetRange(allUserText);
+  // Не склеиваем «на руках» с инвестициями — иначе 800k затирает миллион
+  const investmentOnlyText = userMsgs
+    .filter((m) => !isFundsOnHandAmountMessage(m.text))
+    .map((m) => m.text)
+    .join('\n');
+  const fallback = extractBudgetRange(investmentOnlyText || allUserText);
   return applyMoreExpensiveIntent(lastUser, fallback, userMsgs);
 }
 
@@ -1117,6 +1192,7 @@ module.exports = {
   extractBudgetRange,
   derivePriceTarget,
   resolveEffectiveBudget,
+  isFundsOnHandAmountMessage,
   wantsMoreExpensive,
   formatBudgetLabel,
   formatBudgetAckFigure,

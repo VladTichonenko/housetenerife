@@ -25,9 +25,11 @@ const {
   analyzeConversation,
   derivePriceTarget,
   extractBudgetRange,
+  resolveEffectiveBudget,
   buildDialogMemoryBlock,
   formatBudgetBandLabel,
 } = require('../dialog-context');
+const { hasUnsupportedDelayedListingPromise } = require('../ai-service');
 const { searchForContext, load, parseItemPriceEur } = require('../property-catalog');
 const {
   repairPropertyUrlsInText,
@@ -1189,6 +1191,59 @@ function runDeterministicTests() {
     'links: URL только housetenerife.eu/property/',
     (aptIbizaCtx.urls || []).every((u) => /housetenerife\.eu.*\/property\//i.test(u))
   );
+
+  console.log('\n=== 16c. Бюджет инвестиций vs сумма на руках + обещание «несколько минут» ===\n');
+  const mortgageBudgetHist = [
+    { sender: 'user', text: 'ищу апартаменты для инвестиций на тенерифе бюджет миллион' },
+    { sender: 'bot', text: 'Когда планируете покупку?' },
+    { sender: 'user', text: 'через 2 месяца' },
+    { sender: 'bot', text: 'Сколько на руках — все своими или часть + ипотека?' },
+    { sender: 'user', text: '800к на руках, остальное ипотека' },
+    { sender: 'bot', text: 'В каком районе?' },
+    { sender: 'user', text: 'давай посмотрим коста адехе' },
+  ];
+  const dMortBudget = analyzeConversation(mortgageBudgetHist, 'ru');
+  check(
+    'mortgage-budget: поиск по €1M, не по €800k на руках',
+    dMortBudget.budget?.maxPrice === 1000000,
+    dMortBudget.budget
+  );
+  check('mortgage-budget: stage SHOW_LISTINGS', dMortBudget.stage === 'SHOW_LISTINGS');
+  check('mortgage-budget: ипотека отмечена', dMortBudget.needsMortgage === true);
+  const resolvedMort = resolveEffectiveBudget(
+    mortgageBudgetHist,
+    dMortBudget.allUserText,
+    '800к на руках, остальное ипотека'
+  );
+  check('mortgage-budget: resolveEffectiveBudget = 1M', resolvedMort.maxPrice === 1000000);
+
+  const allCashHist = [
+    { sender: 'user', text: 'апартаменты Las Cristianos инвестиции бюджет 1 миллион' },
+    { sender: 'bot', text: 'Когда покупка?' },
+    { sender: 'user', text: 'через 2 месяца' },
+    { sender: 'bot', text: 'Сколько на руках — весь миллион, часть или нужна ипотека?' },
+    { sender: 'user', text: 'весь миллион на руках' },
+  ];
+  const dAllCash = analyzeConversation(allCashHist, 'ru');
+  check(
+    'all-cash: «весь миллион на руках» → SHOW_LISTINGS',
+    dAllCash.stage === 'SHOW_LISTINGS',
+    dAllCash.stage
+  );
+  check('all-cash: ипотека не нужна', dAllCash.hasMortgageAnswered && dAllCash.needsMortgage === false);
+  check('all-cash: бюджет €1M', dAllCash.budget?.maxPrice === 1000000);
+
+  const delaySamples = [
+    'Отлично, апартаменты в Costa Adeje. Сейчас сформирую подборку объектов в вашем бюджете до €800 000 с учётом ипотеки. Несколько минут, чтобы подобрать варианты с хорошим потенциалом для инвестиций',
+    'Отлично, миллион евро на руках. Сейчас подготовлю подборку апартаментов в Los Cristianos. Несколько минут',
+  ];
+  for (const sample of delaySamples) {
+    check(
+      `delay-promise: ловим «несколько минут» (${sample.slice(0, 40)}…)`,
+      hasUnsupportedDelayedListingPromise(sample)
+    );
+  }
+
   check(
     'ibiza: сохраняется тип villas',
     ibizaItems.every((item) => itemMatchesPropertyTypes(item, ['villas']))
