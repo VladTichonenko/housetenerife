@@ -38,15 +38,19 @@ function resolvePuppeteerExecutablePath() {
 
 function resolveProtocolTimeoutMs() {
   const configured = parseInt(process.env.PROTOCOL_TIMEOUT_MS, 10);
-  // Короче = зависший evaluate отпускает CDP быстрее (дефолт 2 мин, не 5).
-  return Number.isFinite(configured) && configured >= 30000 ? configured : 120000;
+  // Inject/evaluate на Railway часто > 60с; слишком коротко → Runtime.evaluate timed out на старте.
+  // Слишком длинно → зависший CDP держит очередь. 180с — компромисс.
+  return Number.isFinite(configured) && configured >= 30000 ? configured : 180000;
 }
 
 function isPuppeteerProtocolTimeout(error) {
   const message = String(error?.message || error || '');
+  const name = String(error?.name || '');
   return (
-    /protocoltimeout/i.test(String(error?.name || '')) ||
+    /protocoltimeout/i.test(name) ||
+    /ProtocolError/i.test(name) ||
     /Runtime\.callFunctionOn timed out/i.test(message) ||
+    /Runtime\.evaluate timed out/i.test(message) ||
     /protocolTimeout.*timed out/i.test(message) ||
     /waiting for .* protocol/i.test(message)
   );

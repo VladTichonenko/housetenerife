@@ -858,8 +858,65 @@ if (isRailway && !path.isAbsolute(sessionPath)) {
 
 logPuppeteerDiagnostics();
 console.log(
-  '🔧 WA runtime: cdp-mutex-v4 | send soft-timeout+outbound-queue | session-watch=off | polling auto-off'
+  '🔧 WA runtime: cdp-mutex-v4 | send soft-timeout+outbound-queue | safe-inject | polling auto-off'
 );
+
+/**
+ * whatsapp-web.js вешает framenavigated → inject() без .catch().
+ * При Runtime.evaluate timed out получаем unhandledRejection и «мёртвый» ready.
+ * Патч: после успешного ready глотаем CDP/auth timeout и планируем мягкий reconnect.
+ */
+let injectRecoveryTimer = null;
+let lastInjectFailAt = 0;
+
+function scheduleInjectRecovery(reason) {
+  const now = Date.now();
+  if (injectRecoveryTimer) return;
+  if (typeof isReconnecting === 'boolean' && isReconnecting) return;
+  if (cdpRecoveryInFlight) return;
+  if (typeof isManualLogoutInProgress === 'boolean' && isManualLogoutInProgress) return;
+
+  lastInjectFailAt = now;
+  botReady = false;
+  markChromiumSlow(60000);
+  armCdpCooldown(60000, 'inject-fail');
+  console.warn(
+    `⚠️ WA inject failed (${String(reason).slice(0, 120)}) — мягкий reconnect через 45с`
+  );
+  injectRecoveryTimer = setTimeout(() => {
+    injectRecoveryTimer = null;
+    if (typeof isManualLogoutInProgress === 'boolean' && isManualLogoutInProgress) return;
+    reconnectClient().catch((err) =>
+      console.error('❌ reconnect после inject fail:', err.message)
+    );
+  }, 45000);
+}
+
+const originalClientInject = Client.prototype.inject;
+Client.prototype.inject = async function housetenerifeSafeInject(...args) {
+  try {
+    return await originalClientInject.apply(this, args);
+  } catch (err) {
+    const authTimeout = err === 'auth timeout' || String(err) === 'auth timeout';
+    const cdpTimeout = isPuppeteerProtocolTimeout(err);
+    if (!authTimeout && !cdpTimeout) throw err;
+
+    const alreadyLive = Boolean(this.info?.wid) || botReady;
+    console.warn(
+      `⚠️ Client.inject: ${cdpTimeout ? 'CDP/protocol timeout' : 'auth timeout'}${
+        alreadyLive ? ' (navigation после ready)' : ' (старт)'
+      }`
+    );
+
+    if (alreadyLive) {
+      // Не пробрасываем — иначе unhandledRejection из framenavigated.
+      noteCdpHang(180000, { hard: true });
+      scheduleInjectRecovery(err?.message || err);
+      return;
+    }
+    throw err;
+  }
+};
 
 const client = new Client({
   authStrategy: new LocalAuth({
@@ -868,6 +925,10 @@ const client = new Client({
     rmMaxRetries: 10
   }),
   puppeteer: getPuppeteerLaunchOptions(),
+  authTimeoutMs: Math.max(
+    60000,
+    parseInt(process.env.WA_AUTH_TIMEOUT_MS, 10) || 90000
+  ),
   // Дополнительные настройки для стабильности
   restartOnAuthFail: true,
   takeoverOnConflict: false,
@@ -1674,6 +1735,10 @@ client.on('ready', async () => {
   console.log('📱 WhatsApp бот запущен и готов получать сообщения');
   botReady = true;
   waWatchState = 'CONNECTED';
+  if (injectRecoveryTimer) {
+    clearTimeout(injectRecoveryTimer);
+    injectRecoveryTimer = null;
+  }
   // Сбрасываем все счетчики при успешном подключении
   reconnectAttempts = 0;
   isReconnecting = false;
@@ -3307,7 +3372,23 @@ process.on('uncaughtException', (error) => {
   gracefulShutdown('uncaughtException');
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason) => {
+  if (isPuppeteerProtocolTimeout(reason)) {
+    console.warn(
+      `⏳ CDP protocol timeout (unhandledRejection): ${String(reason?.message || reason).slice(0, 160)} — процесс не роняем`
+    );
+    try {
+      noteCdpHang(180000, { hard: true });
+      armCdpCooldown(120000, 'unhandled-protocol');
+      // inject после navigation часто приходит сюда, если патч не перехватил
+      if (botReady || /inject|evaluate timed out/i.test(String(reason?.stack || reason?.message || ''))) {
+        scheduleInjectRecovery(reason?.message || reason);
+      }
+    } catch (e) {
+      console.warn('⚠️ handler unhandledRejection CDP:', e.message);
+    }
+    return;
+  }
   console.error('❌ Необработанный rejection:', reason);
   // Не завершаем процесс при unhandledRejection, только логируем
 });
