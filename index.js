@@ -1,5 +1,5 @@
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, Message } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 const express = require('express');
@@ -961,7 +961,7 @@ if (isRailway && !path.isAbsolute(sessionPath)) {
 
 logPuppeteerDiagnostics();
 console.log(
-  '🔧 WA runtime: cdp-mutex-v5 | polling off by default | send soft-timeout+outbound-queue'
+  '🔧 WA runtime: cdp-mutex-v6 | Store.Msg polling | no background getState'
 );
 
 /**
@@ -989,7 +989,7 @@ function scheduleInjectRecovery(reason) {
   injectRecoveryTimer = setTimeout(() => {
     injectRecoveryTimer = null;
     if (typeof isManualLogoutInProgress === 'boolean' && isManualLogoutInProgress) return;
-    reconnectClient().catch((err) =>
+    reconnectClient({ force: true }).catch((err) =>
       console.error('❌ reconnect после inject fail:', err.message)
     );
   }, 45000);
@@ -1161,8 +1161,8 @@ function normalizeMsgTimestamp(ts) {
   return ts < 1000000000000 ? ts * 1000 : ts;
 }
 
-/** Резервный опрос чатов — только при ENABLE_POLLING=1 (иначе getChats вешает CDP). */
-function startMessagePolling() {
+/** Старый getChats-polling оставлен только для справки; не запускается. */
+function startLegacyMessagePolling() {
   if (global.pollingInterval) return;
 
   const pollingEnabled =
@@ -1370,6 +1370,150 @@ function startMessagePolling() {
 
     if (pollingCounter % 100 === 0) {
       cleanupProcessedIds();
+    }
+  }, pollMs);
+}
+
+/**
+ * Лёгкий polling последних сообщений прямо из Store.Msg.
+ * В отличие от client.getChats(), не сериализует всю историю чатов и group metadata.
+ */
+async function fetchRecentMessagesForPolling(limit = 200) {
+  if (!client.pupPage) {
+    throw Object.assign(new Error('WhatsApp page unavailable'), {
+      code: 'WA_POLLING_PAGE_UNAVAILABLE',
+    });
+  }
+
+  const rows = await client.pupPage.evaluate((maxItems) => {
+    const collection = window.require?.('WAWebCollections')?.Msg;
+    if (!collection || typeof collection.getModelsArray !== 'function') {
+      throw new Error('WAWebCollections.Msg unavailable');
+    }
+
+    const normalizeId = (id) => {
+      if (!id || typeof id !== 'object') return id;
+      const normalized = { ...id };
+      normalized._serialized = id._serialized ?? id.$1;
+      if (id.remote && typeof id.remote === 'object') {
+        normalized.remote =
+          id.remote._serialized ?? id.remote.$1 ?? String(id.remote);
+      }
+      return normalized;
+    };
+
+    return collection
+      .getModelsArray()
+      .filter((message) => {
+        if (!message?.id || message.id.fromMe || message.isStatusV3) return false;
+        const remote =
+          message.id.remote?._serialized ??
+          message.id.remote?.$1 ??
+          message.id.remote ??
+          '';
+        return (
+          typeof remote === 'string' &&
+          !remote.includes('@broadcast') &&
+          remote !== 'status@broadcast'
+        );
+      })
+      .sort((a, b) => Number(b.t || b.timestamp || 0) - Number(a.t || a.timestamp || 0))
+      .slice(0, maxItems)
+      .map((message) => {
+        try {
+          const data = message.serialize();
+          data.id = normalizeId(data.id);
+          return data;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  }, limit);
+
+  return rows.map((data) => new Message(client, data));
+}
+
+/** Резервный polling без getChats; включён по умолчанию. */
+function startMessagePolling() {
+  if (global.pollingInterval) return;
+  if (process.env.DISABLE_POLLING === '1' || process.env.DISABLE_POLLING === 'true') {
+    console.log('🔄 Polling последних сообщений: выключен (DISABLE_POLLING=1)');
+    return;
+  }
+
+  const pollMs = Math.max(5000, parseInt(process.env.POLLING_INTERVAL_MS, 10) || 10000);
+  const maxAgeMs = parseInt(process.env.POLLING_MAX_AGE_MS, 10) || 10 * 60 * 1000;
+  const softTimeoutMs = Math.max(
+    5000,
+    parseInt(process.env.POLLING_MESSAGES_TIMEOUT_MS, 10) || 12000
+  );
+  let pollingInFlight = false;
+  let nextPollAt = 0;
+  let errorStreak = 0;
+  let lastErrorLogAt = 0;
+
+  console.log(
+    `🔄 Polling последних сообщений каждые ${pollMs / 1000}с (Store.Msg, без getChats)`
+  );
+
+  global.pollingInterval = trackedSetInterval(async () => {
+    if (!botReady || isReconnecting || cdpRecoveryInFlight) return;
+    if (pollingInFlight || Date.now() < nextPollAt) return;
+    if (isCdpBusy() || isCdpCooldown()) return;
+    pollingInFlight = true;
+
+    try {
+      const messages = await runExclusiveCdp(
+        'polling.messages',
+        () => fetchRecentMessagesForPolling(200),
+        softTimeoutMs
+      );
+
+      errorStreak = 0;
+      nextPollAt = 0;
+      for (const msg of messages) {
+        const from = String(msg.from || msg.id?.remote || '');
+        if (!from || msg.fromMe) continue;
+        if (from.endsWith('@g.us') && process.env.POLLING_INCLUDE_GROUPS !== '1') continue;
+
+        const msgId = getMessageId(msg);
+        if (!msgId || isMessageAlreadyHandled(msgId)) continue;
+        const age = Date.now() - normalizeMsgTimestamp(msg.timestamp);
+        if (age < 0 || age > maxAgeMs) continue;
+
+        console.log('📨 [POLLING] новое сообщение:', {
+          from,
+          body: msg.body ? msg.body.slice(0, 50) : '(нет текста)',
+          ageSec: Math.round(age / 1000),
+        });
+        dispatchIncomingMessage(msg, 'polling');
+      }
+    } catch (err) {
+      errorStreak += 1;
+      const backoffMs = Math.min(30000 * 2 ** Math.min(errorStreak - 1, 4), 5 * 60 * 1000);
+      nextPollAt = Date.now() + backoffMs;
+      const now = Date.now();
+      if (errorStreak === 1 || now - lastErrorLogAt >= 5 * 60 * 1000) {
+        console.warn(
+          `⚠️ [POLLING] Store.Msg недоступен (${err.message}); повтор через ${Math.round(backoffMs / 1000)}с`
+        );
+        lastErrorLogAt = now;
+      }
+
+      if (
+        /WAWebCollections\.Msg unavailable|WhatsApp page unavailable|Execution context was destroyed/i.test(
+          String(err?.message || err)
+        )
+      ) {
+        scheduleInjectRecovery(`polling Store.Msg: ${err.message}`);
+      } else if (isCdpSoftTimeout(err)) {
+        // Этот evaluate читает только несколько объектов из памяти и обычно занимает <1с.
+        // 12с timeout означает реально залипший execution context — нужен новый Chromium.
+        scheduleInjectRecovery(`polling Store.Msg timeout: ${err.message}`);
+      }
+    } finally {
+      pollingInFlight = false;
     }
   }, pollMs);
 }
@@ -1856,6 +2000,11 @@ client.on('ready', async () => {
   console.log('📱 WhatsApp бот запущен и готов получать сообщения');
   botReady = true;
   waWatchState = 'CONNECTED';
+  cdpActiveOps = 0;
+  cdpActiveLabel = '';
+  cdpCooldownUntil = 0;
+  chromiumSlowUntil = 0;
+  pollingDisabledForProcess = false;
   if (injectRecoveryTimer) {
     clearTimeout(injectRecoveryTimer);
     injectRecoveryTimer = null;
@@ -1872,12 +2021,10 @@ client.on('ready', async () => {
     logoutTimeout = null;
   }
   
-  // Диагностика с мягкими таймаутами — не держим CDP на protocolTimeout (минуты).
+  // Событие ready уже подтверждает готовность. Не вызываем здесь getState:
+  // зависший getState занимал CDP раньше, чем запускался polling/ответы.
   try {
-    const snap = await getClientStateFast(10000);
-    console.log(
-      `📊 Состояние клиента подтверждено: ${snap.state}${snap.cached ? ' (cached)' : ''}`
-    );
+    console.log('📊 Состояние клиента подтверждено событием ready: CONNECTED');
 
     const messageListeners = client.listenerCount('message');
     const messageCreateListeners = client.listenerCount('message_create');
@@ -1916,7 +2063,7 @@ client.on('ready', async () => {
 
     console.log('🔍 Диагностика завершена. Бот готов получать сообщения.');
 
-    console.log('📡 Входящие: события message + message_create + polling (резерв), очередь по чату');
+    console.log('📡 Входящие: события message + message_create + Store.Msg polling, очередь по чату');
     startMessageMaintenance();
     // Даём WA Web/Store чуть осесть после ready (warmup, не CDP hang).
     markChromiumSlow(20000);
@@ -1961,42 +2108,6 @@ client.on('change_state', async (state) => {
   }
 });
 
-// Обработка авторизации
-client.on('authenticated', async () => {
-  console.log('✅ Авторизация успешна!');
-
-  // Не ждём protocolTimeout: иначе один зависший getState блокирует CDP на минуты.
-  try {
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    const snap = await getClientStateFast(12000);
-    console.log(
-      `📊 Текущее состояние клиента: ${snap.state}${snap.cached ? ' (cached/timeout)' : ''}`
-    );
-
-    if (snap.state === 'CONNECTED' || snap.ready) {
-      console.log('✅ Бот готов к работе!');
-      console.log('📱 WhatsApp бот запущен и готов получать сообщения');
-      botReady = true;
-      reconnectAttempts = 0;
-      isReconnecting = false;
-      disconnectCount = 0;
-      lastReconnectTime = 0;
-      lastDisconnectTime = 0;
-      logoutHandled = false;
-      if (logoutTimeout) {
-        clearTimeout(logoutTimeout);
-        logoutTimeout = null;
-      }
-    }
-    if (snap.error && isPuppeteerProtocolTimeout({ message: snap.error })) {
-      noteCdpHang(45000, { hard: true });
-    }
-  } catch (error) {
-    console.warn('⚠️ Не удалось проверить состояние клиента:', error.message);
-    if (isPuppeteerProtocolTimeout(error)) noteCdpHang(45000, { hard: true });
-  }
-});
-
 // Обработка ошибок авторизации
 client.on('auth_failure', (msg) => {
   console.error('❌ Ошибка авторизации:', msg);
@@ -2023,7 +2134,7 @@ let logoutHandled = false; // Флаг для предотвращения мн�
 let logoutTimeout = null; // Таймер для обработки LOGOUT
 
 // Функция переподключения
-async function reconnectClient() {
+async function reconnectClient({ force = false } = {}) {
   if (isReconnecting) {
     console.log('⚠️ Переподключение уже выполняется, пропускаем...');
     return;
@@ -2036,7 +2147,7 @@ async function reconnectClient() {
     const waitTime = Math.ceil((MIN_RECONNECT_INTERVAL - timeSinceLastReconnect) / 1000);
     console.log(`⏳ Слишком рано для переподключения. Ждем ${waitTime} секунд...`);
     setTimeout(() => {
-      reconnectClient();
+      reconnectClient({ force });
     }, MIN_RECONNECT_INTERVAL - timeSinceLastReconnect);
     return;
   }
@@ -2070,21 +2181,23 @@ async function reconnectClient() {
   await new Promise(resolve => setTimeout(resolve, delay));
   
   try {
-    // Проверяем, не инициализирован ли уже клиент (с таймаутом — если браузер мёртв, не висим 3 мин)
-    try {
-      const state = await Promise.race([
-        client.getState(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('getState timeout')), 15000))
-      ]);
-      if (state === 'CONNECTED' || state === 'OPENING') {
-        console.log('✅ Клиент уже подключен или подключается, отменяем переподключение');
-        isReconnecting = false;
-        reconnectAttempts = 0;
-        lastMaxAttemptsReachedAt = 0;
-        return;
+    // При force WWebJS/Store уже сломан: CONNECTED не означает исправный injection.
+    if (!force) {
+      try {
+        const state = await Promise.race([
+          client.getState(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('getState timeout')), 15000))
+        ]);
+        if (state === 'CONNECTED' || state === 'OPENING') {
+          console.log('✅ Клиент уже подключен или подключается, отменяем переподключение');
+          isReconnecting = false;
+          reconnectAttempts = 0;
+          lastMaxAttemptsReachedAt = 0;
+          return;
+        }
+      } catch (stateError) {
+        // Игнорируем ошибки проверки состояния.
       }
-    } catch (stateError) {
-      // Игнорируем ошибки проверки состояния (в т.ч. таймаут — значит браузер не отвечает)
     }
     
     // Пытаемся безопасно закрыть клиент (с kill Chromium, если CDP мёртв)
@@ -2112,7 +2225,7 @@ async function reconnectClient() {
     const retryDelay = Math.min(15000 * Math.pow(2, reconnectAttempts - 1), 300000);
     console.log(`⏳ Повторная попытка через ${retryDelay / 1000} секунд...`);
     setTimeout(() => {
-      reconnectClient();
+      reconnectClient({ force });
     }, retryDelay);
   }
 }
@@ -2384,31 +2497,16 @@ async function logoutWhatsAppSession() {
 
 /** Актуальный статус для /status и Telegram — не только флаг botReady. */
 async function getServiceStatus() {
-  const snap = await getClientStateFast(2500);
-  let liveState = snap.state;
-  let liveReady = Boolean(snap.ready);
-
-  if (liveState === 'CONNECTED') {
-    if (!botReady) {
-      console.log('📊 Статус: WhatsApp CONNECTED (синхронизация botReady)');
-      botReady = true;
-    }
-    liveReady = true;
-  } else if (liveState === 'OPENING' || liveState === 'PAIRING') {
-    liveReady = false;
-  } else if (!snap.cached) {
-    liveReady = false;
-  } else {
-    liveReady = botReady;
-  }
-
+  // Статус не должен сам обращаться к CDP: ready/change_state/disconnected
+  // поддерживают этот кэш, а getState способен заблокировать отправку сообщений.
+  const liveState = waWatchState || (botReady ? 'CONNECTED' : 'unknown');
   return {
-    botReady: liveReady,
+    botReady: Boolean(botReady || liveState === 'CONNECTED'),
     clientState: liveState,
     accountPhone: accountInfo?.phone || null,
     processedIds: processedMessageIds.size,
     uptime: process.uptime(),
-    stateCached: Boolean(snap.cached),
+    stateCached: true,
   };
 }
 
@@ -2486,11 +2584,11 @@ async function getClientStateFast(timeoutMs = 2500) {
 }
 
 async function getAdminSessionSnapshot() {
-  const snap = await getClientStateFast(2500);
+  const cachedState = waWatchState || (botReady ? 'CONNECTED' : 'unknown');
   return {
-    ready: Boolean(snap.ready),
-    clientState: snap.state || 'unknown',
-    stateCached: Boolean(snap.cached),
+    ready: Boolean(botReady || cachedState === 'CONNECTED'),
+    clientState: cachedState,
+    stateCached: true,
     hasQr: Boolean(currentQr),
     account: accountInfo,
   };
