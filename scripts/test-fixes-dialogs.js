@@ -672,10 +672,47 @@ function runDeterministicTests() {
     'cover: обращение на Вы',
     /всегда обращение на «Вы»|ВСЕГДА обращение на «Вы»/i.test(formatGlobalHumanChatRules('ru'))
   );
-  const { collapseDuplicateWarmMarkers } = require('../reply-warmth');
+  const {
+    collapseDuplicateWarmMarkers,
+    maybeAddWarmSmiley,
+    stripAllWarmMarkers,
+  } = require('../reply-warmth');
   check(
     'tone: не два смайла подряд',
     collapseDuplicateWarmMarkers('Привет :) :) Как дела?') === 'Привет :) Как дела?'
+  );
+  check(
+    'tone: один смайл если два в разных местах',
+    (
+      collapseDuplicateWarmMarkers('Отлично :) миллион евро на руках : ) Теперь').match(/:\)/g) ||
+      []
+    ).length === 1
+  );
+  check(
+    'tone: после двух тёплых ответов — без скобочек',
+    !/:(?:\s*\))|🙂/.test(
+      maybeAddWarmSmiley(
+        'Какой у вас размер инвестиций: до 300к или выше 600к евро?',
+        'ru',
+        'NEED_BUDGET',
+        {
+          history: [
+            { sender: 'assistant', text: 'Отлично :) Когда планируете покупку?' },
+            { sender: 'assistant', text: 'Понял :) Сколько на руках?' },
+          ],
+        }
+      )
+    )
+  );
+  const strippedSpam = maybeAddWarmSmiley('Понял :) покупка через 1–2 месяца :)', 'ru', 'NEED_FUNDS_NOW', {
+    history: [
+      { sender: 'assistant', text: 'Отлично :) миллион евро' },
+      { sender: 'assistant', text: 'Супер 🙂 срок понял' },
+    ],
+  });
+  check(
+    'tone: лишние :) модели вырезаются',
+    stripAllWarmMarkers(strippedSpam) === strippedSpam && !/:(?:\s*\))|🙂/.test(strippedSpam)
   );
   check(
     'cover: финансы до подборки',
@@ -1418,7 +1455,7 @@ const MANUAL_DIALOGS = [
     note: 'Правило 6 — бюджет 2M → объекты примерно €1.6M–€2.4M',
     steps: [
       { who: 'user', text: 'Инвестиции, вилла, Тенерифе, Adeje, бюджет 2 миллиона, через 2 месяца, всё наличными' },
-      { who: 'bot', expect: 'Подборка в коридоре ~1.6–2.4M. ❌ НЕ виллы за 400k и НЕ за 5M без просьбы расширить.' },
+      { who: 'bot', expect: 'Подборка ~1.6–2.4M по факту фильтра. ❌ НЕ говорить клиенту «±20%» / «коридор €…». ❌ НЕ виллы за 400k и НЕ за 5M без просьбы расширить.' },
     ],
   },
   {
@@ -1543,7 +1580,7 @@ const MANUAL_DIALOGS = [
       { who: 'user', text: 'Puerto de la Cruz' },
       { who: 'bot', expect: '❌ НЕ «Какую зону вы имеете в виду?». Следующий вопрос — бюджет (мягко).' },
       { who: 'user', text: 'до 400000 евро' },
-      { who: 'bot', expect: 'Подборка 3–5 апартаментов в Puerto de la Cruz / север, в коридоре бюджета.' },
+      { who: 'bot', expect: 'Подборка 3–5 апартаментов в Puerto de la Cruz / север. ❌ НЕ одна ссылка. ❌ НЕ «коридор ±20%» вслух.' },
     ],
   },
   {

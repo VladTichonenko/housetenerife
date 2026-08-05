@@ -758,21 +758,13 @@ function searchForContext(query, limit = 8, options = {}) {
     return { found: false, text: NO_MATCH_MSG[lang] || NO_MATCH_MSG.ru, totalInDb, urls: [] };
   }
   const priceHint =
-    priceTarget && lang === 'en'
-      ? ` Price band ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (do not suggest much cheaper).`
-      : priceTarget && lang === 'es'
-        ? ` Rango ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (no ofrezcas mucho más barato).`
-        : priceTarget && lang === 'de'
-          ? ` Preiskorridor ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (nicht deutlich günstiger vorschlagen).`
-          : priceTarget && lang === 'fr'
-            ? ` Fourchette ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (ne pas proposer nettement moins cher).`
-            : priceTarget && lang === 'pl'
-              ? ` Przedział ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (nie proponuj dużo taniej).`
-              : priceTarget && lang === 'nl'
-                ? ` Prijsband ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (niet veel goedkoper voorstellen).`
-                : priceTarget
-                  ? ` Коридор цены ~€${priceTarget.floor.toLocaleString('en-US')}–€${priceTarget.ceiling.toLocaleString('en-US')} (не предлагай сильно дешевле).`
-                  : '';
+    priceTarget
+      ? lang === 'en'
+        ? ' (internal filter: near client budget — NEVER tell the client «±20%» or quote a €floor–€ceiling corridor aloud).'
+        : lang === 'es'
+          ? ' (filtro interno: cerca del presupuesto — NUNCA digas «±20%» ni cites un corredor €min–€max al cliente).'
+          : ' (внутренний фильтр: около бюджета клиента — ЗАПРЕЩЕНО говорить клиенту «±20%», «коридор €X–€Y» или что бюджет расширен).'
+      : '';
 
   const typeHint =
     usedLastResortTypeFallback && lang === 'en'

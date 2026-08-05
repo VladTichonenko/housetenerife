@@ -179,10 +179,10 @@ async function buildPromptParts(
     // Клиент просит объекты / любой этап без бюджета — каталог не даём, только запрос бюджета
     catalogBlock =
       salesLang === 'es'
-        ? '\n\n(**SIN PRESUPUESTO — PROHIBIDO mostrar fichas.** El cliente pidió ver opciones o aún no dijo presupuesto. Agradece el interés y pregunta el presupuesto en €. Di que luego mostrarás en banda ±20%. Sin villas, sin precios, sin enlaces.)\n'
+        ? '\n\n(**SIN PRESUPUESTO — PROHIBIDO mostrar fichas.** El cliente pidió ver opciones o aún no dijo presupuesto. Agradece el interés y pregunta el presupuesto en €. Di que luego mostrarás opciones adecuadas. Sin villas, sin precios, sin enlaces, sin mencionar ±20%.)\n'
         : salesLang === 'en'
-          ? '\n\n(**NO BUDGET — FORBIDDEN to show listings.** Client asked to see options or has not stated a budget. Thank them and ask for budget in €. Say you’ll then shortlist within ±20%. No villas, no prices, no links.)\n'
-          : '\n\n(**БЮДЖЕТ НЕ ИЗВЕСТЕН — ЗАПРЕЩЕНО показывать объекты.** Клиент просит варианты или ещё не назвал бюджет. Поблагодари за интерес и спроси бюджет в €. Скажи, что после этого покажешь варианты в коридоре ±20%. Без вилл, без цен 500k–9M, без ссылок.)\n';
+          ? '\n\n(**NO BUDGET — FORBIDDEN to show listings.** Client asked to see options or has not stated a budget. Thank them and ask for budget in €. Say you’ll then show matching options. No villas, no prices, no links, no «±20%» talk.)\n'
+          : '\n\n(**БЮДЖЕТ НЕ ИЗВЕСТЕН — ЗАПРЕЩЕНО показывать объекты.** Клиент просит варианты или ещё не назвал бюджет. Поблагодари за интерес и спроси бюджет в €. Скажи, что после этого покажешь подходящие варианты. Без вилл, без цен 500k–9M, без ссылок, без фраз про «±20%» / коридор цен.)\n';
   } else if (!dialog.hasType && tier === 'full' && hints) {
     catalogBlock = hints.noType;
   } else if (!dialog.hasRegion && !dialog.hasLocation && tier === 'full' && hints) {
@@ -330,7 +330,7 @@ async function buildPromptParts(
 - Регион: ${dialog.hasRegion ? `да (${dialog.regionLabel})` : `ещё нет — ${dialog.regionOptions}`}
 - Район / зона: ${dialog.hasLocation ? `да (${dialog.microAreaLabel || 'уточнено'})` : dialog.needsMicroArea ? `ещё нет (примеры: ${dialog.areaOptionsPrompt || 'уточнить у клиента'})` : 'не требуется'}
 - Тип объекта: ${dialog.hasType ? `да (${dialog.propertyTypeLabel})` : 'ещё нет'}
-${dialog.hasBudget ? `- ⛔ Бюджет / размер инвестиций уже назван${dialog.budgetLabel ? ` (${dialog.budgetLabel})` : ''} — НЕ переспрашивай. Если клиент только что назвал сумму — коротко «Отлично» или «Отлично, миллион евро» (без канцелярита про память) и иди к следующему шагу.\n` : '- ⛔ Без бюджета / размера инвестиций объекты и ссылки НЕ отправляй. Если просят «покажи объекты» — сначала спроси размер инвестиций (инвест) или бюджет (для жизни), потом подборка ±20%.\n'}${!dialog.financeReadyForListings && !dialog.ignoreBudget ? '- ⛔ Без финансов (деньги на руках + ипотека да/нет) подборку НЕ отправляй.\n' : ''}${dialog.hasType && dialog.hasRegion && dialog.hasLocation ? '- ⛔ Тип, регион и район известны — не переспрашивай.\n' : ''}${dialog.needsEscalation ? '- ⚠️ Жалоба/сложный запрос — эскалируй к менеджеру (созвон 10–15 мин), не спорь.\n' : ''}`
+${dialog.hasBudget ? `- ⛔ Бюджет / размер инвестиций уже назван${dialog.budgetLabel ? ` (${dialog.budgetLabel})` : ''} — НЕ переспрашивай. Если клиент только что назвал сумму — коротко «Отлично» или «Отлично, миллион евро» (без канцелярита про память) и иди к следующему шагу.\n` : '- ⛔ Без бюджета / размера инвестиций объекты и ссылки НЕ отправляй. Если просят «покажи объекты» — сначала спроси размер инвестиций (инвест) или бюджет (для жизни), потом подборка.\n'}${!dialog.financeReadyForListings && !dialog.ignoreBudget ? '- ⛔ Без финансов (деньги на руках + ипотека да/нет) подборку НЕ отправляй.\n' : ''}${dialog.hasType && dialog.hasRegion && dialog.hasLocation ? '- ⛔ Тип, регион и район известны — не переспрашивай.\n' : ''}${dialog.needsEscalation ? '- ⚠️ Жалоба/сложный запрос — эскалируй к менеджеру (созвон 10–15 мин), не спорь.\n' : ''}`
       : blocks.criteria;
 
   const coreRulesBlock = formatCoreRulesForPrompt(salesLang);
@@ -370,7 +370,7 @@ ${blocks.conversation}`;
 **Цена:** ${
         dialog.ignoreBudget
           ? 'клиент снял ограничение по цене — показывай подходящие по типу и району объекты из блока без фильтра «около бюджета».'
-          : 'коридор ±20% от бюджета клиента — не предлагай сильно дешевле или сильно дороже, если клиент не просил иначе.'
+          : 'держись около бюджета клиента (каталог уже отфильтрован). ЗАПРЕЩЕНО говорить клиенту про «±20%», «коридор €800k–€1.2M» и т.п. — просто покажи 3–5 вариантов.'
       }
 **Ссылки:** копируй URL из блока каталога БУКВАЛЬНО (формат https://housetenerife.eu/…/property/slug/). Запрещено выдумывать /objekt/123, /object/ID и любые другие пути. Не давай ссылки на Idealista, Fotocasa, Habitaclia и любые внешние порталы — только карточки House Tenerife из блока.
 Если клиент просит ссылки на объекты — ОБЯЗАТЕЛЬНО вставь в ответ URL из блока каталога по его параметрам (тип/регион/бюджет/район). Запрещено отвечать только «посмотрите на сайте / в разделе недвижимости» без конкретных карточек. Не описывай объекты без их URL.
@@ -466,7 +466,7 @@ ${catalogRules}
 ${catalogBlock}
 ${fileDocBlock ? `\n${fileDocBlock}\n` : ''}${webBlock}
 
-**WHATSAPP:** *bold*, bullets • or 1. One warm 🙂 or :) on conversation stages (see WARM TONE block). If the client sent an emoji — mirror that same emoji.`;
+**WHATSAPP:** *bold*, bullets • or 1. 🙂/:) rarely (max every 3–4 replies, see WARM TONE). Never two smileys in one message. If the client sent an emoji — mirror that same emoji.`;
 
 
   const messages = [
@@ -599,7 +599,7 @@ function getWritingQualityBlock(salesLang) {
     return `**TEXT QUALITY (critical for sales):**
 - Spelling/grammar OK — no typos, no glued words.
 - Natural WhatsApp chat — short lines, fragments OK; NOT a formal letter or brochure.
-- At most ONE emoji or :) per message on warm stages.
+- At most ONE emoji or :) every 3–4 messages — never every reply, never two in one.
 - NEVER sound like: «I offer you the following investment options. A villa costs… It is suitable for…»
 - DO sound like: «Great! Found a few around Marbella Villa for 2.5M — solid for long-term rental Want details?»
 - Do not put a full stop at the end of every short line. Mix short phrases + a question. Light connectors (great / got it / then…).`;
@@ -647,7 +647,7 @@ function getWritingQualityBlock(salesLang) {
 - Тон WhatsApp с другом, НЕ робот и НЕ call-центр: короткие строки, обрывки норм; не ставь точку в конце каждой короткой реплики подряд.
 - ПЛОХО: «Я предлагаю вам следующие варианты инвестиций. Вилла стоит 2.5 миллиона евро. Она подходит для долгосрочной аренды.»
 - ХОРОШО: «Отлично! Нашёл варианты около Марбельи Вилла за 2.5М — сильный вариант под долгосрочную аренду Хотите подробнее?»
-- На приветствии и тёплых репликах — один 🙂 или :). Лёгкие связки: отлично / понял / тогда…
+- На приветствии и редких ack («Отлично») — иногда один 🙂 или :), максимум раз в 3–4 ответа. Не в каждом сообщении. Лёгкие связки: отлично / понял / тогда…
 - Не читай лекцию про «почему виллы для инвестиций», если клиент просто продолжает подбор.`;
 }
 
@@ -846,6 +846,34 @@ function replyNeedsCatalogForce(reply, wantedTypes) {
   );
 }
 
+function countValidCatalogPropertyLinks(text) {
+  const re =
+    /https?:\/\/(?:www\.)?housetenerife\.eu\/(?:(?:ru|es|en|de|fr|pl|nl)\/)?property\/[a-z0-9\-]+\/?/gi;
+  const matches = String(text || '').match(re) || [];
+  return new Set(matches.map((u) => u.toLowerCase().replace(/\/+$/, ''))).size;
+}
+
+/** Модель иногда копирует «коридор €800k–€1.2M / ±20%» из внутренних подсказок — вырезаем. */
+function stripBudgetBandTalkFromReply(text) {
+  let out = String(text || '');
+  // «в коридоре €800,000—€1,200,000» / «в коридоре цены …»
+  out = out.replace(
+    /\s*в\s+коридор[еа]?\s*(?:цены\s*)?(?:±\s*20\s*%\s*)?€?[\d\s.,]+(?:\s*[—–−\-]\s*€?[\d\s.,]+)?/gi,
+    ''
+  );
+  out = out.replace(
+    /(?:±\s*20\s*%|banda\s*±\s*20\s*%|(?:price\s+)?band\s*(?:of\s*)?±\s*20\s*%|within\s+(?:about\s+)?±\s*20\s*%|around\s*±\s*20\s*%|en\s+torno\s+a\s*±\s*20\s*%|коридоре?\s*±\s*20\s*%)[^.!\n,]*/gi,
+    ''
+  );
+  out = out.replace(
+    /(?:Price band|Preiskorridor|Fourchette|Przedział|Prijsband|Rango)\s*~?€[\d\s.,]+(?:\s*[—–−\-]\s*€?[\d\s.,]+)?[^.!\n]*/gi,
+    ''
+  );
+  out = out.replace(/[ \t]{2,}/g, ' ').replace(/\s+—\s+—/g, ' —');
+  out = out.replace(/([^\s—])\s*—/g, '$1 —').replace(/\n{3,}/g, '\n\n').trim();
+  return out;
+}
+
 /** Подборка с ценами/типами жилья, но без реальных URL каталога — галлюцинация модели. */
 function replyLooksLikeInventedListings(reply) {
   if (!reply || hasValidCatalogPropertyLinks(reply)) return false;
@@ -917,17 +945,17 @@ function buildAskBudgetInsteadOfListingsReply(lang, dialog) {
   const invest = dialog?.isInvestment;
   if (salesLang === 'es') {
     return invest
-      ? 'Gracias por el interés :) ¿Cuál es su presupuesto de inversión en €? Con eso le muestro opciones en una banda de ±20%.'
-      : 'Gracias por el interés :) ¿En qué rango de presupuesto en € nos orientamos? Después le muestro opciones en una banda de ±20%.';
+      ? 'Gracias por el interés :) ¿Cuál es su presupuesto de inversión en €? Con eso le muestro opciones adecuadas.'
+      : 'Gracias por el interés :) ¿En qué rango de presupuesto en € nos orientamos? Después le muestro opciones adecuadas.';
   }
   if (salesLang === 'en') {
     return invest
-      ? 'Thanks for the interest :) What’s your investment budget in €? I’ll then shortlist within about ±20% of that.'
-      : 'Thanks for the interest :) What budget range in € should we use? I’ll then show options within about ±20%.';
+      ? 'Thanks for the interest :) What’s your investment budget in €? I’ll then show matching options.'
+      : 'Thanks for the interest :) What budget range in € should we use? I’ll then show matching options.';
   }
   return invest
-    ? 'Спасибо за интерес :) Какой у вас бюджет для инвестиции в €? После этого покажу варианты в коридоре ±20%.'
-    : 'Спасибо за интерес :) На какой бюджет в € ориентируемся? После этого покажу варианты в коридоре ±20%.';
+    ? 'Спасибо за интерес :) Какой у вас бюджет для инвестиции в €? После этого покажу подходящие варианты.'
+    : 'Спасибо за интерес :) На какой бюджет в € ориентируемся? После этого покажу подходящие варианты.';
 }
 
 function stripPropertyLinksKeepText(text) {
@@ -1115,6 +1143,13 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       fallbackMeta.usedLastResortTypeFallback = Boolean(fallback.usedLastResortTypeFallback);
     }
 
+    const catalogUrlCount = countValidCatalogPropertyLinks(reply);
+    const tooFewListings =
+      listingStage &&
+      urlsForRepair.length >= 3 &&
+      catalogUrlCount > 0 &&
+      catalogUrlCount < Math.min(3, urlsForRepair.length);
+
     const needsListingLinks =
       urlsForRepair.length > 0 &&
       (listingStage ||
@@ -1122,11 +1157,13 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         websiteOnlyNoCards ||
         inventedListings ||
         admitsNoLinks ||
-        dialog.wantsPropertyLinks) &&
+        dialog.wantsPropertyLinks ||
+        tooFewListings) &&
       (replyNeedsCatalogForce(reply, dialog.propertyTypes) ||
         replyHasWrongRegion ||
         inventedListings ||
-        admitsNoLinks);
+        admitsNoLinks ||
+        tooFewListings);
 
     if (needsListingLinks) {
       const safe = buildDeterministicListingsReply(
@@ -1137,7 +1174,11 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         fallbackMeta
       );
       if (safe) {
-        console.warn('⚠️ AI подборка с битыми/чужими/дублирующими ссылками — ответ из каталога');
+        console.warn(
+          tooFewListings
+            ? `⚠️ AI дал ${catalogUrlCount} ссылк(и), в каталоге ${urlsForRepair.length} — дополняю до 3–5`
+            : '⚠️ AI подборка с битыми/чужими/дублирующими ссылками — ответ из каталога'
+        );
         reply = safe;
       } else {
         console.warn(
@@ -1190,7 +1231,14 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         sanitizeListingWhyLabels(
           softenRoboticPunctuation(
             mirrorUserEmojiInReply(
-              maybeAddWarmSmiley(sanitizeDelayedListingPromise(reply), salesLang, dialog.stage),
+              maybeAddWarmSmiley(
+                stripBudgetBandTalkFromReply(sanitizeDelayedListingPromise(reply)),
+                salesLang,
+                dialog.stage,
+                {
+                  history: conversationHistory,
+                }
+              ),
               lastUserMsg,
               { force: isEmojiOnlyMessage(lastUserMsg) }
             ),
@@ -1318,7 +1366,8 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
                   maybeAddWarmSmiley(
                     sanitizeDelayedListingPromise(stripUnexpectedScripts(retryReply)),
                     salesLangRetry,
-                    dialog.stage
+                    dialog.stage,
+                    { history: conversationHistory }
                   ),
                   lastUserRetry,
                   { force: isEmojiOnlyMessage(lastUserRetry) }

@@ -478,11 +478,11 @@ const stageInstructions = {
 
   NEED_MORTGAGE: `Форма оплаты: один вопрос — нужна ипотека/кредит в Испании или свои средства? Объекты пока НЕ показывай.`,
 
-  SHOW_LISTINGS: `ОБЯЗАТЕЛЬНО дай подборку 3–5 объектов прямо сейчас (не обещай «пришлю позже»): тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, район ${'{microAreaLabel}'}. Только из блока каталога, строго в коридоре ±20% бюджета${'{budgetBandHint}'}. Начни коротко: что покажешь варианты в этом диапазоне (как «отлично, смотрим около …»). Формат:
+  SHOW_LISTINGS: `ОБЯЗАТЕЛЬНО дай подборку 3–5 РАЗНЫХ объектов прямо сейчас (не обещай «пришлю позже», не ограничивайся одной ссылкой): тип ${'{propertyTypeLabel}'}, регион ${'{regionLabel}'}, район ${'{microAreaLabel}'}. Только из блока каталога (система уже отфильтровала по бюджету). ЗАПРЕЩЕНО говорить клиенту про «±20%», «коридор €X–€Y» или что вы расширяете/сужаете бюджет — просто покажи варианты. Начни коротко: «Вот варианты…» без вилки цен. Формат:
 • *Название* — €цена
   [одна живая фраза-выгода под цель — БЕЗ «Почему вам»]
   ссылка
-Закрой: «Какой вариант ближе?» Критерии из памяти НЕ переспрашивай. Не вываливай объекты сильно дешевле/дороже коридора (запрещены вилки вроде 500k–9M вне бюджета).`,
+Минимум 3 объекта, если в каталоге есть столько URL. Закрой: «Какой вариант ближе?» Критерии из памяти НЕ переспрашивай.`,
 
   REFINE: `Ответь по последней реплике. Если просят ещё/похожие — сразу новая подборка 3–5 из каталога по УЖЕ известным критериям. Один вопрос в конце.`,
 
@@ -528,16 +528,16 @@ function getAskBudgetBeforeListingsInstruction(lang, opts = {}) {
   if (lang === 'en') {
     return `Client asked to SHOW properties, but budget is UNKNOWN. Thank them briefly for the interest. Ask explicitly for ${
       isInvestment ? 'their *investment size* in €' : 'their *budget* in €'
-    }. Example vibe: «${example}». Say that once you have the figure you’ll shortlist around ±20%. FORBIDDEN: any villas, prices, ranges like 500k–9M, or catalog links. One question only.`;
+    }. Example vibe: «${example}». Say you’ll then show matching options. FORBIDDEN: any villas, prices, ranges like 500k–9M, catalog links, or mentioning «±20%» / price corridors. One question only.`;
   }
   if (lang === 'es') {
     return `El cliente pide VER inmuebles, pero el presupuesto es DESCONOCIDO. Agradece el interés. Pregunta explícitamente el ${
       isInvestment ? '*presupuesto de inversión* en €' : '*presupuesto* en €'
-    }. Ejemplo: «${example}». Di que con el presupuesto mostrarás opciones en torno a ±20%. PROHIBIDO: villas, precios, rangos 500k–9M o enlaces. Solo una pregunta.`;
+    }. Ejemplo: «${example}». Di que luego mostrarás opciones adecuadas. PROHIBIDO: villas, precios, rangos 500k–9M, enlaces, o mencionar «±20%» / corredores de precio. Solo una pregunta.`;
   }
   return `Клиент просит ПОКАЗАТЬ объекты, но бюджет НЕ известен. Коротко поблагодари за интерес. ЯВНО спроси ${
     isInvestment ? '*размер инвестиций* в €' : '*бюджет* / диапазон стоимости в €'
-  }. Образец: «${example}». Скажи, что после этого покажешь варианты в коридоре ±20% от названной суммы. ЗАПРЕЩЕНО: виллы, цены, вилки вроде 500k–9M, любые ссылки на объекты. Только один вопрос.`;
+  }. Образец: «${example}». Скажи, что после этого покажешь подходящие варианты. ЗАПРЕЩЕНО: виллы, цены, вилки вроде 500k–9M, ссылки, а также фразы про «±20%» / «коридор €X–€Y». Только один вопрос.`;
 }
 
 function formatBudgetBandLabel(budget, lang = 'ru') {
@@ -658,9 +658,7 @@ function resolveStageInstruction(stage, dialog) {
   const callOfferContext = dialog.callOfferContext || 'ваш запрос';
   const budgetQuestionExample =
     dialog.budgetQuestionExample || pickBudgetQuestionExample('ru');
-  const budgetBandHint = dialog.budgetBandLabel
-    ? ` (${dialog.budgetBandLabel})`
-    : '';
+  const budgetBandHint = '';
   return text
     .replace(/\{propertyTypeLabel\}/g, typeLabel)
     .replace(/\{regionLabel\}/g, regionLabel)

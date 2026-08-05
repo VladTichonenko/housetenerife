@@ -517,12 +517,24 @@ function isTransientChatLookupError(err) {
 }
 
 async function resolveIncomingChat(msg) {
+  if (!msg || typeof msg.getChat !== 'function') {
+    return buildFallbackChatFromMessage(msg);
+  }
   try {
-    const chat = await msg.getChat();
+    const chat = await Promise.race([
+      msg.getChat(),
+      new Promise((_, reject) =>
+        setTimeout(() => {
+          const err = new Error('getChat soft timeout');
+          err.code = 'WA_SEND_SOFT_TIMEOUT';
+          reject(err);
+        }, 8000)
+      ),
+    ]);
     if (chat) return chat;
   } catch (err) {
     console.warn(
-      `⚠️ getChat недоступен (${err.message || err}) — fallback для ${msg.from}`
+      `⚠️ getChat недоступен (${err.message || err}) — fallback для ${msg?.from || '?'}`
     );
   }
   return buildFallbackChatFromMessage(msg);
@@ -639,12 +651,32 @@ function getOutboundDelayMs(text) {
 }
 
 const SEND_SOFT_TIMEOUT_MS = Math.max(
-  15000,
-  parseInt(process.env.WA_SEND_SOFT_TIMEOUT_MS, 10) || 45000
+  8000,
+  parseInt(process.env.WA_SEND_SOFT_TIMEOUT_MS, 10) || 25000
+);
+const SEND_SOFT_TIMEOUT_LID_MS = Math.max(
+  5000,
+  parseInt(process.env.WA_SEND_SOFT_TIMEOUT_LID_MS, 10) || 12000
 );
 const OUTBOUND_RETRY_MAX = Math.max(1, parseInt(process.env.WA_OUTBOUND_RETRY_MAX, 10) || 8);
 /** @type {Map<string, { chatId: string, text: string, attempts: number, nextAt: number, enqueuedAt: number }>} */
 const pendingOutbound = new Map();
+/** Последнее входящее Message по чату — для reply-retry на @lid */
+const lastInboundMsgByChat = new Map();
+
+function isLidChatId(chatId) {
+  return /@lid$/i.test(String(chatId || ''));
+}
+
+function rememberInboundMessage(msg) {
+  const chatId = msg?.from;
+  if (!chatId || !msg) return;
+  lastInboundMsgByChat.set(String(chatId), msg);
+  if (lastInboundMsgByChat.size > 200) {
+    const oldest = lastInboundMsgByChat.keys().next().value;
+    if (oldest) lastInboundMsgByChat.delete(oldest);
+  }
+}
 
 function outboundKey(chatId, text) {
   return `${chatId}::${String(text || '').slice(0, 200)}`;
@@ -662,12 +694,30 @@ async function withSendSoftTimeout(promise, timeoutMs = SEND_SOFT_TIMEOUT_MS) {
   return withCdpSoftTimeout(promise, timeoutMs, 'WA_SEND_SOFT_TIMEOUT');
 }
 
-function enqueueOutboundRetry(chatId, text, { delayMs = 20000 } = {}) {
+function scheduleOutboundFlushSoon(delayMs = 2000) {
+  const wait = Math.max(500, Number(delayMs) || 2000);
+  if (typeof trackedSetTimeout === 'function') {
+    trackedSetTimeout(() => {
+      flushPendingOutbound().catch((err) =>
+        console.warn('⚠️ flushPendingOutbound (soon):', err.message)
+      );
+    }, wait);
+  } else {
+    setTimeout(() => {
+      flushPendingOutbound().catch((err) =>
+        console.warn('⚠️ flushPendingOutbound (soon):', err.message)
+      );
+    }, wait);
+  }
+}
+
+function enqueueOutboundRetry(chatId, text, { delayMs = 3000 } = {}) {
   if (!chatId || !text) return;
   const key = outboundKey(chatId, text);
   const existing = pendingOutbound.get(key);
   if (existing) {
     existing.nextAt = Math.min(existing.nextAt, Date.now() + delayMs);
+    scheduleOutboundFlushSoon(Math.min(delayMs, 2000));
     return;
   }
   if (pendingOutbound.size >= 50) {
@@ -686,25 +736,59 @@ function enqueueOutboundRetry(chatId, text, { delayMs = 20000 } = {}) {
   console.warn(
     `📬 Исходящее в очередь retry (${chatId}), повтор через ~${Math.round(delayMs / 1000)}с; в очереди: ${pendingOutbound.size}`
   );
+  // Не ждать интервал 5–10 с — пробуем сразу после короткой паузы
+  scheduleOutboundFlushSoon(Math.min(delayMs, 2000));
+}
+
+async function sendViaBestEffort(chatId, text, msg = null, timeoutMs = SEND_SOFT_TIMEOUT_MS, clientRef = null) {
+  const lid = isLidChatId(chatId);
+  const inbound = msg || lastInboundMsgByChat.get(String(chatId)) || null;
+  const wa = clientRef || client;
+  const lidMs = Math.min(timeoutMs, SEND_SOFT_TIMEOUT_LID_MS);
+
+  // @lid: только reply — sendMessage(lid) часто висит минутами
+  if (lid) {
+    if (inbound && typeof inbound.reply === 'function') {
+      await withSendSoftTimeout(inbound.reply(text), lidMs);
+      return 'reply';
+    }
+    // Нет сохранённого msg — короткая попытка sendMessage, без долгого зависания
+    await withSendSoftTimeout(wa.sendMessage(chatId, text, { sendSeen: false }), lidMs);
+    return 'sendMessage';
+  }
+
+  await withSendSoftTimeout(
+    wa.sendMessage(chatId, text, { sendSeen: false }),
+    timeoutMs
+  );
+  return 'sendMessage';
 }
 
 async function flushPendingOutbound() {
-  if (!botReady || isReconnecting || cdpRecoveryInFlight || isChromiumSlow() || isCdpBusy()) {
-    return;
-  }
+  if (!botReady || isReconnecting || cdpRecoveryInFlight) return;
+  if (isCdpBusy()) return;
   if (!pendingOutbound.size) return;
 
   const now = Date.now();
   const due = [...pendingOutbound.entries()].filter(([, item]) => item.nextAt <= now);
   for (const [key, item] of due.slice(0, 3)) {
-    if (isChromiumSlow() || isCdpBusy()) break;
+    if (isCdpBusy()) break;
+    // @lid не блокируем cooldown'ом — иначе 5 минут в очереди
+    if (isChromiumSlow() && !isLidChatId(item.chatId)) {
+      item.nextAt = Date.now() + 8000;
+      pendingOutbound.set(key, item);
+      continue;
+    }
     pendingOutbound.delete(key);
     try {
-      await withSendSoftTimeout(
-        client.sendMessage(item.chatId, item.text, { sendSeen: false })
+      const via = await sendViaBestEffort(
+        item.chatId,
+        item.text,
+        null,
+        isLidChatId(item.chatId) ? SEND_SOFT_TIMEOUT_LID_MS : SEND_SOFT_TIMEOUT_MS
       );
       touchWhatsAppActivity();
-      console.log(`✅ Исходящее из очереди доставлено: ${item.chatId}`);
+      console.log(`✅ Исходящее из очереди доставлено (${via}): ${item.chatId}`);
     } catch (err) {
       if (isMarkedUnreadError(err)) {
         touchWhatsAppActivity();
@@ -719,16 +803,17 @@ async function flushPendingOutbound() {
         );
         continue;
       }
-      const delayMs = Math.min(20000 * Math.pow(2, item.attempts), 300000);
+      // Быстрые повторы сначала (3с, 6с, 12с…), не 15→30→60→180
+      const delayMs = Math.min(3000 * Math.pow(2, item.attempts - 1), 60000);
       item.nextAt = Date.now() + delayMs;
       pendingOutbound.set(key, item);
       if (isSendCdpFailure(err)) {
-        noteCdpHang(120000, { hard: isPuppeteerProtocolTimeout(err) });
-        armCdpCooldown(Math.min(delayMs, 180000), 'outbound-retry');
+        markChromiumSlow(isLidChatId(item.chatId) ? 8000 : 20000);
       }
       console.warn(
         `⏳ Retry исходящего не удался (${item.chatId}, попытка ${item.attempts}): ${err.message}; ещё через ${Math.round(delayMs / 1000)}с`
       );
+      scheduleOutboundFlushSoon(delayMs);
     }
   }
 }
@@ -739,16 +824,19 @@ function startOutboundRetryLoop() {
     flushPendingOutbound().catch((err) =>
       console.warn('⚠️ flushPendingOutbound:', err.message)
     );
-  }, 10000);
-  console.log('📬 Очередь исходящих: flush каждые 10 с');
+  }, 5000);
+  console.log('📬 Очередь исходящих: flush каждые 5 с + сразу после enqueue');
 }
 
 /**
- * Отправка без каскада 2+2+2 мин на мёртвом CDP.
- * При protocol/soft timeout — одна быстрая серия + постановка в очередь retry.
+ * Отправка без минутных зависаний.
+ * @lid: только быстрый reply (sendMessage(lid) = типичный soft-timeout на 45–180с).
  */
 async function sendMessageSafely(msg, text, clientRef = client) {
   const chatId = msg.from;
+  const lid = isLidChatId(chatId);
+  rememberInboundMessage(msg);
+
   const delayMs = getOutboundDelayMs(text);
   if (delayMs > 0) {
     const hasLink = outboundContainsLink(text);
@@ -758,33 +846,47 @@ async function sendMessageSafely(msg, text, clientRef = client) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
-  // CDP уже в cooldown/busy — не долбим protocolTimeout, сразу в очередь.
-  if (isChromiumSlow() || isCdpBusy()) {
-    console.warn(
-      `⏳ CDP занят/медленный — ответ ${chatId} в очередь (не ждём protocolTimeout)`
-    );
-    enqueueOutboundRetry(chatId, text, { delayMs: 15000 });
+  if ((isCdpBusy() || isChromiumSlow()) && !lid) {
+    console.warn(`⏳ CDP занят/медленный — ответ ${chatId} в очередь`);
+    enqueueOutboundRetry(chatId, text, { delayMs: 3000 });
     return { queued: true };
   }
 
-  // Обычные сообщения без цитаты. reply — только fallback для @lid.
+  const softMs = lid ? SEND_SOFT_TIMEOUT_LID_MS : SEND_SOFT_TIMEOUT_MS;
+
+  // @lid: один быстрый reply. Второй sendMessage(lid) почти всегда висит — сразу очередь.
+  if (lid) {
+    try {
+      if (typeof msg.reply === 'function') {
+        await withSendSoftTimeout(msg.reply(text), softMs);
+        touchWhatsAppActivity();
+        return { queued: false };
+      }
+    } catch (err) {
+      if (isMarkedUnreadError(err)) {
+        touchWhatsAppActivity();
+        return { queued: false };
+      }
+      console.error(`❌ Ошибка отправки через reply (@lid):`, err.message || err);
+    }
+    markChromiumSlow(8000);
+    enqueueOutboundRetry(chatId, text, { delayMs: 2500 });
+    return { queued: true };
+  }
+
   const attempts = [
-    ['sendMessage', async () => clientRef.sendMessage(chatId, text, { sendSeen: false })],
     [
-      'chat.sendMessage',
-      async () => {
-        const chat = await msg.getChat();
-        await chat.sendMessage(text);
-      },
+      'sendMessage',
+      async () => clientRef.sendMessage(chatId, text, { sendSeen: false }),
     ],
     ['reply', async () => msg.reply(text)],
   ];
 
   let lastError = null;
   for (const [label, fn] of attempts) {
-    if (isChromiumSlow() || isCdpBusy()) break;
+    if (isCdpBusy() && label !== 'reply') break;
     try {
-      await withSendSoftTimeout(fn());
+      await withSendSoftTimeout(fn(), softMs);
       touchWhatsAppActivity();
       return { queued: false };
     } catch (err) {
@@ -796,43 +898,18 @@ async function sendMessageSafely(msg, text, clientRef = client) {
       }
       console.error(`❌ Ошибка отправки через ${label}:`, err.message || err);
       if (isSendCdpFailure(err)) {
-        // Дальнейшие методы тоже упрутся в CDP на 2 мин — сразу очередь.
-        noteCdpHang(120000, { hard: isPuppeteerProtocolTimeout(err) });
-        armCdpCooldown(120000, `send:${label}`);
-        enqueueOutboundRetry(chatId, text, { delayMs: 20000 });
-        return { queued: true };
+        markChromiumSlow(15000);
+        continue;
       }
     }
   }
 
-  try {
-    console.log('⏳ Последняя попытка отправки с задержкой...');
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    if (isChromiumSlow() || isCdpBusy()) {
-      enqueueOutboundRetry(chatId, text, { delayMs: 20000 });
-      return { queued: true };
-    }
-    await withSendSoftTimeout(
-      clientRef.sendMessage(chatId, text, { sendSeen: false })
-    );
-    console.log('✅ Сообщение отправлено после задержки');
-    touchWhatsAppActivity();
-    return { queued: false };
-  } catch (finalError) {
-    if (isMarkedUnreadError(finalError)) {
-      console.log('⚠️ Ошибка markedUnread, но сообщение может быть отправлено');
-      touchWhatsAppActivity();
-      return { queued: false };
-    }
-    if (isSendCdpFailure(finalError) || isSendCdpFailure(lastError)) {
-      noteCdpHang(120000, { hard: isPuppeteerProtocolTimeout(finalError) });
-      armCdpCooldown(120000, 'send:final');
-      enqueueOutboundRetry(chatId, text, { delayMs: 25000 });
-      return { queued: true };
-    }
-    console.error('❌ Все методы отправки не сработали:', finalError.message || lastError?.message);
-    throw finalError;
+  markChromiumSlow(15000);
+  enqueueOutboundRetry(chatId, text, { delayMs: 3000 });
+  if (lastError && !isSendCdpFailure(lastError)) {
+    console.error('❌ Все методы отправки не сработали:', lastError.message);
   }
+  return { queued: true };
 }
 
 // Создание клиента WhatsApp
@@ -2526,6 +2603,7 @@ async function handleIncomingMessage(msg, options = {}) {
   const from = msg.from || '?';
   const body = msg.body ? (msg.body.length > 80 ? msg.body.substring(0, 80) + '...' : msg.body) : '(нет текста)';
   const fromMe = !!msg.fromMe;
+  rememberInboundMessage(msg);
   console.log('📩 handleIncomingMessage вызван:', { from, fromMe, bodyPreview: body });
   
   // Логируем ВСЕ входящие сообщения для отладки
