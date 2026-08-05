@@ -1,8 +1,27 @@
+diff --git a/node_modules/whatsapp-web.js/src/Client.js b/node_modules/whatsapp-web.js/src/Client.js
+index 800109e..855bff4 100644
+--- a/node_modules/whatsapp-web.js/src/Client.js
++++ b/node_modules/whatsapp-web.js/src/Client.js
+@@ -493,6 +493,14 @@ class Client extends EventEmitter {
+         await this.inject();
+ 
+         this.pupPage.on('framenavigated', async (frame) => {
++            // Только main frame: iframe/blob навигации иначе спамят inject → CDP timeout → бот глухнет.
++            const main =
++                typeof this.pupPage.mainFrame === 'function'
++                    ? this.pupPage.mainFrame()
++                    : null;
++            if (main && frame !== main) {
++                return;
++            }
+             if (frame.url().includes('post_logout=1') || this.lastLoggedOut) {
+                 this.emit(Events.DISCONNECTED, 'LOGOUT');
+                 await this.authStrategy.logout();
 diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
-index 540078a..c38ecc4 100644
+index 540078a..e0c0aea 100644
 --- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
 +++ b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
-@@ -582,7 +582,7 @@
+@@ -582,7 +582,7 @@ exports.LoadUtils = () => {
  
          return window
              .require('WAWebCollections')
@@ -11,7 +30,7 @@ index 540078a..c38ecc4 100644
      };
  
      window.WWebJS.editMessage = async (msg, content, options = {}) => {
-@@ -625,7 +625,9 @@
+@@ -625,7 +625,9 @@ exports.LoadUtils = () => {
          await window
              .require('WAWebSendMessageEditAction')
              .sendMessageEdit(msg, content, internalOptions);
@@ -22,7 +41,7 @@ index 540078a..c38ecc4 100644
      };
  
      window.WWebJS.toStickerData = async (mediaInfo) => {
-@@ -830,10 +832,22 @@
+@@ -830,10 +832,22 @@ exports.LoadUtils = () => {
  
          if (typeof msg.id.remote === 'object') {
              msg.id = Object.assign({}, msg.id, {
@@ -46,7 +65,7 @@ index 540078a..c38ecc4 100644
          delete msg.pendingAckUpdate;
  
          return msg;
-@@ -917,12 +931,21 @@
+@@ -917,12 +931,21 @@ exports.LoadUtils = () => {
          };
      };
  
@@ -72,7 +91,7 @@ index 540078a..c38ecc4 100644
      };
  
      window.WWebJS.getChannels = async () => {
-@@ -951,20 +974,36 @@
+@@ -951,20 +974,36 @@ exports.LoadUtils = () => {
  
          if (chat.groupMetadata) {
              model.isGroup = true;
@@ -122,7 +141,7 @@ index 540078a..c38ecc4 100644
          }
  
          if (chat.newsletterMetadata) {
-@@ -981,16 +1020,17 @@
+@@ -981,16 +1020,17 @@ exports.LoadUtils = () => {
  
          model.lastMessage = null;
          if (model.msgs && model.msgs.length) {
@@ -149,7 +168,7 @@ diff --git a/node_modules/whatsapp-web.js/src/util/Puppeteer.js b/node_modules/w
 index 54df700..b707cc4 100644
 --- a/node_modules/whatsapp-web.js/src/util/Puppeteer.js
 +++ b/node_modules/whatsapp-web.js/src/util/Puppeteer.js
-@@ -17,7 +17,14 @@
+@@ -17,7 +17,14 @@ async function exposeFunctionIfAbsent(page, name, fn) {
      if (exist) {
          return;
      }

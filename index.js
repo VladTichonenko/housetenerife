@@ -1029,15 +1029,24 @@ if (isRailway && !path.isAbsolute(sessionPath)) {
 
 logPuppeteerDiagnostics();
 console.log(
-  '🔧 WA runtime: cdp-mutex-v8 | wait Store sync | no auto-reconnect (no dual Chrome)'
+  '🔧 WA runtime: cdp-mutex-v9 | main-frame inject | soft-reinject | no dual Chrome'
 );
 
 /**
  * whatsapp-web.js вешает framenavigated → inject() без .catch().
- * Только реальный inject/auth timeout → reconnect. Soft-timeout polling/send — НЕ повод.
+ * После failed reinject сессия «жива» в UI, но Node больше не получает message.
+ * По умолчанию: soft reinject (без destroy). Force reconnect — только WA_INJECT_RECOVERY=1.
  */
 let injectRecoveryTimer = null;
 let lastInjectFailAt = 0;
+let injectInFlight = null;
+let softReinjectAttempts = 0;
+const SOFT_REINJECT_MAX = Math.max(
+  1,
+  parseInt(process.env.WA_SOFT_REINJECT_MAX, 10) || 3
+);
+/** Временный Store.Msg polling, пока события message молчат после inject fail. */
+let emergencyMsgPollingUntil = 0;
 
 function cancelInjectRecovery(reason = '') {
   if (!injectRecoveryTimer) return;
@@ -1046,6 +1055,137 @@ function cancelInjectRecovery(reason = '') {
   if (reason) {
     console.log(`✅ Inject-recovery отменён: ${reason}`);
   }
+}
+
+function enableEmergencyMsgPolling(ms = 10 * 60 * 1000, reason = '') {
+  const pauseMs = Math.max(60000, Number(ms) || 600000);
+  emergencyMsgPollingUntil = Math.max(emergencyMsgPollingUntil, Date.now() + pauseMs);
+  console.warn(
+    `🛟 Emergency Store.Msg polling на ${Math.round(pauseMs / 1000)}с${
+      reason ? `: ${String(reason).slice(0, 100)}` : ''
+    }`
+  );
+  try {
+    if (!global.pollingInterval && typeof startMessagePolling === 'function') {
+      startMessagePolling();
+    }
+  } catch (err) {
+    console.warn('⚠️ Не удалось стартовать emergency polling:', err.message);
+  }
+}
+
+function clearEmergencyMsgPolling(reason = '') {
+  if (emergencyMsgPollingUntil <= 0) return;
+  emergencyMsgPollingUntil = 0;
+  softReinjectAttempts = 0;
+  if (reason) {
+    console.log(`✅ Emergency polling снят: ${reason}`);
+  }
+}
+
+function scheduleSoftReinject(reason) {
+  if (injectRecoveryTimer) return;
+  if (typeof isReconnecting === 'boolean' && isReconnecting) return;
+  if (cdpRecoveryInFlight) return;
+  if (typeof isManualLogoutInProgress === 'boolean' && isManualLogoutInProgress) return;
+
+  softReinjectAttempts += 1;
+  lastInjectFailAt = Date.now();
+  const attempt = softReinjectAttempts;
+  const delayMs = Math.min(15000 * attempt, 60000);
+  markChromiumSlow(Math.min(delayMs + 15000, 90000));
+  // Короткий cooldown: не блокируем soft reinject на 90с.
+  armCdpCooldown(Math.min(20000, delayMs), 'inject-soft-reinject');
+  enableEmergencyMsgPolling(10 * 60 * 1000, reason);
+
+  console.warn(
+    `⚠️ WA inject fail — soft reinject ${attempt}/${SOFT_REINJECT_MAX} через ${Math.round(
+      delayMs / 1000
+    )}с (${String(reason).slice(0, 100)})`
+  );
+
+  injectRecoveryTimer = setTimeout(() => {
+    injectRecoveryTimer = null;
+    if (typeof isManualLogoutInProgress === 'boolean' && isManualLogoutInProgress) return;
+    if (typeof isReconnecting === 'boolean' && isReconnecting) return;
+    if (cdpRecoveryInFlight) return;
+
+    const run = async () => {
+      if (!client?.pupPage) {
+        console.warn('⏳ Soft reinject: нет pupPage');
+        return;
+      }
+      // Ждём текущий inject и вызываем original напрямую — обёртка глотает alreadyLive-ошибки.
+      if (injectInFlight) {
+        try {
+          await injectInFlight;
+        } catch {
+          /* ignore */
+        }
+      }
+      const reinjectPromise = (async () => {
+        try {
+          console.log(`🔄 Soft reinject попытка ${attempt}/${SOFT_REINJECT_MAX}…`);
+          await originalClientInject.apply(client);
+          // hasSynced уже true → change-событие не придёт, listeners не навесятся.
+          try {
+            const synced = await client.pupPage.evaluate(() => {
+              try {
+                return window.require('WAWebSocketModel').Socket.hasSynced === true;
+              } catch {
+                return false;
+              }
+            });
+            if (synced) {
+              await client.pupPage.evaluate(() => {
+                if (typeof window.onAppStateHasSyncedEvent === 'function') {
+                  return window.onAppStateHasSyncedEvent();
+                }
+              });
+            }
+          } catch (syncErr) {
+            console.warn(
+              `⚠️ Soft reinject: не удалось форсировать hasSynced: ${String(syncErr?.message || syncErr).slice(0, 100)}`
+            );
+          }
+          softReinjectAttempts = 0;
+          cdpCooldownUntil = 0;
+          chromiumSlowUntil = 0;
+          console.log('✅ Soft reinject успешен — слушатели WA восстановлены');
+        } catch (err) {
+          const msg = String(err?.message || err);
+          console.warn(`⚠️ Soft reinject не удался: ${msg.slice(0, 120)}`);
+          if (attempt < SOFT_REINJECT_MAX) {
+            scheduleSoftReinject(msg);
+            return;
+          }
+          if (process.env.WA_INJECT_RECOVERY === '1' || process.env.WA_INJECT_RECOVERY === 'true') {
+            if (pendingOutbound.size > 0 || processingMessageIds.size > 0) {
+              console.warn('⏳ Force reconnect отложен: есть исходящие/обработка');
+              return;
+            }
+            console.warn('🔄 Soft reinject исчерпан — force reconnect (WA_INJECT_RECOVERY=1)');
+            botReady = false;
+            reconnectClient({ force: true }).catch((reconnectErr) =>
+              console.error('❌ reconnect после inject fail:', reconnectErr.message)
+            );
+          } else {
+            console.warn(
+              '⏳ Soft reinject исчерпан без force reconnect. Emergency polling активен. WA_INJECT_RECOVERY=1 — полный reconnect.'
+            );
+            enableEmergencyMsgPolling(30 * 60 * 1000, 'soft reinject exhausted');
+          }
+        }
+      })();
+      injectInFlight = reinjectPromise;
+      try {
+        await reinjectPromise;
+      } finally {
+        if (injectInFlight === reinjectPromise) injectInFlight = null;
+      }
+    };
+    run().catch((err) => console.error('❌ soft reinject:', err.message));
+  }, delayMs);
 }
 
 function scheduleInjectRecovery(reason) {
@@ -1063,75 +1203,59 @@ function scheduleInjectRecovery(reason) {
     armCdpCooldown(60000, 'soft-no-recovery');
     return;
   }
-  // По умолчанию ВЫКЛ: force reconnect плодит вторую Chrome-сессию
-  // («зелёный кружок / держите приложение открытым» в Связанных устройствах).
-  if (process.env.WA_INJECT_RECOVERY !== '1' && process.env.WA_INJECT_RECOVERY !== 'true') {
-    console.warn(
-      `⏳ Inject fail без reconnect (${reasonText.slice(0, 100)}). Включить: WA_INJECT_RECOVERY=1`
-    );
-    markChromiumSlow(90000);
-    armCdpCooldown(90000, 'inject-no-recovery');
-    return;
-  }
-  if (injectRecoveryTimer) return;
-  if (typeof isReconnecting === 'boolean' && isReconnecting) return;
-  if (cdpRecoveryInFlight) return;
-  if (typeof isManualLogoutInProgress === 'boolean' && isManualLogoutInProgress) return;
-  // Есть исходящие / обработка — reconnect убьёт доставку.
-  if (pendingOutbound.size > 0 || processingMessageIds.size > 0) {
-    console.warn(
-      `⏳ Inject-recovery отложен: очередь исходящих=${pendingOutbound.size}, processing=${processingMessageIds.size}`
-    );
-    return;
-  }
-  if (hasRecentWhatsAppActivity(120000)) {
-    console.warn('⏳ Inject-recovery отложен: недавняя активность WhatsApp');
-    return;
-  }
 
-  lastInjectFailAt = Date.now();
-  markChromiumSlow(60000);
-  armCdpCooldown(60000, 'inject-fail');
-  console.warn(
-    `⚠️ WA inject failed (${reasonText.slice(0, 120)}) — мягкий reconnect через 45с`
-  );
-  injectRecoveryTimer = setTimeout(() => {
-    injectRecoveryTimer = null;
-    if (typeof isManualLogoutInProgress === 'boolean' && isManualLogoutInProgress) return;
-    if (pendingOutbound.size > 0 || processingMessageIds.size > 0) {
-      console.warn('⏳ Inject-recovery пропущен: есть исходящие/обработка');
-      return;
-    }
-    botReady = false;
-    reconnectClient({ force: true }).catch((err) =>
-      console.error('❌ reconnect после inject fail:', err.message)
-    );
-  }, 45000);
+  // По умолчанию: soft reinject (без destroy / второй Chrome-сессии).
+  scheduleSoftReinject(reasonText);
 }
 
 const originalClientInject = Client.prototype.inject;
 Client.prototype.inject = async function housetenerifeSafeInject(...args) {
-  try {
-    return await originalClientInject.apply(this, args);
-  } catch (err) {
-    const authTimeout = err === 'auth timeout' || String(err) === 'auth timeout';
-    const cdpTimeout = isPuppeteerProtocolTimeout(err);
-    if (!authTimeout && !cdpTimeout) throw err;
-
-    const alreadyLive = Boolean(this.info?.wid) || botReady;
-    console.warn(
-      `⚠️ Client.inject: ${cdpTimeout ? 'CDP/protocol timeout' : 'auth timeout'}${
-        alreadyLive ? ' (navigation после ready)' : ' (старт)'
-      }`
-    );
-
-    if (alreadyLive) {
-      // Не пробрасываем — иначе unhandledRejection из framenavigated.
-      noteCdpHang(180000, { hard: true });
-      scheduleInjectRecovery(err?.message || err);
-      return;
+  // Сериализуем inject: параллельные framenavigated иначе рвут CDP.
+  if (injectInFlight) {
+    try {
+      await injectInFlight;
+    } catch {
+      /* предыдущий fail обработает свой catch */
     }
-    throw err;
+  }
+
+  const run = (async () => {
+    try {
+      const result = await originalClientInject.apply(this, args);
+      softReinjectAttempts = 0;
+      return result;
+    } catch (err) {
+      const errText = String(err?.message || err);
+      const authTimeout = err === 'auth timeout' || errText === 'auth timeout';
+      const readyTimeout = err === 'ready timeout' || errText === 'ready timeout';
+      const cdpTimeout = isPuppeteerProtocolTimeout(err);
+      if (!authTimeout && !readyTimeout && !cdpTimeout) throw err;
+
+      const alreadyLive = Boolean(this.info?.wid) || botReady;
+      const kind = cdpTimeout
+        ? 'CDP/protocol timeout'
+        : readyTimeout
+          ? 'ready timeout'
+          : 'auth timeout';
+      console.warn(
+        `⚠️ Client.inject: ${kind}${alreadyLive ? ' (navigation после ready)' : ' (старт)'}`
+      );
+
+      if (alreadyLive) {
+        // Не пробрасываем — иначе unhandledRejection из framenavigated.
+        noteCdpHang(180000, { hard: true });
+        scheduleInjectRecovery(errText);
+        return;
+      }
+      throw err;
+    }
+  })();
+
+  injectInFlight = run;
+  try {
+    return await run;
+  } finally {
+    if (injectInFlight === run) injectInFlight = null;
   }
 };
 
@@ -1646,6 +1770,10 @@ function shouldUseStoreMsgPolling() {
   if (process.env.DISABLE_POLLING === '1' || process.env.DISABLE_POLLING === 'true') {
     return false;
   }
+  // После inject fail — временно, пока снова не пойдут события message.
+  if (emergencyMsgPollingUntil > Date.now()) {
+    return true;
+  }
   // Явное включение резерва
   if (
     process.env.ENABLE_MSG_POLLING === '1' ||
@@ -1685,10 +1813,14 @@ function startMessagePolling() {
 
   global.pollingInterval = trackedSetInterval(async () => {
     if (!botReady || isReconnecting || cdpRecoveryInFlight) return;
+    if (!shouldUseStoreMsgPolling()) return;
     if (Date.now() < pollingPauseUntil) return;
     if (processingMessageIds.size > 0 || pendingOutbound.size > 0) return;
     if (pollingInFlight || Date.now() < nextPollAt) return;
-    if (isCdpBusy() || isCdpCooldown() || isChromiumSlow()) return;
+    // Emergency polling после inject fail — не блокируем коротким chromiumSlow/cooldown.
+    const emergency = emergencyMsgPollingUntil > Date.now();
+    if (!emergency && (isCdpBusy() || isCdpCooldown() || isChromiumSlow())) return;
+    if (emergency && isCdpBusy()) return;
     pollingInFlight = true;
 
     try {
@@ -1804,6 +1936,7 @@ function dispatchIncomingMessage(msg, source) {
   pauseMessagePolling(2 * 60 * 1000);
   if (source === 'message' || source === 'message_create') {
     touchIncomingEvent();
+    clearEmergencyMsgPolling('события message снова работают');
   } else {
     touchWhatsAppActivity();
   }
@@ -2246,6 +2379,7 @@ client.on('ready', async () => {
   cdpActiveLabel = '';
   cdpCooldownUntil = 0;
   chromiumSlowUntil = 0;
+  softReinjectAttempts = 0;
   pollingDisabledForProcess = false;
   if (injectRecoveryTimer) {
     clearTimeout(injectRecoveryTimer);
@@ -2308,6 +2442,23 @@ client.on('ready', async () => {
     console.log(
       '📡 Входящие: события message + message_create (+ Store.Msg polling если ENABLE_MSG_POLLING=1), очередь по чату'
     );
+
+    // Повторный ready после navigation: WWebJS может быть, а bridge message — нет.
+    try {
+      const bridgeOk = await Promise.race([
+        client.pupPage.evaluate(() => typeof window.onAddMessageEvent === 'function'),
+        new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
+      ]);
+      if (bridgeOk === false) {
+        console.warn('⚠️ READY без onAddMessageEvent — запускаем soft reinject');
+        scheduleSoftReinject('ready without message bridge');
+      }
+    } catch (bridgeErr) {
+      console.warn(
+        `⚠️ Проверка message bridge: ${String(bridgeErr?.message || bridgeErr).slice(0, 100)}`
+      );
+    }
+
     startMessageMaintenance();
 
     // Не долбим CDP sync-probe на старте: hasSynced часто вечно false,
