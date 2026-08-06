@@ -5,20 +5,23 @@ function readNonNegativeEnv(name, fallback) {
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
-const REPLY_WAIT_MS = Math.max(
-  0,
-  readNonNegativeEnv('BOT_REPLY_WAIT_MS', 3000)
-);
+/** Пауза после последнего сообщения (trailing debounce). */
+const REPLY_WAIT_MS = Math.max(0, readNonNegativeEnv('BOT_REPLY_WAIT_MS', 2500));
+/**
+ * Максимум от первого сообщения в пачке — чтобы при «дописывании» не ждать вечно.
+ * По умолчанию max(REPLY_WAIT, 6000).
+ */
 const REPLY_BATCH_WAIT_MS = Math.max(
   REPLY_WAIT_MS,
   readNonNegativeEnv('BOT_REPLY_BATCH_WAIT_MS', 6000)
 );
 
 /**
- * Окно сбора: 1 сообщение → ждём REPLY_WAIT_MS;
- * если за это время пришло ещё — один ответ через REPLY_BATCH_WAIT_MS от первого.
+ * Окно сбора (trailing):
+ * - каждое новое сообщение сбрасывает короткий таймер REPLY_WAIT_MS;
+ * - но не дольше REPLY_BATCH_WAIT_MS от первого в пачке → один ответ.
  *
- * @type {Map<string, { messages: object[], messageIds: Set<string>, firstAt: number, timer: ReturnType<typeof setTimeout>|null, source: string }>}
+ * @type {Map<string, { messages: object[], messageIds: Set<string>, firstAt: number, timer: ReturnType<typeof setTimeout>|null, source: string, flushing: boolean }>}
  */
 const batches = new Map();
 
@@ -34,22 +37,27 @@ function messageKey(msg) {
 }
 
 function isMessageQueuedInBatch(msgOrId) {
-  const id =
-    typeof msgOrId === 'string' ? msgOrId : messageKey(msgOrId);
+  const id = typeof msgOrId === 'string' ? msgOrId : messageKey(msgOrId);
   return Boolean(id && queuedMessageIds.has(id));
 }
 
+function clearBatchIds(batch) {
+  if (!batch) return;
+  for (const id of batch.messageIds) {
+    queuedMessageIds.delete(id);
+  }
+}
+
 /**
- * Откладывает обработку сообщений чата: короткая пауза на одиночное,
- * чуть большее окно при пачке.
- * Несколько сообщений за окно → один flush → один ответ бота.
+ * Откладывает обработку: ждём REPLY_WAIT_MS после последнего сообщения,
+ * но не больше REPLY_BATCH_WAIT_MS от первого. Несколько сообщений → один flush.
  *
  * @param {string} chatId
  * @param {object} msg
  * @param {string} source
  * @param {(chatId: string, messages: object[], source: string) => void|Promise<void>} onFlush
  * @param {(fn: () => void|Promise<void>, delayMs: number) => ReturnType<typeof setTimeout>} [scheduleTimeout]
- * @returns {'added'|'duplicate'|'empty'}
+ * @returns {'added'|'duplicate'|'empty'|'flushing'}
  */
 function scheduleReplyBatch(chatId, msg, source, onFlush, scheduleTimeout = setTimeout) {
   const key = String(chatId || 'unknown');
@@ -66,6 +74,11 @@ function scheduleReplyBatch(chatId, msg, source, onFlush, scheduleTimeout = setT
 
   let batch = batches.get(key);
 
+  // Flush уже идёт — не теряем новое сообщение: новая пачка после текущей.
+  if (batch?.flushing) {
+    batch = null;
+  }
+
   if (!batch) {
     batch = {
       messages: [],
@@ -73,6 +86,7 @@ function scheduleReplyBatch(chatId, msg, source, onFlush, scheduleTimeout = setT
       firstAt: Date.now(),
       timer: null,
       source,
+      flushing: false,
     };
     batches.set(key, batch);
   }
@@ -82,30 +96,41 @@ function scheduleReplyBatch(chatId, msg, source, onFlush, scheduleTimeout = setT
   queuedMessageIds.set(msgId, key);
   batch.source = source;
 
-  const multi = batch.messages.length > 1;
-  const targetMs = multi ? REPLY_BATCH_WAIT_MS : REPLY_WAIT_MS;
-  const elapsed = Date.now() - batch.firstAt;
-  const remaining = Math.max(0, targetMs - elapsed);
+  const now = Date.now();
+  const sinceFirst = now - batch.firstAt;
+  const maxRemaining = Math.max(0, REPLY_BATCH_WAIT_MS - sinceFirst);
+  // Trailing: всегда ждём REPLY_WAIT_MS от последнего, но не выходим за max окно.
+  const remaining = Math.min(REPLY_WAIT_MS, maxRemaining);
 
   if (batch.timer) clearTimeout(batch.timer);
   batch.timer = scheduleTimeout(async () => {
     const current = batches.get(key);
-    if (!current || current !== batch) return;
-    batches.delete(key);
+    if (!current || current !== batch || current.flushing) return;
+    current.flushing = true;
+    current.timer = null;
+    // Не удаляем queuedMessageIds до конца flush — иначе polling/message_create
+    // подхватит те же id вторым заходом, пока AI ещё думает.
     const messages = current.messages.slice();
     const batchSource = current.source;
-    for (const id of current.messageIds) {
-      queuedMessageIds.delete(id);
-    }
     try {
       await onFlush(key, messages, batchSource);
     } catch (err) {
       console.error('❌ reply-batch flush:', err.message);
+    } finally {
+      clearBatchIds(current);
+      if (batches.get(key) === current) {
+        batches.delete(key);
+      }
     }
   }, remaining);
 
+  const multi = batch.messages.length > 1;
+  const sec = (remaining / 1000).toFixed(remaining % 1000 ? 1 : 0);
   console.log(
-    `⏳ Ожидание ответа ${key}: ${batch.messages.length} сообщ., через ${Math.round(remaining / 1000)} с (${multi ? `пачка → один ответ, окно ${REPLY_BATCH_WAIT_MS / 1000} с` : `${REPLY_WAIT_MS / 1000} с`})`
+    `⏳ Ожидание ответа ${key}: ${batch.messages.length} сообщ., через ${sec} с` +
+      (multi
+        ? ` (пачка, max ${REPLY_BATCH_WAIT_MS / 1000} с от первого)`
+        : ` (пауза ${REPLY_WAIT_MS / 1000} с после последнего)`)
   );
 
   return 'added';
@@ -116,9 +141,7 @@ function cancelReplyBatch(chatId) {
   const batch = batches.get(key);
   if (!batch) return;
   if (batch.timer) clearTimeout(batch.timer);
-  for (const id of batch.messageIds) {
-    queuedMessageIds.delete(id);
-  }
+  clearBatchIds(batch);
   batches.delete(key);
 }
 

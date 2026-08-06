@@ -1271,8 +1271,8 @@ function runDeterministicTests() {
   check('session: UNPAIRED ждёт QR/disconnected', classifyObservedState('UNPAIRED') === 'transient');
   check('session: только LOGOUT окончательно завершает авторизацию', isDefinitiveLogoutReason('LOGOUT'));
   check('session: DISCONNECTED не маскируется как LOGOUT', !isDefinitiveLogoutReason('DISCONNECTED'));
-  check('batch: одиночное сообщение ждёт не более 3 с', REPLY_WAIT_MS <= 3000, REPLY_WAIT_MS);
-  check('batch: пачка ждёт не более 6 с', REPLY_BATCH_WAIT_MS <= 6000, REPLY_BATCH_WAIT_MS);
+  check('batch: пауза после последнего ≤ 3 с', REPLY_WAIT_MS <= 3000, REPLY_WAIT_MS);
+  check('batch: max окно пачки ≤ 6 с', REPLY_BATCH_WAIT_MS <= 6000, REPLY_BATCH_WAIT_MS);
 
   console.log('\n=== 18. Две ветки: инвестиции vs для себя ===\n');
   const { detectPurposeKind } = require('../dialog-context');

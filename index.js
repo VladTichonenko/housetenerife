@@ -133,7 +133,7 @@ if (REPLY_IN_GROUPS) {
   console.log('💬 WhatsApp группы: ответы выключены (только личные сообщения)');
 }
 console.log(
-  `⏱️ Ответ: пауза ${REPLY_WAIT_MS / 1000} с (1 сообщение) / ${REPLY_BATCH_WAIT_MS / 1000} с (пачка в окне); ссылки +${LINK_MESSAGE_DELAY_MS / 1000} с`
+  `⏱️ Ответ: ${REPLY_WAIT_MS / 1000} с после последнего сообщения (max пачка ${REPLY_BATCH_WAIT_MS / 1000} с); ссылки +${LINK_MESSAGE_DELAY_MS / 1000} с`
 );
 
 
@@ -2115,9 +2115,12 @@ async function withChatTyping(msg, work) {
 function dispatchIncomingMessage(msg, source) {
   if (msg.fromMe) return;
   cancelInjectRecovery('входящее сообщение');
-  // Короткая пауза на время обработки — не 2 мин (иначе при «глухих» events
-  // страховочный polling тоже спит, как после отключения getChats-polling).
-  pauseMessagePolling(source === 'polling' ? 45000 : 20000);
+  // НЕ глушим polling на 20с здесь: сообщение сначала идёт в debounce 2.5с,
+  // и если events отвалятся в этом окне — polling должен подхватить дописку пользователя.
+  // Пауза polling — только в flush/send (processReplyBatchFlush / sendMessageSafely).
+  if (source === 'polling') {
+    pauseMessagePolling(15000);
+  }
   if (source === 'message' || source === 'message_create') {
     touchIncomingEvent();
     clearEmergencyMsgPolling('события message снова работают');
@@ -2186,6 +2189,8 @@ async function processReplyBatchFlush(chatId, messages, source) {
   const pending = messages.filter((m) => !processedMessageIds.has(getMessageId(m)));
   if (!pending.length) return;
 
+  // Пауза polling только на время AI/send — не на окно debounce 2.5с.
+  pauseMessagePolling(Math.max(REPLY_WAIT_MS + 5000, 20000));
   for (const m of pending) {
     processingMessageIds.add(getMessageId(m));
   }
@@ -2198,7 +2203,7 @@ async function processReplyBatchFlush(chatId, messages, source) {
     for (const m of pending) {
       processingMessageIds.delete(getMessageId(m));
     }
-    resumeMessagePollingSoon(15000);
+    resumeMessagePollingSoon(8000);
   }
 }
 
