@@ -14,8 +14,19 @@ const SMALL_TALK_RE =
 const GREETING_ONLY_RE =
   /^(?:привет|здравствуй(?:те)?|добр(?:ый|ое|ого)\s+(?:день|утро|вечер)|хай|hello|hi|hey|hola|bonjour|salut|hallo|cześć)[\s,.!🙂😊]*$/i;
 
+/** Клиент поздоровался в этом сообщении (в т.ч. «привет, хочу купить…») — нужно ответить приветствием.
+ * Нельзя опираться на \\b: в JS \\b не работает с кириллицей. */
+const MESSAGE_OPENS_WITH_GREETING_RE =
+  /^(?:привет|здравствуй(?:те)?|добр(?:ый|ое|ого)\s+(?:день|утро|вечер)|хай|хеллоу|hello|hi|hey|hola|bonjour|salut|hallo|cześć|dzie[nń]\s+dobry|goedemorgen|goedemiddag|goedenavond)(?![\p{L}\p{N}])/iu;
+
 function hasPropertyRelevantKeywords(text) {
   return PROPERTY_RELEVANT_RE.test(String(text || ''));
+}
+
+function lastMessageHasGreeting(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  return MESSAGE_OPENS_WITH_GREETING_RE.test(s);
 }
 
 function isGreetingOrSmallTalk(text) {
@@ -44,35 +55,37 @@ function isOffTopicChatter(text) {
 }
 
 function formatOffTopicInstruction(lang = 'ru', opts = {}) {
-  const code = String(lang || 'ru').slice(0, 2);
+  const { normalizeSalesLang } = require('./sales-localization');
+  const code = normalizeSalesLang(lang);
   const hasBudget = Boolean(opts.hasBudget);
   const hasPurpose = Boolean(opts.hasPurpose);
-  const nextStep =
+  const nextStepRu =
     hasBudget && opts.isInvestment && !opts.hasTimeline
-      ? code === 'en'
-        ? 'Ask when they plan to buy (2 months / 3 months / later).'
-        : code === 'es'
-          ? 'Pregunta cuándo planean comprar (2 / 3 meses / más adelante).'
-          : 'Спроси срок покупки: через 2 месяца, 3 месяца или позже.'
+      ? 'Спроси срок покупки: через 2 месяца, 3 месяца или позже.'
       : hasPurpose && !hasBudget
-        ? code === 'en'
-          ? 'Ask for budget in €.'
-          : code === 'es'
-            ? 'Pregunta el presupuesto en €.'
-            : 'Спроси размер инвестиций в €.'
-        : code === 'en'
-          ? 'Ask: looking to live or to invest? (or investment size in € if they already lean investment).'
-          : code === 'es'
-            ? 'Pregunta: ¿para vivir o invertir? (o tamaño de inversión en € si ya van a inversión).'
-            : 'Спроси: для себя или под инвестиции? (если уже про инвестиции — размер инвестиций в €).';
+        ? 'Спроси размер инвестиций в €.'
+        : 'Спроси: для себя или под инвестиции? (если уже про инвестиции — размер инвестиций в €).';
+  const nextStepEs =
+    hasBudget && opts.isInvestment && !opts.hasTimeline
+      ? 'Pregunta cuándo planean comprar (2 / 3 meses / más adelante).'
+      : hasPurpose && !hasBudget
+        ? 'Pregunta el presupuesto en €.'
+        : 'Pregunta: ¿para vivir o invertir? (o tamaño de inversión en € si ya van a inversión).';
+  const nextStepEn =
+    hasBudget && opts.isInvestment && !opts.hasTimeline
+      ? 'Ask when they plan to buy (2 months / 3 months / later).'
+      : hasPurpose && !hasBudget
+        ? 'Ask for budget in €.'
+        : 'Ask: looking to live or to invest? (or investment size in € if they already lean investment).';
 
-  if (code === 'en') {
-    return `**KEYWORD FILTER / OFF-TOPIC (critical):**
-Client wrote greeting/small talk without property keywords (e.g. «Hi, how are you?»).
-FORBIDDEN: villas, apartments, prices, catalog links, «here are some options…».
-DO: warm short reply + you help with real estate / investments + ONE next funnel question.
-Example vibe: «Hi! I'm here to help with real estate investments. What’s your investment size?» (or purpose if still unknown).
-${nextStep}`;
+  if (code === 'ru') {
+    return `**ФИЛЬТР ПО КЛЮЧЕВЫМ СЛОВАМ / НЕ ПО ТЕМЕ (критично):**
+Клиент написал приветствие/small talk без ключевых слов недвижимости (напр. «Привет, как дела?»).
+ЗАПРЕЩЕНО: виллы, апартаменты, цены, ссылки, «вот вам варианты…» — это не по теме.
+НУЖНО: коротко поздороваться + сказать, что помогаешь с недвижимостью/инвестициями + ОДИН следующий вопрос воронки.
+Образец: «Привет! Я здесь, чтобы помочь с инвестициями в недвижимость. Какой у вас размер инвестиций?»
+(Если цель ещё не ясна — можно вместо этого спросить: для себя или под инвестиции.)
+${nextStepRu}`;
   }
   if (code === 'es') {
     return `**FILTRO DE PALABRAS / OFF-TOPIC (crítico):**
@@ -80,20 +93,21 @@ El cliente escribió saludo/charla sin keywords de inmuebles (p. ej. «Hola, ¿q
 PROHIBIDO: villas, precios, enlaces, «aquí tiene opciones…».
 HAZ: saludo breve + ayudas con inmuebles/inversiones + UNA pregunta del embudo.
 Ejemplo: «¡Hola! Estoy aquí para ayudar con inversiones inmobiliarias. ¿Cuál es el tamaño de su inversión?»
-${nextStep}`;
+${nextStepEs}`;
   }
-  return `**ФИЛЬТР ПО КЛЮЧЕВЫМ СЛОВАМ / НЕ ПО ТЕМЕ (критично):**
-Клиент написал приветствие/small talk без ключевых слов недвижимости (напр. «Привет, как дела?»).
-ЗАПРЕЩЕНО: виллы, апартаменты, цены, ссылки, «вот вам варианты…» — это не по теме.
-НУЖНО: коротко поздороваться + сказать, что помогаешь с недвижимостью/инвестициями + ОДИН следующий вопрос воронки.
-Образец: «Привет! Я здесь, чтобы помочь с инвестициями в недвижимость. Какой у вас размер инвестиций?»
-(Если цель ещё не ясна — можно вместо этого спросить: для себя или под инвестиции.)
-${nextStep}`;
+  return `**KEYWORD FILTER / OFF-TOPIC (critical):**
+Client wrote greeting/small talk without property keywords (e.g. «Hi, how are you?»).
+FORBIDDEN: villas, apartments, prices, catalog links, «here are some options…».
+DO: warm short reply + you help with real estate / investments + ONE next funnel question.
+Example vibe: «Hi! I'm here to help with real estate investments. What’s your investment size?» (or purpose if still unknown).
+${nextStepEn}
+Reply in the dialog language only — never mix Russian into non-Russian chats.`;
 }
 
 module.exports = {
   hasPropertyRelevantKeywords,
   isGreetingOrSmallTalk,
+  lastMessageHasGreeting,
   isOffTopicChatter,
   formatOffTopicInstruction,
 };

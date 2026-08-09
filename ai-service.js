@@ -28,6 +28,8 @@ const {
   hasInventedHtLinks,
   hasDuplicatePropertyUrls,
   hasMismatchedPropertyTypeUrls,
+  hasMismatchedListingPrices,
+  hasMismatchedListingLabels,
   collectRecentPropertyUrls,
   findItemByUrl,
   getShareUrl,
@@ -164,25 +166,40 @@ async function buildPromptParts(
   if (hasLinkedProperty) {
     catalogBlock = formatLinkedPropertiesForPrompt(linkedItems, userLanguage);
     if (!catalogBlock.trim()) {
-      catalogBlock =
-        salesLang === 'es'
-          ? '\n\n(El cliente envió un enlace housetenerife.eu, pero el objeto no está en el catálogo local. Pide la zona/tipo o ofrece llamada.)\n'
-          : salesLang === 'en'
-            ? '\n\n(Client sent a housetenerife.eu link, but it is not in the local catalog. Ask area/type or offer a call.)\n'
-            : '\n\n(Клиент прислал ссылку housetenerife.eu, но объекта нет в локальном каталоге. Уточни район/тип или предложи созвон.)\n';
+      const missingLinkByLang = {
+        ru: '\n\n(Клиент прислал ссылку housetenerife.eu, но объекта нет в локальном каталоге. Уточни район/тип или предложи созвон.)\n',
+        es: '\n\n(El cliente envió un enlace housetenerife.eu, pero el objeto no está en el catálogo local. Pide la zona/tipo o ofrece llamada.)\n',
+        en: '\n\n(Client sent a housetenerife.eu link, but it is not in the local catalog. Ask area/type or offer a call.)\n',
+        de: '\n\n(Kunde sandte einen housetenerife.eu-Link, aber das Objekt ist nicht im lokalen Katalog. Zone/Typ fragen oder Anruf anbieten.)\n',
+        fr: '\n\n(Le client a envoyé un lien housetenerife.eu, mais l’objet n’est pas dans le catalogue local. Demander zone/type ou proposer un appel.)\n',
+        pl: '\n\n(Klient wysłał link housetenerife.eu, ale obiektu nie ma w lokalnym katalogu. Zapytaj o strefę/typ lub zaproponuj rozmowę.)\n',
+        nl: '\n\n(Klant stuurde een housetenerife.eu-link, maar het object zit niet in de lokale catalogus. Vraag zone/type of bied een belletje aan.)\n',
+      };
+      catalogBlock = missingLinkByLang[salesLang] || missingLinkByLang.en;
     }
   } else if (!dialog.hasPurpose && tier === 'full') {
-    catalogBlock =
-      hints?.noPurpose ||
-      '\n\n(Цель покупки не ясна — сначала один вопрос: для жизни/переезда или инвестиция? Без объектов и ссылок.)\n';
+    const noPurposeFallback = {
+      ru: '\n\n(Цель покупки не ясна — сначала один вопрос: для жизни/переезда или инвестиция? Без объектов и ссылок.)\n',
+      es: '\n\n(Objetivo de compra poco claro — una pregunta: ¿para vivir o invertir? Sin fichas ni enlaces.)\n',
+      en: '\n\n(Purchase goal unclear — one question first: living/relocation or investment? No listings or links.)\n',
+      de: '\n\n(Kaufziel unklar — eine Frage zuerst: Wohnen/Umzug oder Investition? Keine Objekte oder Links.)\n',
+      fr: '\n\n(Objectif d’achat flou — une question d’abord: habiter/déménager ou investir? Pas de fiches ni liens.)\n',
+      pl: '\n\n(Cel zakupu niejasny — najpierw jedno pytanie: życie/przeprowadzka czy inwestycja? Bez ofert i linków.)\n',
+      nl: '\n\n(Aankoopdoel onduidelijk — eerst één vraag: wonen/verhuizen of investeren? Geen objecten of links.)\n',
+    };
+    catalogBlock = hints?.noPurpose || noPurposeFallback[salesLang] || noPurposeFallback.en;
   } else if (!dialog.hasBudget && !dialog.ignoreBudget && tier === 'full') {
     // Клиент просит объекты / любой этап без бюджета — каталог не даём, только запрос бюджета
-    catalogBlock =
-      salesLang === 'es'
-        ? '\n\n(**SIN PRESUPUESTO — PROHIBIDO mostrar fichas.** El cliente pidió ver opciones o aún no dijo presupuesto. Agradece el interés y pregunta el presupuesto en €. Di que luego mostrarás opciones adecuadas. Sin villas, sin precios, sin enlaces, sin mencionar ±20%.)\n'
-        : salesLang === 'en'
-          ? '\n\n(**NO BUDGET — FORBIDDEN to show listings.** Client asked to see options or has not stated a budget. Thank them and ask for budget in €. Say you’ll then show matching options. No villas, no prices, no links, no «±20%» talk.)\n'
-          : '\n\n(**БЮДЖЕТ НЕ ИЗВЕСТЕН — ЗАПРЕЩЕНО показывать объекты.** Клиент просит варианты или ещё не назвал бюджет. Поблагодари за интерес и спроси бюджет в €. Скажи, что после этого покажешь подходящие варианты. Без вилл, без цен 500k–9M, без ссылок, без фраз про «±20%» / коридор цен.)\n';
+    const noBudgetByLang = {
+      ru: '\n\n(**БЮДЖЕТ НЕ ИЗВЕСТЕН — ЗАПРЕЩЕНО показывать объекты.** Клиент просит варианты или ещё не назвал бюджет. Поблагодари за интерес и спроси бюджет в €. Скажи, что после этого покажешь подходящие варианты. Без вилл, без цен 500k–9M, без ссылок, без фраз про «±20%» / коридор цен.)\n',
+      es: '\n\n(**SIN PRESUPUESTO — PROHIBIDO mostrar fichas.** El cliente pidió ver opciones o aún no dijo presupuesto. Agradece el interés y pregunta el presupuesto en €. Di que luego mostrarás opciones adecuadas. Sin villas, sin precios, sin enlaces, sin mencionar ±20%.)\n',
+      en: '\n\n(**NO BUDGET — FORBIDDEN to show listings.** Client asked to see options or has not stated a budget. Thank them and ask for budget in €. Say you’ll then show matching options. No villas, no prices, no links, no «±20%» talk.)\n',
+      de: '\n\n(**KEIN BUDGET — VERBOTEN Objekte zu zeigen.** Kunde will Optionen sehen oder hat kein Budget genannt. Danke kurz und frage nach Budget in €. Danach passende Optionen. Keine Villen, Preise, Links, kein «±20%».)\n',
+      fr: '\n\n(**PAS DE BUDGET — INTERDIT de montrer des fiches.** Le client demande des options ou n’a pas dit de budget. Remercie et demande le budget en €. Ensuite options adaptées. Pas de villas, prix, liens, ni «±20%».)\n',
+      pl: '\n\n(**BRAK BUDŻETU — ZAKAZ pokazywania ofert.** Klient prosi o opcje lub nie podał budżetu. Podziękuj i zapytaj o budżet w €. Potem dopasowane opcje. Bez willi, cen, linków, bez «±20%».)\n',
+      nl: '\n\n(**GEEN BUDGET — VERBODEN objecten te tonen.** Klant wil opties zien of noemde geen budget. Bedank kort en vraag budget in €. Daarna passende opties. Geen villa’s, prijzen, links, geen «±20%».)\n',
+    };
+    catalogBlock = noBudgetByLang[salesLang] || noBudgetByLang.en;
   } else if (!dialog.hasType && tier === 'full' && hints) {
     catalogBlock = hints.noType;
   } else if (!dialog.hasRegion && !dialog.hasLocation && tier === 'full' && hints) {
@@ -200,13 +217,18 @@ async function buildPromptParts(
     }
   } else if (showingListings || dialog.wantsPropertyLinks) {
     // Пустой каталог: запрет выдумывать объекты с ценами без URL
-    const emptyHint =
-      salesLang === 'es'
-        ? `\n\n**CATÁLOGO VACÍO para estos criterios** (${dialog.propertyTypeLabel || 'tipo'} / ${dialog.regionLabel || 'región'}). PROHIBIDO inventar apartamentos, precios o nombres. Di honestamente que ahora no hay fichas en el catálogo House Tenerife para estos parámetros y pregunta qué ajustar (zona/presupuesto/tipo). Sin enlaces inventados.\n`
-        : salesLang === 'en'
-          ? `\n\n**EMPTY CATALOG for these criteria** (${dialog.propertyTypeLabel || 'type'} / ${dialog.regionLabel || 'region'}). NEVER invent apartments, prices or names. Honestly say there are no House Tenerife listings for these parameters now and ask what to adjust (area/budget/type). No invented links.\n`
-          : `\n\n**КАТАЛОГ ПУСТ по этим критериям** (${dialog.propertyTypeLabel || 'тип'} / ${dialog.regionLabel || 'регион'}). ЗАПРЕЩЕНО выдумывать объекты, цены и названия. Честно скажи, что в каталоге House Tenerife сейчас нет карточек под эти параметры, и спроси что скорректировать (район/бюджет/тип). Без выдуманных ссылок.\n`;
-    catalogBlock = emptyHint;
+    const typePart = dialog.propertyTypeLabel || (salesLang === 'ru' ? 'тип' : 'type');
+    const regionPart = dialog.regionLabel || (salesLang === 'ru' ? 'регион' : 'region');
+    const emptyByLang = {
+      ru: `\n\n**КАТАЛОГ ПУСТ по этим критериям** (${typePart} / ${regionPart}). ЗАПРЕЩЕНО выдумывать объекты, цены и названия. Честно скажи, что в каталоге House Tenerife сейчас нет карточек под эти параметры, и спроси что скорректировать (район/бюджет/тип). Без выдуманных ссылок.\n`,
+      es: `\n\n**CATÁLOGO VACÍO para estos criterios** (${typePart} / ${regionPart}). PROHIBIDO inventar apartamentos, precios o nombres. Di honestamente que ahora no hay fichas en el catálogo House Tenerife para estos parámetros y pregunta qué ajustar (zona/presupuesto/tipo). Sin enlaces inventados.\n`,
+      en: `\n\n**EMPTY CATALOG for these criteria** (${typePart} / ${regionPart}). NEVER invent apartments, prices or names. Honestly say there are no House Tenerife listings for these parameters now and ask what to adjust (area/budget/type). No invented links.\n`,
+      de: `\n\n**LEERER KATALOG für diese Kriterien** (${typePart} / ${regionPart}). NIEMALS Objekte, Preise oder Namen erfinden. Sag ehrlich, dass es keine House-Tenerife-Karten gibt, und frage was anpassen (Zone/Budget/Typ). Keine erfundenen Links.\n`,
+      fr: `\n\n**CATALOGUE VIDE pour ces critères** (${typePart} / ${regionPart}). INTERDIT d’inventer appartements, prix ou noms. Dis honnêtement qu’il n’y a pas de fiches House Tenerife, et demande quoi ajuster (zone/budget/type). Pas de liens inventés.\n`,
+      pl: `\n\n**PUSTY KATALOG dla tych kryteriów** (${typePart} / ${regionPart}). ZAKAZ wymyślania ofert, cen i nazw. Powiedz szczerze, że nie ma kart House Tenerife, i zapytaj co skorygować (strefa/budżet/typ). Bez wymyślonych linków.\n`,
+      nl: `\n\n**LEGE CATALOGUS voor deze criteria** (${typePart} / ${regionPart}). NOOIT appartementen, prijzen of namen verzinnen. Zeg eerlijk dat er geen House Tenerife-kaarten zijn, en vraag wat aan te passen (zone/budget/type). Geen verzonnen links.\n`,
+    };
+    catalogBlock = emptyByLang[salesLang] || emptyByLang.en;
   }
 
   let webBlock = '';
@@ -231,7 +253,17 @@ async function buildPromptParts(
       .join(' ');
     const extra = await webSearchSnippets(`${userQuery} ${webSuffix}`);
     if (extra) {
-      webBlock = `\n\n**КРАТКАЯ ВЫДЕРЖКА ИЗ ВЕБ-ПОИСКА:**\n${extra}\n`;
+      const webHeader =
+        {
+          ru: '**КРАТКАЯ ВЫДЕРЖКА ИЗ ВЕБ-ПОИСКА:**',
+          es: '**EXTRACTO BREVE DE BÚSQUEDA WEB:**',
+          en: '**BRIEF WEB SEARCH EXCERPT:**',
+          de: '**KURZER WEB-SUCHAUSSCHNITT:**',
+          fr: '**EXTRAIT COURT DE RECHERCHE WEB:**',
+          pl: '**KRÓTKI FRAGMENT WYSZUKIWANIA WWW:**',
+          nl: '**KORT WEBZOEK-FRAGMENT:**',
+        }[salesLang] || '**BRIEF WEB SEARCH EXCERPT:**';
+      webBlock = `\n\n${webHeader}\n${extra}\n`;
     }
   }
 
@@ -248,15 +280,18 @@ async function buildPromptParts(
   const mortgageKnowledgeFocus =
     activeScenario === 'mortgage_docs' ||
     Boolean(dialog.wantsMortgageSteps) ||
-    /ипотек|кредит|mortgage|hipoteca|eur[ií]bor|fein|fiae/i.test(knowledgeQuery);
+    Boolean(dialog.needsMortgage) ||
+    /ипотек|кредит|mortgage|hipoteca|eur[ií]bor|fein|fiae|nie|нотариус|notario/i.test(
+      knowledgeQuery
+    );
   const consultantKnowledgeRaw = getKnowledgeBaseForPrompt({
     query: knowledgeQuery,
-    scenario: activeScenario,
+    scenario: mortgageKnowledgeFocus ? 'mortgage_docs' : activeScenario,
     language: salesLang,
     maxSections: mortgageKnowledgeFocus
       ? tier === 'minimal'
-        ? 4
-        : 6
+        ? 5
+        : 7
       : tier === 'minimal'
         ? 2
         : tier === 'compact'
@@ -270,28 +305,36 @@ async function buildPromptParts(
     mortgage_assistance: consultantKnowledge.mortgage_assistance,
     mortgage_lending_official: consultantKnowledge.mortgage_lending_official,
     mortgage_rates_official: consultantKnowledge.mortgage_rates_official,
+    spain_mortgage_overview: consultantKnowledge.spain_mortgage_overview,
     purchase_documents: consultantKnowledge.purchase_documents,
   };
+  const wantsMortgageKnowledge =
+    Boolean(dialog.wantsMortgageSteps) || Boolean(dialog.needsMortgage) || mortgageKnowledgeFocus;
   const ck =
     tier === 'minimal'
       ? truncateKnowledge(
-          dialog.wantsMortgageSteps
+          wantsMortgageKnowledge
             ? mortgageKnowledgeSlice
             : {
                 disclaimer: consultantKnowledge.disclaimer,
                 contacts: consultantKnowledge.contacts,
                 company: consultantKnowledge.company
               },
-          dialog.wantsMortgageSteps ? 5000 : 2500
+          wantsMortgageKnowledge ? 6500 : 2500
         )
       : tier === 'compact'
         ? truncateKnowledge(
-            dialog.wantsMortgageSteps
-              ? { ...consultantKnowledge, mortgage_process: consultantKnowledge.mortgage_process }
+            wantsMortgageKnowledge
+              ? { ...consultantKnowledge, ...mortgageKnowledgeSlice }
               : consultantKnowledge,
-            8000
+            10000
           )
-        : truncateKnowledge(consultantKnowledge, 12000);
+        : truncateKnowledge(
+            wantsMortgageKnowledge
+              ? { ...consultantKnowledge, ...mortgageKnowledgeSlice }
+              : consultantKnowledge,
+            14000
+          );
 
   const botConfig = getBotConfig();
   const localized = pickLocalizedPrompts(salesLang, botConfig);
@@ -343,8 +386,10 @@ ${dialog.hasBudget ? `- ⛔ Бюджет / размер инвестиций у�
 - Один понятный вопрос в конце (не три сразу).
 - Не предлагай объекты, пока не ясны цель, тип и бюджет (для инвестиций — размер инвестиций).
 - Никогда не переспрашивай то, что клиент уже сказал (бюджет/размер инвестиций, район, тип, цель, срок) — смотри блок «ПАМЯТЬ ДИАЛОГА» / собранные критерии. История диалога сохраняется в БД между сообщениями. Если назвали сумму — подтверди («Отлично» / «Отлично, миллион евро») и спроси следующий шаг, а не бюджет снова.
-- На русском всегда на «Вы» (скажите / подскажите / ваш). Запрещено тыкать клиента: «скажи», «ты», «тебе», «давай» как обращение.
-- Если диалог уже начат (2+ сообщения) — НЕ пиши снова «Привет» / не представляйся заново как на первом контакте.
+- На русском всегда на «Вы» (скажите / подскажите / ваш / Вам). Запрещено тыкать клиента: «скажи», «ты», «тебе», «давай» как обращение.
+- Если клиент в *этом* сообщении написал «привет» / «здравствуйте» / «hello» (даже в середине чата, напр. «привет, хочу купить для себя») — ОБЯЗАТЕЛЬНО начни ответ с приветствия и представления («Здравствуйте! Меня зовут Максим, House Tenerife»), потом вопрос этапа. ЗАПРЕЩЕНО начинать с «Отлично» / «Понял» без приветствия.
+- Первое сообщение в диалоге — тоже всегда приветствие + представление.
+- Если диалог уже идёт и клиент *не* поздоровался в текущем сообщении — НЕ пиши снова «Привет» / не представляйся заново.
 - Никогда не обещай «пришлю через пару минут / позже / через 90 секунд». Если пора показывать объекты — показывай их в этом же ответе. Если рано — задай следующий вопрос.
 - Названия районов и городов копируй БУКВАЛЬНО из блока критериев / каталога (латиница: Costa Adeje, Los Cristianos, Las Américas, Golf del Sur, El Médano, Sant Antoni). Не транслитерируй («Лос Кристианос», «Коста Адеже») и не искажай орфографию.
 - Запрещено: «благодарим за обращение», «запрос передан», «уважаемый клиент», «чем могу помочь» без продолжения.
@@ -391,11 +436,36 @@ ${blocks.managerHandoff}`;
 
   const langRule = buildReplyLanguageRule(userLanguage);
 
-  const disclaimerLabel = salesLang === 'es' ? '**AVISO LEGAL:**' : salesLang === 'en' ? '**DISCLAIMER:**' : '**ДИСКЛЕЙМЕР:**';
+  const disclaimerLabel =
+    {
+      ru: '**ДИСКЛЕЙМЕР:**',
+      es: '**AVISO LEGAL:**',
+      en: '**DISCLAIMER:**',
+      de: '**HAFTUNGSAUSSCHLUSS:**',
+      fr: '**AVERTISSEMENT:**',
+      pl: '**ZASTRZEŻENIE:**',
+      nl: '**DISCLAIMER:**',
+    }[salesLang] || '**DISCLAIMER:**';
   const knowledgeLabel =
-    salesLang === 'es' ? '**BASE DE CONOCIMIENTO:**' : salesLang === 'en' ? '**KNOWLEDGE BASE:**' : '**БАЗА ЗНАНИЙ:**';
+    {
+      ru: '**БАЗА ЗНАНИЙ:**',
+      es: '**BASE DE CONOCIMIENTO:**',
+      en: '**KNOWLEDGE BASE:**',
+      de: '**WISSENSDATENBANK:**',
+      fr: '**BASE DE CONNAISSANCES:**',
+      pl: '**BAZA WIEDZY:**',
+      nl: '**KENNISBANK:**',
+    }[salesLang] || '**KNOWLEDGE BASE:**';
   const siteLabel =
-    salesLang === 'es' ? '*Catálogo:*' : salesLang === 'en' ? '*Catalog site:*' : '*Сайт каталога:*';
+    {
+      ru: '*Сайт каталога:*',
+      es: '*Catálogo:*',
+      en: '*Catalog site:*',
+      de: '*Katalog-Website:*',
+      fr: '*Site catalogue:*',
+      pl: '*Strona katalogu:*',
+      nl: '*Catalogussite:*',
+    }[salesLang] || '*Catalog site:*';
 
   // file_doc часто содержит внешние/рекламные материалы — на ипотеке не подмешиваем
   const fileDocBlock =
@@ -408,19 +478,33 @@ ${blocks.managerHandoff}`;
 
   const lastUserText = lastUserMessage?.text || '';
   const userEmoji = pickUserEmoji(lastUserText);
+  const emojiReactByLang = {
+    ru: `\n**СМАЙЛИК КЛИЕНТА:** Клиент прислал «${userEmoji}». Обязательно дублируй ЭТОТ же смайлик в ответе. Если сообщение только из смайлика — ответь им же + одна короткая фраза и следующий вопрос по этапу диалога.\n`,
+    es: `\n**EMOJI DEL CLIENTE:** El cliente usó «${userEmoji}». Incluye el MISMO emoji en tu respuesta (duplícalo). Si el mensaje es solo emoji — responde con ese emoji + una frase corta y la siguiente pregunta del diálogo.\n`,
+    en: `\n**CLIENT EMOJI:** The client used «${userEmoji}». Include the SAME emoji in your reply (mirror it). If the message is emoji-only — reply with that emoji + one short line and the next dialog question.\n`,
+    de: `\n**KUNDEN-EMOJI:** Der Kunde nutzte «${userEmoji}». Verwende DASSELBE Emoji in der Antwort. Bei nur-Emoji: dieses Emoji + eine kurze Zeile + nächste Dialogfrage.\n`,
+    fr: `\n**EMOJI DU CLIENT:** Le client a utilisé «${userEmoji}». Inclus le MÊME emoji dans ta réponse. Si message = emoji seul: cet emoji + une courte phrase + question suivante.\n`,
+    pl: `\n**EMOJI KLIENTA:** Klient użył «${userEmoji}». Użyj TEGO SAMEGO emoji w odpowiedzi. Jeśli sama emoji — ta emoji + krótka fraza + następne pytanie.\n`,
+    nl: `\n**KLANT-EMOJI:** De klant gebruikte «${userEmoji}». Gebruik DEZELFDE emoji in je antwoord. Bij alleen emoji: die emoji + korte zin + volgende vraag.\n`,
+  };
   const emojiReactBlock = userEmoji
-    ? salesLang === 'es'
-      ? `\n**EMOJI DEL CLIENTE:** El cliente usó «${userEmoji}». Incluye el MISMO emoji en tu respuesta (duplícalo). Si el mensaje es solo emoji — responde con ese emoji + una frase corta y la siguiente pregunta del diálogo.\n`
-      : salesLang === 'en'
-        ? `\n**CLIENT EMOJI:** The client used «${userEmoji}». Include the SAME emoji in your reply (mirror it). If the message is emoji-only — reply with that emoji + one short line and the next dialog question.\n`
-        : `\n**СМАЙЛИК КЛИЕНТА:** Клиент прислал «${userEmoji}». Обязательно дублируй ЭТОТ же смайлик в ответе. Если сообщение только из смайлика — ответь им же + одна короткая фраза и следующий вопрос по этапу диалога.\n`
+    ? emojiReactByLang[salesLang] || emojiReactByLang.en
     : '';
 
   const linkedStageBlock = hasLinkedProperty
     ? getLinkedPropertyStageInstruction(salesLang)
     : '';
+  const funnelGlueByLang = {
+    ru: `(Дальше по воронке, после описания объекта: ${dialog.stageInstruction})`,
+    es: `(Después, siguiendo el embudo tras describir el objeto: ${dialog.stageInstruction})`,
+    en: `(Then continue the funnel after describing the property: ${dialog.stageInstruction})`,
+    de: `(Dann Trichter fortsetzen nach Objektbeschreibung: ${dialog.stageInstruction})`,
+    fr: `(Ensuite poursuivre l’entonnoir après la description: ${dialog.stageInstruction})`,
+    pl: `(Następnie kontynuuj lejek po opisie obiektu: ${dialog.stageInstruction})`,
+    nl: `(Daarna trechter voortzetten na objectbeschrijving: ${dialog.stageInstruction})`,
+  };
   const stageBlock = linkedStageBlock
-    ? `${linkedStageBlock}\n\n(Дальше по воронке, после описания объекта: ${dialog.stageInstruction})`
+    ? `${linkedStageBlock}\n\n${funnelGlueByLang[salesLang] || funnelGlueByLang.en}`
     : dialog.stageInstruction;
 
   const systemPrompt = `${mainPrompt}
@@ -857,8 +941,16 @@ function replyNeedsCatalogForce(reply, wantedTypes) {
     !hasValidCatalogPropertyLinks(reply) ||
     hasInventedHtLinks(reply) ||
     hasDuplicatePropertyUrls(reply) ||
-    hasMismatchedPropertyTypeUrls(reply, wantedTypes)
+    hasMismatchedPropertyTypeUrls(reply, wantedTypes) ||
+    hasMismatchedListingPrices(reply) ||
+    hasMismatchedListingLabels(reply)
   );
+}
+
+/** Для бизнеса/коммерции не доверяем модели связку title↔цена↔URL — только каталог. */
+function wantsStrictCatalogListings(dialog) {
+  const types = dialog?.propertyTypes || [];
+  return types.some((t) => t === 'business' || t === 'commercial' || t === 'land');
 }
 
 function countValidCatalogPropertyLinks(text) {
@@ -958,19 +1050,30 @@ function buildHonestNoCatalogReply(lang, dialog) {
 function buildAskBudgetInsteadOfListingsReply(lang, dialog) {
   const salesLang = normalizeSalesLang(lang);
   const invest = dialog?.isInvestment;
-  if (salesLang === 'es') {
-    return invest
+  const byLang = {
+    ru: invest
+      ? 'Спасибо за интерес :) Какой у вас бюджет для инвестиции в €? После этого покажу подходящие варианты.'
+      : 'Спасибо за интерес :) На какой бюджет в € ориентируемся? После этого покажу подходящие варианты.',
+    es: invest
       ? 'Gracias por el interés :) ¿Cuál es su presupuesto de inversión en €? Con eso le muestro opciones adecuadas.'
-      : 'Gracias por el interés :) ¿En qué rango de presupuesto en € nos orientamos? Después le muestro opciones adecuadas.';
-  }
-  if (salesLang === 'en') {
-    return invest
+      : 'Gracias por el interés :) ¿En qué rango de presupuesto en € nos orientamos? Después le muestro opciones adecuadas.',
+    en: invest
       ? 'Thanks for the interest :) What’s your investment budget in €? I’ll then show matching options.'
-      : 'Thanks for the interest :) What budget range in € should we use? I’ll then show matching options.';
-  }
-  return invest
-    ? 'Спасибо за интерес :) Какой у вас бюджет для инвестиции в €? После этого покажу подходящие варианты.'
-    : 'Спасибо за интерес :) На какой бюджет в € ориентируемся? После этого покажу подходящие варианты.';
+      : 'Thanks for the interest :) What budget range in € should we use? I’ll then show matching options.',
+    de: invest
+      ? 'Danke für Ihr Interesse :) Welches Investitionsbudget in € haben Sie? Danach zeige ich passende Optionen.'
+      : 'Danke für Ihr Interesse :) An welchem Budgetrahmen in € sollen wir uns orientieren? Danach passende Optionen.',
+    fr: invest
+      ? 'Merci pour votre intérêt :) Quel est votre budget d’investissement en €? Je vous montrerai ensuite des options adaptées.'
+      : 'Merci pour votre intérêt :) Sur quelle fourchette de budget en € nous orientons-nous? Ensuite je montre des options adaptées.',
+    pl: invest
+      ? 'Dziękuję za zainteresowanie :) Jaki jest Państwa budżet inwestycyjny w €? Potem pokażę dopasowane opcje.'
+      : 'Dziękuję za zainteresowanie :) Na jaki budżet w € się orientujemy? Potem pokażę dopasowane opcje.',
+    nl: invest
+      ? 'Bedankt voor uw interesse :) Wat is uw investeringsbudget in €? Daarna toon ik passende opties.'
+      : 'Bedankt voor uw interesse :) Welk budgetbereik in € gebruiken we? Daarna toon ik passende opties.',
+  };
+  return byLang[salesLang] || byLang.en;
 }
 
 function stripPropertyLinksKeepText(text) {
@@ -1101,7 +1204,17 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       (Boolean(dialog.propertyTypes?.length) &&
         replyHasPropertyLink &&
         replyNeedsCatalogForce(reply, dialog.propertyTypes)) ||
+      (wantsStrictCatalogListings(dialog) &&
+        replyHasPropertyLink &&
+        (hasMismatchedListingPrices(reply) ||
+          hasMismatchedListingLabels(reply) ||
+          hasMismatchedPropertyTypeUrls(reply, dialog.propertyTypes))) ||
       replyHasWrongRegion;
+
+    // Готовый бизнес / коммерция: всегда пересобираем карточки из каталога (анти-галлюцинации)
+    const forceStrictCatalog =
+      wantsStrictCatalogListings(dialog) &&
+      (listingStage || replyHasPropertyLink || dialog.wantsListings || dialog.wantsPropertyLinks);
 
     // «Дай ссылки» / подборка без карточек — нельзя отсылать только на общий сайт
     const websiteOnlyNoCards =
@@ -1125,6 +1238,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
     if (
       (hasInventedHtLinks(reply) ||
         badTypeOrLinks ||
+        forceStrictCatalog ||
         websiteOnlyNoCards ||
         inventedListings ||
         admitsNoLinks ||
@@ -1176,6 +1290,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
     const needsListingLinks =
       urlsForRepair.length > 0 &&
       (missingRequiredLinks ||
+        forceStrictCatalog ||
         ((listingStage ||
           badTypeOrLinks ||
           websiteOnlyNoCards ||
@@ -1296,11 +1411,16 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       reply = stripNonCatalogUrls(reply);
     }
 
-    // Финальный предохранитель: тип/дубли/чужой регион после починки
+    // Финальный предохранитель: тип/дубли/чужой регион/цены после починки
     if (
       urlsForRepair.length > 0 &&
-      (listingStage || badTypeOrLinks || websiteOnlyNoCards || dialog.wantsPropertyLinks) &&
-      (replyNeedsCatalogForce(reply, dialog.propertyTypes) ||
+      (listingStage ||
+        badTypeOrLinks ||
+        forceStrictCatalog ||
+        websiteOnlyNoCards ||
+        dialog.wantsPropertyLinks) &&
+      (forceStrictCatalog ||
+        replyNeedsCatalogForce(reply, dialog.propertyTypes) ||
         (() => {
           if (!dialog.macroRegions?.length) return false;
           const { itemMatchesRegions } = require('./catalog-regions');
@@ -1495,4 +1615,5 @@ module.exports = {
   askAI,
   checkAIHealth,
   hasUnsupportedDelayedListingPromise,
+  buildAskBudgetInsteadOfListingsReply,
 };

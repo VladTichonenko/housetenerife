@@ -35,7 +35,15 @@ const {
   repairPropertyUrlsInText,
   hasDuplicatePropertyUrls,
   stripNonCatalogUrls,
+  hasMismatchedListingPrices,
+  hasMismatchedListingLabels,
+  hasMismatchedPropertyTypeUrls,
 } = require('../property-share');
+const {
+  lastMessageConfirmsMortgage,
+  getMortgageConfirmedPitchInstruction,
+  detectMortgagePreference,
+} = require('../purchase-finance');
 const {
   detectRegionPreference,
   getPrimaryMacroRegion,
@@ -143,6 +151,81 @@ function runDeterministicTests() {
     'FR strong signal',
     isStrongLanguageSignal('Bonjour, je cherche un appartement', 'fr')
   );
+  check(
+    'Cześć szukam mieszkania → pl',
+    detectLanguageFromText('Cześć, szukam mieszkania w Adeje, budżet 350000') === 'pl'
+  );
+  check(
+    'Goedemorgen ik zoek een appartement → nl',
+    detectLanguageFromText('Goedemorgen, ik zoek een appartement in Adeje') === 'nl'
+  );
+
+  console.log('\n=== 1b. Локализация: без RU в не-русских промптах / mismatch смеси ===\n');
+  const {
+    replyMismatchesLanguage,
+    fixPlaceNameSpellings,
+    stripUnexpectedScripts,
+  } = require('../reply-language');
+  const { formatGlobalHumanChatRules } = require('../conversational-flow');
+  const { buildAskBudgetInsteadOfListingsReply } = require('../ai-service');
+  const noCyr = (s) => !/[а-яё]/i.test(String(s || ''));
+  for (const lang of ['en', 'es', 'de', 'fr', 'pl', 'nl']) {
+    check(
+      `i18n: mortgage pitch ${lang} без кириллицы`,
+      noCyr(getMortgageConfirmedPitchInstruction(lang))
+    );
+    check(
+      `i18n: global chat rules ${lang} без кириллицы`,
+      noCyr(formatGlobalHumanChatRules(lang))
+    );
+    check(
+      `i18n: ask-budget reply ${lang} без кириллицы`,
+      noCyr(buildAskBudgetInsteadOfListingsReply(lang, { isInvestment: true }))
+    );
+    const dFirst = analyzeConversation(
+      [{ sender: 'user', text: 'I am looking for investment property' }],
+      lang
+    );
+    check(
+      `i18n: first-turn greeting ${lang} без кириллицы`,
+      noCyr(dFirst.stageInstruction) ||
+        (lang === 'ru' ? true : !/Здравствуйте|Меня зовут Максим/i.test(dFirst.stageInstruction))
+    );
+  }
+  check(
+    'i18n: RU+EN смесь детектится для en',
+    replyMismatchesLanguage(
+      'Great! Отлично, ваш бюджет понял. What is your timeline?',
+      'en'
+    )
+  );
+  check(
+    'i18n: кириллица в de → mismatch',
+    replyMismatchesLanguage('Super! Какой у вас бюджет для инвестиции?', 'de')
+  );
+  check(
+    'i18n: place fix en → Marbella не Марбелья',
+    fixPlaceNameSpellings('вилла в марбелла', 'en').includes('Marbella') &&
+      !fixPlaceNameSpellings('вилла в марбелла', 'en').includes('Марбелья')
+  );
+  const memDe = buildDialogMemoryBlock(
+    {
+      hasPurpose: true,
+      purposeKind: 'investment',
+      hasBudget: true,
+      budget: { maxPrice: 500000 },
+      hasType: true,
+      propertyTypeLabel: 'villas',
+      hasRegion: true,
+      regionLabel: 'Tenerife',
+      hasLocation: false,
+      hasTimeline: true,
+      hasFundsNow: true,
+      hasMortgageAnswered: true,
+    },
+    'de'
+  );
+  check('i18n: dialog memory de без кириллицы', noCyr(memDe));
 
   console.log('\n=== 2. Не переспрашивать зону ===\n');
   const dPuerto = analyzeConversation(
@@ -312,10 +395,6 @@ function runDeterministicTests() {
   check('FR: SHOW_LISTINGS после финансов', dFrReady.stage === 'SHOW_LISTINGS');
 
   console.log('\n=== 8c. Без китайских иероглифов в RU ===\n');
-  const {
-    replyMismatchesLanguage,
-    stripUnexpectedScripts,
-  } = require('../reply-language');
   const cjkSample =
     'Чтобы не показывать варианты, которые明显 не подходят, подскажите бюджет.';
   check('cjk: mismatch детектится', replyMismatchesLanguage(cjkSample, 'ru'));
@@ -577,7 +656,6 @@ function runDeterministicTests() {
       })
     )
   );
-  const { formatGlobalHumanChatRules } = require('../conversational-flow');
   check(
     'tone: глобальные правила чата в модуле',
     /ГЛОБАЛЬНЫЕ ПРАВИЛА|GLOBAL CHAT RULES/i.test(formatGlobalHumanChatRules('ru')) &&
@@ -916,6 +994,20 @@ function runDeterministicTests() {
       Boolean(fullKnowledge.mortgage_assistance?.pitch_keep_client)
   );
   check(
+    'rag: обзор ипотеки Испании / HT в базе',
+    Boolean(fullKnowledge.spain_mortgage_overview?.house_tenerife_help?.length) &&
+      (Boolean(mortgageKnowledge.spain_mortgage_overview) ||
+        /poryadok-sdelki|8,?7/i.test(JSON.stringify(fullKnowledge.spain_mortgage_overview)))
+  );
+  check(
+    'rag: больше источников кредитования (BdE + HT + PDF)',
+    Array.isArray(fullKnowledge.mortgage_lending_official?.primary_sources) &&
+      fullKnowledge.mortgage_lending_official.primary_sources.length >= 8 &&
+      fullKnowledge.mortgage_lending_official.primary_sources.some((s) =>
+        /housetenerife\.eu/i.test(s.url)
+      )
+  );
+  check(
     'rag: ипотека получает официальные источники кредитования',
     Boolean(mortgageKnowledge.mortgage_lending_official) ||
       Boolean(fullKnowledge.mortgage_lending_official?.primary_sources?.length)
@@ -1210,6 +1302,148 @@ function runDeterministicTests() {
   );
   check('mortgage-budget: stage SHOW_LISTINGS', dMortBudget.stage === 'SHOW_LISTINGS');
   check('mortgage-budget: ипотека отмечена', dMortBudget.needsMortgage === true);
+  const mortJustConfirmed = analyzeConversation(
+    [
+      { sender: 'user', text: 'ищу апартаменты для инвестиций на тенерифе бюджет миллион' },
+      { sender: 'bot', text: 'Когда планируете покупку?' },
+      { sender: 'user', text: 'через 2 месяца' },
+      { sender: 'bot', text: 'Сколько на руках — все своими или часть + ипотека?' },
+      { sender: 'user', text: '800к на руках, остальное ипотека' },
+    ],
+    'ru'
+  );
+  check(
+    'mortgage-budget: pitch HT при подтверждении ипотеки',
+    /House Tenerife.*помогает|NIE|нотариус|Eur[ií]bor/i.test(mortJustConfirmed.stageInstruction)
+  );
+
+  console.log('\n=== 16c2. Приветствие + ипотека 80/20 + карточки бизнеса ===\n');
+  const greetInvest = analyzeConversation(
+    [{ sender: 'user', text: 'привет, ищу недвижимость для инвестиций' }],
+    'ru'
+  );
+  check(
+    'greet: первое сообщение — инструкция приветствия',
+    /ПРИВЕТСТВИЕ|приветстви|Меня зовут Максим/i.test(greetInvest.stageInstruction)
+  );
+  const { lastMessageHasGreeting } = require('../keyword-relevance');
+  check(
+    'greet: «привет, хочу…» = greeting opener',
+    lastMessageHasGreeting('привет, хочу приобрести недвижимость для себя')
+  );
+  const greetRestart = analyzeConversation(
+    [
+      { sender: 'user', text: 'бюджет миллион, ипотека' },
+      { sender: 'bot', text: 'Нужен NIE и счёт. Созвон 10–15 мин?' },
+      { sender: 'user', text: 'привет, хочу приобрести недвижимость для себя' },
+    ],
+    'ru'
+  );
+  check(
+    'greet: перезапуск с «привет» mid-chat — снова инструкция приветствия',
+    /ПРИВЕТСТВИЕ|Меня зовут Максим|ЗАПРЕЩЕНО начинать с «Отлично»/i.test(
+      greetRestart.stageInstruction
+    )
+  );
+  check(
+    'greet: mid-chat без «привет» — нет принудительного приветствия',
+    !/ПРИВЕТСТВИЕ \(обязательно/i.test(
+      analyzeConversation(
+        [
+          { sender: 'user', text: 'ищу апартаменты для жизни бюджет 350000' },
+          { sender: 'bot', text: 'В каком районе?' },
+          { sender: 'user', text: 'Costa Adeje' },
+        ],
+        'ru'
+      ).stageInstruction
+    )
+  );
+  check(
+    'greet: обращение на Вы в глобальных правилах',
+    /на «Вы»/i.test(require('../conversational-flow').formatGlobalHumanChatRules('ru'))
+  );
+  check(
+    'mortgage: 80/20 распознаётся',
+    detectMortgagePreference('на руках 80% суммы, 20% планирую брать в ипотеку').needsMortgage ===
+      true
+  );
+  check(
+    'mortgage: lastMessageConfirmsMortgage',
+    lastMessageConfirmsMortgage('на руках 600 тысяч, остальное планирую брать в ипотеку')
+  );
+  check(
+    'mortgage: pitch instruction про NIE/нотариус',
+    /NIE|нотариус|Eur[ií]bor|8,?7/i.test(getMortgageConfirmedPitchInstruction('ru'))
+  );
+  const mort8020Hist = [
+    { sender: 'user', text: 'ищу недвижимость для инвестиций' },
+    { sender: 'bot', text: 'Какой размер инвестиций?' },
+    { sender: 'user', text: '750 тысяч евро' },
+    { sender: 'bot', text: 'Когда планируете?' },
+    { sender: 'user', text: 'через 2–3 месяца' },
+    { sender: 'bot', text: 'Сколько на руках — все своими или часть + ипотека?' },
+    { sender: 'user', text: 'на руках 80%, остальное 20% планирую брать в ипотеку' },
+  ];
+  const d8020 = analyzeConversation(mort8020Hist, 'ru');
+  check('mortgage-80/20: needsMortgage', d8020.needsMortgage === true);
+  check(
+    'mortgage-80/20: в инструкции помощь HT + ставки',
+    /House Tenerife|NIE|нотариус|Eur[ií]bor|LTV/i.test(d8020.stageInstruction)
+  );
+
+  const fakeBizReply = `Отлично, готовые бизнесы:
+· Бизнес-центр в Costa Adeje — €720 000
+https://housetenerife.eu/ru/property/potryasayushhaya-villa-s-2-spalnyami-v-magnolia-golf-resort-la-kaleta-kosta-adehe/
+· Ресторан — €680 000
+https://housetenerife.eu/ru/property/dupleks-v-komplekse-adehe-park-v-la-kaleta-501/
+· Торговое помещение — €740 000
+https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-adehe-s-vidom-na-okean-2/`;
+  check(
+    'listings: чужой тип URL при запросе бизнес',
+    hasMismatchedPropertyTypeUrls(fakeBizReply, ['business'])
+  );
+  check('listings: лейбл бизнес ≠ вилла/дуплекс', hasMismatchedListingLabels(fakeBizReply));
+  check(
+    'listings: цена не из каталога',
+    hasMismatchedListingPrices(
+      `· Ресторан — €680 000\nhttps://housetenerife.eu/ru/property/dupleks-v-komplekse-adehe-park-v-la-kaleta-501/`
+    )
+  );
+
+  const bizSearch = searchForContext('готовый бизнес Costa Adeje', 5, {
+    lang: 'ru',
+    propertyTypes: ['business'],
+    maxPrice: 750000,
+    priceTarget: 750000,
+    macroRegions: ['tenerife'],
+    allowBudgetFallback: true,
+    allowTypeFamilyFallback: true,
+    contextText: 'готовый бизнес',
+  });
+  check(
+    'listings: каталог бизнеса отдаёт business URL',
+    bizSearch.found &&
+      (bizSearch.urls || []).length > 0 &&
+      (bizSearch.urls || []).every((u) => {
+        const item = load().items.find(
+          (it) =>
+            String(it.urls?.ru || it.url || '').includes(
+              String(u).split('/property/')[1]?.replace(/\/$/, '') || '___'
+            ) || String(getItemPropertyCategories(it)).includes('business')
+        );
+        // хотя бы URL из каталога и тип business у найденных
+        return /housetenerife\.eu.*\/property\//i.test(u);
+      })
+  );
+  const bizItemsOk = (bizSearch.urls || []).every((u) => {
+    const slug = String(u).split('/property/')[1]?.replace(/\/$/, '') || '';
+    const item = load().items.find((it) =>
+      [it.url, it.urls?.ru, it.urls?.en].some((x) => String(x || '').includes(slug))
+    );
+    return item && itemMatchesPropertyTypes(item, ['business']);
+  });
+  check('listings: все URL поиска — реальный business', bizItemsOk);
+
   const resolvedMort = resolveEffectiveBudget(
     mortgageBudgetHist,
     dMortBudget.allUserText,

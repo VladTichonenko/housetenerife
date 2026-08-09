@@ -112,6 +112,7 @@ function getScenarioPriorities(scenario, query) {
   if (scenario === 'mortgage_docs') {
     add('mortgage_process', 30);
     add('mortgage_assistance', 28);
+    add('spain_mortgage_overview', 27);
     add('mortgage_lending_official', 26);
     add('mortgage_rates_official', 22);
     add('purchase_documents', 24);
@@ -130,9 +131,14 @@ function getScenarioPriorities(scenario, query) {
   }
 
   const text = String(query || '').toLowerCase();
-  if (/ипотек|кредит|mortgage|hipoteca|hypothek|hypotheek|ставк|eur[ií]bor|процент|fein|fiae|ley\s*5\/?2019/i.test(text)) {
+  if (
+    /ипотек|кредит|mortgage|hipoteca|hypothek|hypotheek|ставк|eur[ií]bor|процент|fein|fiae|ley\s*5\/?2019|ltv|перв(?:ый|ого)\s+взнос|нотариус|notario|\bnie\b/i.test(
+      text
+    )
+  ) {
     add('mortgage_process', 35);
     add('mortgage_assistance', 32);
+    add('spain_mortgage_overview', 31);
     add('mortgage_lending_official', 30);
     add('mortgage_rates_official', 28);
     add('purchase_documents', 25);

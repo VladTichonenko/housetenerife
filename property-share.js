@@ -402,6 +402,75 @@ function hasMismatchedPropertyTypeUrls(text, wantedTypes) {
   return false;
 }
 
+function parseEuroNearText(chunk) {
+  const re = /€\s*([\d][\d\s.,]{2,})|([\d][\d\s.,]{2,})\s*(?:€|eur|евро)/gi;
+  let last = null;
+  let m;
+  while ((m = re.exec(String(chunk || '')))) {
+    const digits = String(m[1] || m[2] || '').replace(/[^\d]/g, '');
+    if (digits.length < 4) continue;
+    const v = parseInt(digits, 10);
+    if (Number.isFinite(v) && v >= 1000) last = v;
+  }
+  return last;
+}
+
+/**
+ * Цена рядом со ссылкой не совпадает с каталогом — типичная галлюцинация
+ * («бизнес €720k» + URL виллы за другую сумму).
+ */
+function hasMismatchedListingPrices(text) {
+  if (!text) return false;
+  ensureIndex();
+  const { parseItemPriceEur } = catalog();
+  const re = new RegExp(PROPERTY_URL_RE.source, 'gi');
+  const s = String(text);
+  let m;
+  while ((m = re.exec(s))) {
+    const item = findItemByUrl(splitGluedUrlTail(m[0]).url);
+    if (!item) continue;
+    const catalogPrice = parseItemPriceEur(item);
+    if (!catalogPrice) continue;
+    const start = Math.max(0, m.index - 220);
+    const before = s.slice(start, m.index);
+    const stated = parseEuroNearText(before);
+    if (!stated) continue;
+    const tol = Math.max(5000, Math.round(catalogPrice * 0.05));
+    if (Math.abs(stated - catalogPrice) > tol) return true;
+  }
+  return false;
+}
+
+/**
+ * В тексте «бизнес/ресторан», а URL — вилла/апартаменты (или наоборот).
+ */
+function hasMismatchedListingLabels(text) {
+  if (!text) return false;
+  ensureIndex();
+  const re = new RegExp(PROPERTY_URL_RE.source, 'gi');
+  const s = String(text);
+  let m;
+  while ((m = re.exec(s))) {
+    const item = findItemByUrl(splitGluedUrlTail(m[0]).url);
+    if (!item) continue;
+    const { getItemPropertyCategories } = require('./property-types');
+    const cats = getItemPropertyCategories(item);
+    const start = Math.max(0, m.index - 220);
+    const before = s.slice(start, m.index).toLowerCase();
+    const labelBiz =
+      /бизнес|ресторан|бар\b|кафе|торгов|отель|hotel|паб|аптека|negocio|business\s+center|готовый\s+бизнес/i.test(
+        before
+      );
+    const labelRes =
+      /вилл|апартамент|квартир|дуплекс|dupleks|таунхаус|пентхаус|студи/i.test(before);
+    const itemBiz = cats.includes('business') || cats.includes('commercial');
+    const itemRes = cats.some((c) => c === 'apartments' || c === 'villas' || c === 'houses');
+    if (labelBiz && itemRes && !itemBiz) return true;
+    if (labelRes && itemBiz && !itemRes) return true;
+  }
+  return false;
+}
+
 /**
  * Заменяет все ссылки housetenerife.eu/property/... на язык пользователя.
  */
@@ -433,6 +502,8 @@ module.exports = {
   hasInventedHtLinks,
   hasDuplicatePropertyUrls,
   hasMismatchedPropertyTypeUrls,
+  hasMismatchedListingPrices,
+  hasMismatchedListingLabels,
   collectRecentPropertyUrls,
   findItemByUrl,
   findItemByPropertyId,

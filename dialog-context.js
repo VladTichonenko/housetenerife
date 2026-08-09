@@ -18,8 +18,10 @@ const {
 const {
   analyzePurchaseFinance,
   detectMortgageStepsQuestion,
+  lastMessageConfirmsMortgage,
   getFinanceStageInstruction,
   getMortgageStepsInstruction,
+  getMortgageConfirmedPitchInstruction,
   formatFinanceSummaryForPrompt
 } = require('./purchase-finance');
 const { normalizeSalesLang, getStageInstruction } = require('./sales-localization');
@@ -30,7 +32,11 @@ const {
   wantsEscalation,
   expandBudgetBand,
 } = require('./bot-core-rules');
-const { isOffTopicChatter, formatOffTopicInstruction } = require('./keyword-relevance');
+const {
+  isOffTopicChatter,
+  formatOffTopicInstruction,
+  lastMessageHasGreeting,
+} = require('./keyword-relevance');
 
 const INVEST_PURPOSE_RE =
   /инвест|invest|inversi[oó]n|anlage|investissement|доход|аренд|rental|alquiler|miete|location|бизнес|business|negocio|geschäft|pour\s+investir|zum\s+investieren|инвест(?:иционн)?\s*проект|investment\s+project/i;
@@ -122,7 +128,7 @@ function analyzeConversation(history, lang = 'ru') {
       lastUserLower
     );
   const wantsMoreLikeThese =
-    /похож|ещё\s*(?:так|раз|вариант|объект)|еще\s*(?:так|раз|вариант)|другие\s*(?:вариант|опци)|по\s+моим\s+параметр|similar|more\s+(?:like|options|listings)|otra\s+opci|otras?\s+(?:opcion|ficha)|parecid|ähnliche|aehnliche|weitere\s+option|plus\s+d.?options|similaires|autres?\s+(?:options|fiches)/i.test(
+    /похож|ещё\s*(?:так|раз|вариант|объект|вилл|апартамент|квартир|опци)|еще\s*(?:так|раз|вариант|объект|вилл|апартамент|квартир|опци)|другие\s*(?:вариант|опци|вилл|объект)|все\s+(?:вилл|апартамент|квартир|вариант|объект)|по\s+моим\s+параметр|что\s+(?:ещё|еще)\s+есть|которые?\s+у\s+вас\s+есть|similar|more\s+(?:like|options|listings|villas?)|show\s+(?:me\s+)?(?:all|more)\s+(?:the\s+)?(?:villas?|apartments?|options)|otra\s+opci|otras?\s+(?:opcion|ficha)|parecid|ähnliche|aehnliche|weitere\s+(?:option|villen)|plus\s+d.?options|similaires|autres?\s+(?:options|fiches|villas)/i.test(
       lastUserLower
     );
   const userTurns = userMsgs.length;
@@ -370,6 +376,13 @@ function analyzeConversation(history, lang = 'ru') {
 
   if (wantsMortgageSteps) {
     stageInstruction = `${getMortgageStepsInstruction(salesLang)}\n\n${stageInstruction}`;
+  } else if (
+    finance.needsMortgage &&
+    finance.hasMortgageAnswered &&
+    lastMessageConfirmsMortgage(lastUser)
+  ) {
+    // «600к на руках, остальное ипотека» / «80% есть, 20% в ипотеку» — сразу помощь HT + ставки
+    stageInstruction = `${getMortgageConfirmedPitchInstruction(salesLang)}\n\n${stageInstruction}`;
   }
 
   const funnelBlock = formatFunnelPathBlock(isInvestment, salesLang);
@@ -401,6 +414,26 @@ function analyzeConversation(history, lang = 'ru') {
   );
   if (memoryBlock) {
     stageInstruction = `${memoryBlock}\n\n${stageInstruction}`;
+  }
+
+  // Приветствие — в самом верху stageInstruction (после memory), иначе модель игнорирует
+  // Срабатывает: 1-е сообщение ИЛИ клиент снова написал «привет/здравствуйте…» mid-chat
+  const clientGreetedNow = lastMessageHasGreeting(lastUser);
+  const needsGreetingReply =
+    stage === 'FIRST_CONTACT' ||
+    userTurns <= 1 ||
+    clientGreetedNow;
+  if (needsGreetingReply) {
+    const greetingMustByLang = {
+      ru: `**ПРИВЕТСТВИЕ (обязательно в ЭТОМ ответе — приоритет выше памяти/воронки):** Клиент${clientGreetedNow ? ' поздоровался («привет» / «здравствуйте»…)' : ' пишет первое сообщение'}. ОБЯЗАТЕЛЬНО начни ответ с приветствия и представления: «Здравствуйте! Меня зовут Максим, House Tenerife.» (или «Привет! Меня зовут Максим, House Tenerife.»). Затем — вопрос текущего этапа. ЗАПРЕЩЕНО начинать с «Отлично» / «Понял» / сразу с вопроса про регион без приветствия. Всегда на «Вы».`,
+      en: `**GREETING (mandatory in THIS reply — overrides memory/funnel):** The client${clientGreetedNow ? ' greeted you («hi» / «hello»…)' : ' is on the first message'}. You MUST start with a greeting and introduction: “Hi! I’m Maxim from House Tenerife.” Then the current-stage question. FORBIDDEN to open with “Great” / “Got it” / a region question without greeting.`,
+      es: `**SALUDO (obligatorio en ESTA respuesta — prioridad sobre memoria/embudo):** El cliente${clientGreetedNow ? ' saludó («hola»…)' : ' está en el primer mensaje'}. DEBES empezar con saludo y presentación: «¡Hola! Soy Maxim de House Tenerife.» Luego la pregunta de la etapa. PROHIBIDO empezar con «Perfecto» / «Entendido» sin saludo.`,
+      de: `**BEGRÜSSUNG (pflicht in DIESER Antwort — Vorrang vor Gedächtnis/Trichter):** Der Kunde${clientGreetedNow ? ' hat gegrüßt («hallo»…)' : ' schreibt die erste Nachricht'}. Du MUSST mit Begrüßung und Vorstellung beginnen: «Hallo! Ich bin Maxim von House Tenerife.» Dann die Stufenfrage. VERBOTEN mit «Super» / «Verstanden» ohne Begrüßung zu starten.`,
+      fr: `**SALUTATION (obligatoire dans CETTE réponse — priorité sur mémoire/entonnoir):** Le client${clientGreetedNow ? ' a salué («bonjour» / «salut»…)' : ' est au premier message'}. Tu DOIS commencer par salutation et présentation: «Bonjour! Je suis Maxim de House Tenerife.» Puis la question d’étape. INTERDIT de commencer par «Parfait» / «Compris» sans salutation.`,
+      pl: `**POWITANIE (obowiązkowe w TEJ odpowiedzi — priorytet nad pamięcią/lejkiem):** Klient${clientGreetedNow ? ' się przywitał («cześć» / «dzień dobry»…)' : ' pisze pierwszą wiadomość'}. MUSISZ zacząć od powitania i przedstawienia: «Dzień dobry! Nazywam się Maxim, House Tenerife.» Potem pytanie etapu. ZAKAZ zaczynać od «Świetnie» / «Rozumiem» bez powitania.`,
+      nl: `**BEGROETING (verplicht in DIT antwoord — voorrang op geheugen/trechter):** De klant${clientGreetedNow ? ' groette («hallo»…)' : ' stuurt het eerste bericht'}. Je MOET beginnen met begroeting en voorstelling: «Hallo! Ik ben Maxim van House Tenerife.» Daarna de fasevraag. VERBODEN te openen met «Top» / «Begrepen» zonder begroeting.`,
+    };
+    stageInstruction = `${greetingMustByLang[salesLang] || greetingMustByLang.en}\n\n${stageInstruction}`;
   }
 
   const financeSummaryBlock = formatFinanceSummaryForPrompt(finance, salesLang);
@@ -465,7 +498,7 @@ function analyzeConversation(history, lang = 'ru') {
 }
 
 const stageInstructions = {
-  FIRST_CONTACT: `Первый контакт / приветствие. Представься: «Меня зовут Максим», помогаешь с недвижимостью и инвестициями (House Tenerife). Не «бот». Тон WhatsApp: коротко, тепло, один 🙂 или :). Если клиент написал «привет / как дела?» без темы недвижимости — НЕ присылай виллы и ссылки. Образец: «Привет! Я здесь, чтобы помочь с инвестициями в недвижимость. Какой у вас бюджет?» (или: для себя / под инвестиции, если цель ещё не ясна). Объекты и ссылки ЗАПРЕЩЕНЫ.`,
+  FIRST_CONTACT: `Первый контакт / приветствие. ОБЯЗАТЕЛЬНО начни с приветствия и представления: «Здравствуйте! Меня зовут Максим, House Tenerife» (допустимо «Привет!» — но не без представления). Помогаешь с недвижимостью и инвестициями. Не «бот». Обращение только на «Вы». Тон WhatsApp: коротко, тепло, один 🙂 или :). Если клиент написал «привет / как дела?» без темы недвижимости — НЕ присылай виллы и ссылки. Образец: «Здравствуйте! Меня зовут Максим, House Tenerife. Я здесь, чтобы помочь с инвестициями в недвижимость. Какой у Вас размер инвестиций?» (или: для себя / под инвестиции, если цель ещё не ясна). Не начинай сразу с «Отлично» без приветствия. Объекты и ссылки ЗАПРЕЩЕНЫ.`,
 
   NEED_PURPOSE: `Цель не ясна — обязательный шаг ДО любых предложений. Не повторяй вопрос клиента и не начинай с канцелярского «понял ваш запрос». Живо: один вопрос — жизнь/семья/переезд или инвестиция (аренда, перепродажа, бизнес)? Одна короткая фраза, зачем это важно. Без объектов.`,
 
@@ -495,16 +528,17 @@ const stageInstructions = {
 };
 
 function formatFunnelPathBlock(isInvestment, lang = 'ru') {
-  if (lang === 'en') {
+  const code = normalizeSalesLang(lang);
+  if (code === 'ru') {
     return isInvestment
-      ? `**ACTIVE FUNNEL: INVESTMENT** (strict order — never skip ahead to listings):
-1) Investment budget in € → 2) Investment timeline → 3) Cash now / all / part / mortgage → 4) Then selection criteria WITHOUT re-asking price (type → region → area) → 5) Shortlist ±20%.
-NEVER offer villas/projects before budget + timeline + finances.`
-      : `**ACTIVE FUNNEL: FOR LIVING / SELF** (strict order):
-1) Goal (self vs invest) → 2) City/region → 3) District → 4) Property type → 5) Budget € → 6) Cash on hand / mortgage → 7) Shortlist ±20%.
-NEVER send listings before budget and finances.`;
+      ? `**АКТИВНАЯ ВЕТКА: ИНВЕСТИЦИИ** (строгий порядок — не перескакивай к объектам):
+1) Размер инвестиций в € → 2) Срок инвестирования → 3) Деньги сейчас (все / часть / ипотека) → 4) Потом критерии подбора БЕЗ переспроса цены (тип → регион → район) → 5) Подборка ±20%.
+ЗАПРЕЩЕНО предлагать виллы/проекты до размера инвестиций, срока и финансов.`
+      : `**АКТИВНАЯ ВЕТКА: ДЛЯ СЕБЯ / ЖИЗНЬ** (строгий порядок):
+1) Цель (для себя или инвестиции) → 2) Город/регион → 3) Район → 4) Тип → 5) Бюджет € → 6) Деньги на руках / ипотека → 7) Подборка ±20%.
+ЗАПРЕЩЕНО слать объекты до бюджета и финансов.`;
   }
-  if (lang === 'es') {
+  if (code === 'es') {
     return isInvestment
       ? `**EMBUDO ACTIVO: INVERSIÓN** (orden estricto):
 1) Presupuesto de inversión € → 2) Plazo → 3) Dinero ahora / todo / parte / hipoteca → 4) Criterios de selección SIN repetir precio (tipo → región → zona) → 5) Selección ±20%.
@@ -513,36 +547,36 @@ NUNCA ofrezcas fichas antes de presupuesto + plazo + finanzas.`
 1) Objetivo → 2) Ciudad/región → 3) Zona → 4) Tipo → 5) Presupuesto € → 6) Dinero en mano / hipoteca → 7) Selección ±20%.
 NUNCA envíes fichas antes del presupuesto y las finanzas.`;
   }
+  // en / de / fr / pl / nl — EN overlay (packs already localize stage text; never fall back to RU)
   return isInvestment
-    ? `**АКТИВНАЯ ВЕТКА: ИНВЕСТИЦИИ** (строгий порядок — не перескакивай к объектам):
-1) Размер инвестиций в € → 2) Срок инвестирования → 3) Деньги сейчас (все / часть / ипотека) → 4) Потом критерии подбора БЕЗ переспроса цены (тип → регион → район) → 5) Подборка ±20%.
-ЗАПРЕЩЕНО предлагать виллы/проекты до размера инвестиций, срока и финансов.`
-    : `**АКТИВНАЯ ВЕТКА: ДЛЯ СЕБЯ / ЖИЗНЬ** (строгий порядок):
-1) Цель (для себя или инвестиции) → 2) Город/регион → 3) Район → 4) Тип → 5) Бюджет € → 6) Деньги на руках / ипотека → 7) Подборка ±20%.
-ЗАПРЕЩЕНО слать объекты до бюджета и финансов.`;
+    ? `**ACTIVE FUNNEL: INVESTMENT** (strict order — never skip ahead to listings):
+1) Investment budget in € → 2) Investment timeline → 3) Cash now / all / part / mortgage → 4) Then selection criteria WITHOUT re-asking price (type → region → area) → 5) Shortlist ±20%.
+NEVER offer villas/projects before budget + timeline + finances. Client reply language = dialog language only.`
+    : `**ACTIVE FUNNEL: FOR LIVING / SELF** (strict order):
+1) Goal (self vs invest) → 2) City/region → 3) District → 4) Property type → 5) Budget € → 6) Cash on hand / mortgage → 7) Shortlist ±20%.
+NEVER send listings before budget and finances. Client reply language = dialog language only.`;
 }
 
 function getAskBudgetBeforeListingsInstruction(lang, opts = {}) {
   const isInvestment = Boolean(opts.isInvestment);
+  const code = normalizeSalesLang(lang);
   const example =
     opts.budgetQuestionExample ||
-    pickBudgetQuestionExample(lang === 'en' ? 'en' : lang === 'es' ? 'es' : 'ru', {
-      investment: isInvestment,
-    });
+    pickBudgetQuestionExample(code, { investment: isInvestment });
 
-  if (lang === 'en') {
-    return `Client asked to SHOW properties, but budget is UNKNOWN. Thank them briefly for the interest. Ask explicitly for ${
-      isInvestment ? 'their *investment size* in €' : 'their *budget* in €'
-    }. Example vibe: «${example}». Say you’ll then show matching options. FORBIDDEN: any villas, prices, ranges like 500k–9M, catalog links, or mentioning «±20%» / price corridors. One question only.`;
+  if (code === 'ru') {
+    return `Клиент просит ПОКАЗАТЬ объекты, но бюджет НЕ известен. Коротко поблагодари за интерес. ЯВНО спроси ${
+      isInvestment ? '*размер инвестиций* в €' : '*бюджет* / диапазон стоимости в €'
+    }. Образец: «${example}». Скажи, что после этого покажешь подходящие варианты. ЗАПРЕЩЕНО: виллы, цены, вилки вроде 500k–9M, ссылки, а также фразы про «±20%» / «коридор €X–€Y». Только один вопрос.`;
   }
-  if (lang === 'es') {
+  if (code === 'es') {
     return `El cliente pide VER inmuebles, pero el presupuesto es DESCONOCIDO. Agradece el interés. Pregunta explícitamente el ${
       isInvestment ? '*presupuesto de inversión* en €' : '*presupuesto* en €'
     }. Ejemplo: «${example}». Di que luego mostrarás opciones adecuadas. PROHIBIDO: villas, precios, rangos 500k–9M, enlaces, o mencionar «±20%» / corredores de precio. Solo una pregunta.`;
   }
-  return `Клиент просит ПОКАЗАТЬ объекты, но бюджет НЕ известен. Коротко поблагодари за интерес. ЯВНО спроси ${
-    isInvestment ? '*размер инвестиций* в €' : '*бюджет* / диапазон стоимости в €'
-  }. Образец: «${example}». Скажи, что после этого покажешь подходящие варианты. ЗАПРЕЩЕНО: виллы, цены, вилки вроде 500k–9M, ссылки, а также фразы про «±20%» / «коридор €X–€Y». Только один вопрос.`;
+  return `Client asked to SHOW properties, but budget is UNKNOWN. Thank them briefly for the interest. Ask explicitly for ${
+    isInvestment ? 'their *investment size* in €' : 'their *budget* in €'
+  }. Example vibe: «${example}». Say you’ll then show matching options. FORBIDDEN: any villas, prices, ranges like 500k–9M, catalog links, or mentioning «±20%» / price corridors. One question only. Reply in the dialog language only.`;
 }
 
 function formatBudgetBandLabel(budget, lang = 'ru') {
@@ -556,28 +590,28 @@ function formatBudgetBandLabel(budget, lang = 'ru') {
 }
 
 function getInvestmentBudgetInstruction(lang, dialog) {
+  const code = normalizeSalesLang(lang);
   const example =
     dialog?.budgetQuestionExample ||
-    pickBudgetQuestionExample(lang === 'en' ? 'en' : lang === 'es' ? 'es' : 'ru', {
-      investment: true,
-    });
-  if (lang === 'en') {
-    return `Investment path. Ask *investment size* in € softly (not blunt "what's your budget?"). Example: «${example}». Hints: up to €300k / €300–600k / €600k+. One question. No listings yet. Timeline and cash-on-hand come next.`;
+    pickBudgetQuestionExample(code, { investment: true });
+  if (code === 'ru') {
+    return `Ветка инвестиций. Спроси *размер инвестиций* в € мягко (не «какой у вас бюджет?» и не «диапазон бюджета»). Образец: «${example}». Ориентиры: до 300k / 300–600k / от 600k. Один вопрос. Объекты НЕ показывай. Дальше — срок и деньги на руках.`;
   }
-  if (lang === 'es') {
+  if (code === 'es') {
     return `Rama inversión. Pregunta el *tamaño de la inversión* en € con suavidad (no «¿cuál es su presupuesto?» en bruto). Ejemplo: «${example}». Orientación: hasta 300k / 300–600k / desde 600k. Una pregunta. Sin fichas. Luego plazo y dinero ahora.`;
   }
-  return `Ветка инвестиций. Спроси *размер инвестиций* в € мягко (не «какой у вас бюджет?» и не «диапазон бюджета»). Образец: «${example}». Ориентиры: до 300k / 300–600k / от 600k. Один вопрос. Объекты НЕ показывай. Дальше — срок и деньги на руках.`;
+  return `Investment path. Ask *investment size* in € softly (not blunt "what's your budget?"). Example: «${example}». Hints: up to €300k / €300–600k / €600k+. One question. No listings yet. Timeline and cash-on-hand come next. Reply in the dialog language only.`;
 }
 
 function getInvestmentTimelineInstruction(lang) {
-  if (lang === 'en') {
-    return `Investment size is known — do not re-ask. No listings yet. First briefly confirm warmly WITHOUT “I remembered / noted”: «Great» or «Great — €1M» / «Perfect, two million euros.» Then one short question about *when they plan to buy/invest*. Preferred wording: «When do you plan to make the purchase? In 2 months, 3 months, or later?»`;
+  const code = normalizeSalesLang(lang);
+  if (code === 'ru') {
+    return `Размер инвестиций уже известен — НЕ переспрашивай. Подборку пока не высылай. Сначала коротко подтверди: «Отлично» или «Отлично, миллион евро» / «Отлично — 2 миллиона евро». Без канцелярита про память или запись. Затем срок: «Когда вы планируете совершить покупку? Через 2 месяца, 3 месяца или позже?»`;
   }
-  if (lang === 'es') {
+  if (code === 'es') {
     return `Tamaño de inversión ya conocido — no lo repitas. Sin fichas. Primero confirma en breve SIN «lo anoté / recordé»: «Perfecto» o «Perfecto, un millón de euros.» Luego: *cuándo planean comprar/invertir*. Formulación: «¿Cuándo planean realizar la compra? ¿En 2 meses, 3 meses o más adelante?»`;
   }
-  return `Размер инвестиций уже известен — НЕ переспрашивай. Подборку пока не высылай. Сначала коротко подтверди: «Отлично» или «Отлично, миллион евро» / «Отлично — 2 миллиона евро». Без канцелярита про память или запись. Затем срок: «Когда вы планируете совершить покупку? Через 2 месяца, 3 месяца или позже?»`;
+  return `Investment size is known — do not re-ask. No listings yet. First briefly confirm warmly WITHOUT “I remembered / noted”: «Great» or «Great — €1M» / «Perfect, two million euros.» Then one short question about *when they plan to buy/invest*. Preferred wording: «When do you plan to make the purchase? In 2 months, 3 months, or later?» Reply in the dialog language only.`;
 }
 
 /** Живая формулировка суммы для подтверждения («миллион евро», не «до €1,000,000»). */
@@ -621,37 +655,40 @@ function formatBudgetAckFigure(budget, lang = 'ru') {
 
 /** Клиент только что назвал бюджет — короткое «Отлично» без «запомнил». */
 function getJustRememberedBudgetInstruction(lang, budget) {
+  const code = normalizeSalesLang(lang);
   const figure =
-    formatBudgetAckFigure(budget, lang) ||
-    formatBudgetLabel(budget, lang) ||
-    (lang === 'en' ? 'that amount' : lang === 'es' ? 'esa cantidad' : 'эта сумма');
-  if (lang === 'en') {
-    return `**CONTEXT MEMORY (critical):** Client JUST stated the investment size/budget (${figure}). Confirm briefly — e.g. «Great» or «Great, ${figure}.» — no “I remembered / noted / saved”. Then ask ONLY the next missing step. NEVER ask the budget again.`;
+    formatBudgetAckFigure(budget, code) ||
+    formatBudgetLabel(budget, code) ||
+    (code === 'ru' ? 'эта сумма' : code === 'es' ? 'esa cantidad' : 'that amount');
+  if (code === 'ru') {
+    return `**ПАМЯТЬ КОНТЕКСТА (критично):** Клиент ТОЛЬКО ЧТО назвал размер инвестиций / бюджет (${figure}). Коротко подтверди — например: «Отлично» или «Отлично, ${figure}.» — без канцелярита про память или запись. Сразу спроси ТОЛЬКО следующий недостающий шаг. НИКОГДА не спрашивай снова про бюджет / размер инвестиций.`;
   }
-  if (lang === 'es') {
+  if (code === 'es') {
     return `**MEMORIA DE CONTEXTO (crítico):** El cliente ACABA de indicar el tamaño de inversión/presupuesto (${figure}). Confirma en breve — p. ej. «Perfecto» o «Perfecto, ${figure}.» — sin «anotado / lo guardé». Luego SOLO el siguiente paso. NUNCA vuelvas a preguntar el presupuesto.`;
   }
-  return `**ПАМЯТЬ КОНТЕКСТА (критично):** Клиент ТОЛЬКО ЧТО назвал размер инвестиций / бюджет (${figure}). Коротко подтверди — например: «Отлично» или «Отлично, ${figure}.» — без канцелярита про память или запись. Сразу спроси ТОЛЬКО следующий недостающий шаг. НИКОГДА не спрашивай снова про бюджет / размер инвестиций.`;
+  return `**CONTEXT MEMORY (critical):** Client JUST stated the investment size/budget (${figure}). Confirm briefly — e.g. «Great» or «Great, ${figure}.» — no “I remembered / noted / saved”. Then ask ONLY the next missing step. NEVER ask the budget again. Reply in the dialog language only.`;
 }
 
 function getInvestmentSelectionPreamble(lang) {
-  if (lang === 'en') {
-    return `**Investment selection (price already known):** Budget, timeline and finances are set. Now collect type/region/area only — do NOT re-ask price. Then shortlist.`;
+  const code = normalizeSalesLang(lang);
+  if (code === 'ru') {
+    return `**Подбор для инвестиций (цена уже известна):** Бюджет, срок и финансы собраны. Сейчас только тип/регион/район — цену НЕ переспрашивай. Потом подборка.`;
   }
-  if (lang === 'es') {
+  if (code === 'es') {
     return `**Selección inversión (precio ya conocido):** Presupuesto, plazo y finanzas listos. Ahora solo tipo/región/zona — NO repitas el precio. Luego la selección.`;
   }
-  return `**Подбор для инвестиций (цена уже известна):** Бюджет, срок и финансы собраны. Сейчас только тип/регион/район — цену НЕ переспрашивай. Потом подборка.`;
+  return `**Investment selection (price already known):** Budget, timeline and finances are set. Now collect type/region/area only — do NOT re-ask price. Then shortlist. Reply in the dialog language only.`;
 }
 
 function getEscalationInstruction(lang = 'ru') {
-  if (lang === 'en') {
-    return `**ESCALATION:** The client raised a complaint or a complex specialist topic. Stay calm and empathetic. Do not argue or invent legal promises. Softly offer a 10–15 min call with a specialist/manager. One yes/no question.`;
+  const code = normalizeSalesLang(lang);
+  if (code === 'ru') {
+    return `**ЭСКАЛАЦИЯ:** Клиент с жалобой или сложным запросом к специалисту. Спокойно и с эмпатией. Не спорь и не обещай юридически невозможное. Мягко предложи созвон 10–15 мин со специалистом/менеджером. Один вопрос да/нет.`;
   }
-  if (lang === 'es') {
+  if (code === 'es') {
     return `**ESCALADO:** Hay queja o tema complejo de especialista. Mantén la calma y empatía. No discutas ni inventes promesas legales. Ofrece con suavidad una llamada de 10–15 min con un especialista/manager. Una pregunta sí/no.`;
   }
-  return `**ЭСКАЛАЦИЯ:** Клиент с жалобой или сложным запросом к специалисту. Спокойно и с эмпатией. Не спорь и не обещай юридически невозможное. Мягко предложи созвон 10–15 мин со специалистом/менеджером. Один вопрос да/нет.`;
+  return `**ESCALATION:** The client raised a complaint or a complex specialist topic. Stay calm and empathetic. Do not argue or invent legal promises. Softly offer a 10–15 min call with a specialist/manager. One yes/no question. Reply in the dialog language only.`;
 }
 
 function resolveStageInstruction(stage, dialog) {
@@ -684,7 +721,7 @@ function buildCatalogSearchQuery(history) {
 
 /** Клиент просит подборку без фильтра по цене (оставить район/тип). */
 function wantsIgnoreBudget(text) {
-  return /кроме\s+цен|без\s+(?:учёта|учета|ограничения|лимита)\s+цен|любой\s+цен|любой\s+бюджет|не\s+смотр(?:я|и)\s+на\s+цен|независимо\s+от\s+цен|any\s+price|any\s+budget|regardless\s+of\s+(?:the\s+)?price|without\s+(?:a\s+)?(?:price|budget)\s+limit|ignore\s+(?:the\s+)?(?:price|budget)|sin\s+(?:l[ií]mite\s+de\s+)?(?:precio|presupuesto)|ohne\s+(?:preis|budget)(?:limit)?|beliebiges\s+budget|peu\s+importe\s+le\s+prix|sans\s+limite\s+de\s+prix|n.?importe\s+quel\s+budget/i.test(
+  return /кроме\s+цен|без\s+(?:учёта|учета|ограничения|лимита)\s+цен|любой\s+цен|любой\s+бюджет|не\s+смотр(?:я|и)\s+на\s+цен|независимо\s+от\s+цен|все\s+(?:вилл|апартамент|квартир|вариант|объект).{0,40}(?:есть|имеете|можете)|(?:ещё|еще)\s+(?:вилл|апартамент|вариант).{0,40}(?:есть|у\s+вас)|что\s+(?:ещё|еще)\s+есть|все\s+что\s+есть|покаж(?:и|ите).{0,30}все.{0,20}(?:вилл|апартамент|вариант)|any\s+price|any\s+budget|regardless\s+of\s+(?:the\s+)?price|without\s+(?:a\s+)?(?:price|budget)\s+limit|ignore\s+(?:the\s+)?(?:price|budget)|show\s+(?:me\s+)?all\s+(?:the\s+)?(?:villas?|apartments?|options)|sin\s+(?:l[ií]mite\s+de\s+)?(?:precio|presupuesto)|ohne\s+(?:preis|budget)(?:limit)?|beliebiges\s+budget|peu\s+importe\s+le\s+prix|sans\s+limite\s+de\s+prix|n.?importe\s+quel\s+budget/i.test(
     String(text || '')
   );
 }
@@ -1045,140 +1082,103 @@ function formatBudgetLabel(budget, lang = 'ru') {
 }
 
 function buildDialogMemoryBlock(state, lang = 'ru') {
+  const code = normalizeSalesLang(lang);
+  /** RU / ES / иначе EN (для de/fr/pl/nl — без русской утечки в промпт) */
+  const t = (ru, en, es) => (code === 'ru' ? ru : code === 'es' ? es : en);
+
   const known = [];
   const neverAsk = [];
   if (state.hasPurpose) {
     const purposeLabel =
       state.purposeKind === 'investment'
-        ? lang === 'es'
-          ? 'objetivo: inversión'
-          : lang === 'en'
-            ? 'goal: investment'
-            : 'цель: инвестиции'
-        : lang === 'es'
-          ? 'objetivo: vivir'
-          : lang === 'en'
-            ? 'goal: living'
-            : 'цель: для себя/жизнь';
+        ? t('цель: инвестиции', 'goal: investment', 'objetivo: inversión')
+        : t('цель: для себя/жизнь', 'goal: living', 'objetivo: vivir');
     known.push(purposeLabel);
-    neverAsk.push(lang === 'es' ? 'objetivo' : lang === 'en' ? 'purpose/goal' : 'цель (жизнь/инвестиция)');
+    neverAsk.push(t('цель (жизнь/инвестиция)', 'purpose/goal', 'objetivo'));
   }
   if (state.hasType) {
-    known.push(state.propertyTypeLabel || (lang === 'en' ? 'type' : 'тип'));
-    neverAsk.push(lang === 'es' ? 'tipo de inmueble' : lang === 'en' ? 'property type' : 'тип объекта');
+    known.push(state.propertyTypeLabel || t('тип', 'type', 'tipo'));
+    neverAsk.push(t('тип объекта', 'property type', 'tipo de inmueble'));
   }
   if (state.hasRegion) {
     known.push(state.regionLabel || 'region');
-    neverAsk.push(lang === 'es' ? 'región' : lang === 'en' ? 'region' : 'регион');
+    neverAsk.push(t('регион', 'region', 'región'));
   }
   if (state.hasLocation) {
-    known.push(state.microAreaLabel || (lang === 'en' ? 'area' : 'район'));
-    neverAsk.push(lang === 'es' ? 'zona/área' : lang === 'en' ? 'area/district' : 'район/зона');
+    known.push(state.microAreaLabel || t('район', 'area', 'zona'));
+    neverAsk.push(t('район/зона', 'area/district', 'zona/área'));
   }
   if (state.hasBudget) {
-    const bl = formatBudgetLabel(state.budget, lang);
-    known.push(bl || (lang === 'es' ? 'presupuesto' : lang === 'en' ? 'budget' : 'бюджет'));
+    const bl = formatBudgetLabel(state.budget, code);
+    known.push(bl || t('бюджет', 'budget', 'presupuesto'));
     neverAsk.push(
-      lang === 'es'
-        ? `presupuesto${bl ? ` (${bl})` : ''}`
-        : lang === 'en'
-          ? `budget${bl ? ` (${bl})` : ''}`
-          : `бюджет${bl ? ` (${bl})` : ''}`
+      `${t('бюджет', 'budget', 'presupuesto')}${bl ? ` (${bl})` : ''}`
     );
   }
   if (state.hasTimeline) {
-    known.push(
-      lang === 'es' ? 'plazo' : lang === 'en' ? 'timeline' : 'срок покупки'
-    );
-    neverAsk.push(
-      lang === 'es'
-        ? 'plazo de compra'
-        : lang === 'en'
-          ? 'purchase timeline'
-          : 'срок покупки/инвестиции'
-    );
+    known.push(t('срок покупки', 'timeline', 'plazo'));
+    neverAsk.push(t('срок покупки/инвестиции', 'purchase timeline', 'plazo de compra'));
   }
   if (state.hasFundsNow) {
-    known.push(
-      lang === 'es' ? 'dinero ahora' : lang === 'en' ? 'cash on hand' : 'деньги на руках'
-    );
-    neverAsk.push(
-      lang === 'es'
-        ? 'efectivo disponible'
-        : lang === 'en'
-          ? 'cash available now'
-          : 'деньги сейчас на руках'
-    );
+    known.push(t('деньги на руках', 'cash on hand', 'dinero ahora'));
+    neverAsk.push(t('деньги сейчас на руках', 'cash available now', 'efectivo disponible'));
   }
   if (state.hasMortgageAnswered) {
-    known.push(lang === 'es' ? 'hipoteca' : lang === 'en' ? 'mortgage' : 'ипотека да/нет');
-    neverAsk.push(
-      lang === 'es' ? 'hipoteca sí/no' : lang === 'en' ? 'mortgage yes/no' : 'нужна ли ипотека'
-    );
+    known.push(t('ипотека да/нет', 'mortgage', 'hipoteca'));
+    neverAsk.push(t('нужна ли ипотека', 'mortgage yes/no', 'hipoteca sí/no'));
   }
 
   if (!neverAsk.length) return '';
 
   const locationLock =
     state.hasLocation && state.microAreaLabel
-      ? lang === 'es'
-        ? ` Zona ya indicada: ${state.microAreaLabel} — no preguntes otra zona.`
-        : lang === 'en'
-          ? ` Area already given: ${state.microAreaLabel} — do not ask for another zone.`
-          : lang === 'de'
-            ? ` Zone bereits genannt: ${state.microAreaLabel} — keine andere Zone fragen.`
-            : lang === 'fr'
-              ? ` Zone déjà indiquée: ${state.microAreaLabel} — ne pas redemander la zone.`
-              : lang === 'pl'
-                ? ` Strefa już podana: ${state.microAreaLabel} — nie pytaj o inną strefę.`
-                : lang === 'nl'
-                  ? ` Zone al genoemd: ${state.microAreaLabel} — vraag geen andere zone.`
-                  : ` Район уже указан: ${state.microAreaLabel} — не спрашивай другую зону.`
+      ? {
+          ru: ` Район уже указан: ${state.microAreaLabel} — не спрашивай другую зону.`,
+          es: ` Zona ya indicada: ${state.microAreaLabel} — no preguntes otra zona.`,
+          en: ` Area already given: ${state.microAreaLabel} — do not ask for another zone.`,
+          de: ` Zone bereits genannt: ${state.microAreaLabel} — keine andere Zone fragen.`,
+          fr: ` Zone déjà indiquée: ${state.microAreaLabel} — ne pas redemander la zone.`,
+          pl: ` Strefa już podana: ${state.microAreaLabel} — nie pytaj o inną strefę.`,
+          nl: ` Zone al genoemd: ${state.microAreaLabel} — vraag geen andere zone.`,
+        }[code] || ` Area already given: ${state.microAreaLabel} — do not ask for another zone.`
       : '';
 
   const moreHint = state.wantsMoreLikeThese
-    ? lang === 'es'
-      ? ' El cliente pide más/similares — envía nueva selección YA con estos criterios.'
-      : lang === 'en'
-        ? ' Client wants more/similar options — send a new shortlist NOW using these criteria.'
-        : lang === 'de'
-          ? ' Kunde will mehr/ähnliche — sofort neue Auswahl mit diesen Kriterien.'
-          : lang === 'fr'
-            ? ' Le client veut plus/similaires — nouvelle sélection MAINTENANT avec ces critères.'
-            : lang === 'pl'
-              ? ' Klient prosi o więcej/podobne — od razu nowa selekcja według tych kryteriów.'
-              : lang === 'nl'
-                ? ' Klant wil meer/vergelijkbaar — meteen nieuwe selectie met deze criteria.'
-                : ' Клиент просит ещё/похожие — сразу новая подборка по этим критериям, без вопросов про бюджет/район/тип.'
+    ? {
+        ru: ' Клиент просит ещё/похожие — сразу новая подборка по этим критериям, без вопросов про бюджет/район/тип.',
+        es: ' El cliente pide más/similares — envía nueva selección YA con estos criterios.',
+        en: ' Client wants more/similar options — send a new shortlist NOW using these criteria.',
+        de: ' Kunde will mehr/ähnliche — sofort neue Auswahl mit diesen Kriterien.',
+        fr: ' Le client veut plus/similaires — nouvelle sélection MAINTENANT avec ces critères.',
+        pl: ' Klient prosi o więcej/podobne — od razu nowa selekcja według tych kryteriów.',
+        nl: ' Klant wil meer/vergelijkbaar — meteen nieuwe selectie met deze criteria.',
+      }[code] ||
+      ' Client wants more/similar options — send a new shortlist NOW using these criteria.'
     : '';
 
   const budgetLock = state.hasBudget
-    ? lang === 'es'
-      ? ' El presupuesto está guardado en este chat (y en la base) — NUNCA preguntes de nuevo «¿cuál es su presupuesto?» salvo que el cliente lo cambie.'
-      : lang === 'en'
-        ? ' Budget is stored for this chat (and in DB) — NEVER ask «what is your budget?» again unless the client changes it.'
-        : ' Бюджет сохранён в этом чате (и в БД) — НИКОГДА не спрашивай снова «какой у вас бюджет?», пока клиент сам не изменит цифру.'
+    ? {
+        ru: ' Бюджет сохранён в этом чате (и в БД) — НИКОГДА не спрашивай снова «какой у вас бюджет?», пока клиент сам не изменит цифру.',
+        es: ' El presupuesto está guardado en este chat (y en la base) — NUNCA preguntes de nuevo «¿cuál es su presupuesto?» salvo que el cliente lo cambie.',
+        en: ' Budget is stored for this chat (and in DB) — NEVER ask «what is your budget?» again unless the client changes it.',
+        de: ' Budget ist in diesem Chat gespeichert — NIEMALS erneut nach dem Budget fragen, außer der Kunde ändert es.',
+        fr: ' Le budget est enregistré dans ce chat — NE JAMAIS redemander le budget sauf si le client le change.',
+        pl: ' Budżet zapisany w tym czacie — NIGDY nie pytaj ponownie o budżet, chyba że klient go zmieni.',
+        nl: ' Budget is in deze chat opgeslagen — NOOIT opnieuw naar budget vragen, tenzij de klant het wijzigt.',
+      }[code] ||
+      ' Budget is stored for this chat (and in DB) — NEVER ask «what is your budget?» again unless the client changes it.'
     : '';
 
-  if (lang === 'es') {
-    return `**MEMORIA DEL DIÁLOGO (obligatorio):** Ya sabemos: ${known.join('; ')}. NO vuelvas a preguntar: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Pregunta solo lo que aún falta.`;
-  }
-  if (lang === 'en') {
-    return `**DIALOG MEMORY (mandatory):** Already known: ${known.join('; ')}. Do NOT re-ask: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Ask only for what is still missing.`;
-  }
-  if (lang === 'de') {
-    return `**DIALOGGEDÄCHTNIS (pflicht):** Bereits bekannt: ${known.join('; ')}. NICHT erneut fragen: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Nur fragen, was noch fehlt.`;
-  }
-  if (lang === 'fr') {
-    return `**MÉMOIRE DU DIALOGUE (obligatoire):** Déjà connu: ${known.join('; ')}. NE PAS redemander: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Demander seulement ce qui manque.`;
-  }
-  if (lang === 'pl') {
-    return `**PAMIĘĆ DIALOGU (obowiązkowe):** Już wiadomo: ${known.join('; ')}. NIE pytaj ponownie: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Pytaj tylko o to, czego jeszcze brakuje.`;
-  }
-  if (lang === 'nl') {
-    return `**DIALOOGGEHEUGEN (verplicht):** Al bekend: ${known.join('; ')}. NIET opnieuw vragen: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Vraag alleen wat nog ontbreekt.`;
-  }
-  return `**ПАМЯТЬ ДИАЛОГА (обязательно):** Уже известно: ${known.join('; ')}. НЕ переспрашивай: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Спрашивай только то, чего ещё нет.`;
+  const headers = {
+    ru: `**ПАМЯТЬ ДИАЛОГА (обязательно):** Уже известно: ${known.join('; ')}. НЕ переспрашивай: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Спрашивай только то, чего ещё нет.`,
+    es: `**MEMORIA DEL DIÁLOGO (obligatorio):** Ya sabemos: ${known.join('; ')}. NO vuelvas a preguntar: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Pregunta solo lo que aún falta.`,
+    en: `**DIALOG MEMORY (mandatory):** Already known: ${known.join('; ')}. Do NOT re-ask: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Ask only for what is still missing.`,
+    de: `**DIALOGGEDÄCHTNIS (pflicht):** Bereits bekannt: ${known.join('; ')}. NICHT erneut fragen: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Nur fragen, was noch fehlt.`,
+    fr: `**MÉMOIRE DU DIALOGUE (obligatoire):** Déjà connu: ${known.join('; ')}. NE PAS redemander: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Demander seulement ce qui manque.`,
+    pl: `**PAMIĘĆ DIALOGU (obowiązkowe):** Już wiadomo: ${known.join('; ')}. NIE pytaj ponownie: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Pytaj tylko o to, czego jeszcze brakuje.`,
+    nl: `**DIALOOGGEHEUGEN (verplicht):** Al bekend: ${known.join('; ')}. NIET opnieuw vragen: ${neverAsk.join(', ')}.${locationLock}${budgetLock}${moreHint} Vraag alleen wat nog ontbreekt.`,
+  };
+  return headers[code] || headers.en;
 }
 
 /** @deprecated use parseBudgetNumber — оставлено для совместимости тестов */

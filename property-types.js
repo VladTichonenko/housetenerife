@@ -198,18 +198,42 @@ function getItemPropertyCategories(item) {
     const uniquePrimary = [...new Set(primaries)];
     const compoundInAny = Object.values(labelsByLang).some((cats) => cats.length > 1);
 
+    const urlTitle = [
+      item?.url,
+      item?.urls?.ru,
+      item?.urls?.en,
+      item?.urls?.es,
+      item?.titles?.ru,
+      item?.titles?.en,
+      item?.titles?.es,
+      item?.title
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    // Бизнес/коммерция vs жильё из разных языков — доверяем URL/slug
+    const hasBizLabel = fromLabels.some((c) => c === 'business' || c === 'commercial');
+    const hasResLabel = fromLabels.some((c) => residential.includes(c));
+    if (hasBizLabel && hasResLabel) {
+      const looksBizUrl =
+        /(?:^|\/)(?:business|negocio|ресторан|restoran|бар|bar-|кафе|cafe|отель|otel|hotel|apteka|аптека|паб|pab|jet-sky|arende-avtomobil|компан|lodochn|парк|parking)/i.test(
+          urlTitle
+        ) || /бизнес\s+на\s+продаж|готовы[йи]\s+бизнес|negocio\s+en\s+venta|business\s+for\s+sale/i.test(urlTitle);
+      const looksResUrl =
+        /villa|вилл|apartament|apartamento|квартир|апартамент|dupleks|duplex|piso|chalet|townhouse|таунхаус|penthouse|студи/i.test(
+          urlTitle
+        );
+      if (looksResUrl && !looksBizUrl) {
+        const resOnly = fromLabels.filter((c) => residential.includes(c));
+        return resOnly.length ? resOnly : ['apartments'];
+      }
+      if (looksBizUrl && !looksResUrl) {
+        return fromLabels.filter((c) => c === 'business' || c === 'commercial' || c === 'investment');
+      }
+    }
+
     if (uniquePrimary.length > 1 && !compoundInAny) {
-      const urlTitle = [
-        item?.url,
-        item?.urls?.ru,
-        item?.urls?.en,
-        item?.titles?.ru,
-        item?.titles?.en,
-        item?.title
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
       if (/apartment|apartament|apartamento|piso|flat|квартир|апартамент|wohnung|appartement/i.test(urlTitle)) {
         return ['apartments'];
       }
@@ -234,15 +258,21 @@ function getItemPropertyCategories(item) {
     return fromLabels;
   }
 
-  // Fallback: заголовок + описание (без слова business/commerce в свободном тексте — слишком шумно)
-  const blob = [
+  // Fallback: тип из заголовка/overview; описание — только для жилья (в тексте часто «рядом рестораны»)
+  const titleOverview = [
     item?.title,
     item?.titles?.ru,
     item?.titles?.en,
     item?.titles?.es,
-    item?.description,
-    item?.descriptions?.ru,
     ...collectOverviews(item)
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  const blob = [
+    titleOverview,
+    item?.description,
+    item?.descriptions?.ru
   ]
     .filter(Boolean)
     .join(' ')
@@ -261,11 +291,30 @@ function getItemPropertyCategories(item) {
     add('houses');
   }
   if (/участ[ое]к|\bземл|\bplot\b|\bland\b|terreno|grundstück/i.test(blob)) add('land');
-  if (/ресторан|бар\b|кафе|готовый\s+бизнес|бизнес\s+на\s+продаж|negocio\s+en\s+venta|business\s+for\s+sale/i.test(blob)) {
+  // Бизнес — только явные маркеры в title/overview (не «рестораны рядом» в описании жилья)
+  if (
+    /бизнес\s+на\s+продаж|готовы[йи]\s+бизнес|negocio\s+en\s+venta|business\s+for\s+sale|(?:^|[^\p{L}])(?:ресторан|бар|кафе|отель|hotel|паб|аптека)(?:[^\p{L}]|$)/iu.test(
+      titleOverview
+    )
+  ) {
     add('business');
   }
-  if (/коммерческ|commercial\s+propert|local\s+comercial/i.test(blob)) add('commercial');
-  if (/инвест(?:иционн|ировать)|девелоп|development\s+project/i.test(blob)) add('investment');
+  if (/коммерческ|commercial\s+propert|local\s+comercial/i.test(titleOverview)) add('commercial');
+  if (/инвест(?:иционн|ировать)|девелоп|development\s+project/i.test(titleOverview)) add('investment');
+
+  // Жильё по URL/slug не должно попадать в business из-за шумного overview
+  if (cats.includes('business') || cats.includes('commercial')) {
+    const urlOnly = [item?.url, item?.urls?.ru, item?.urls?.en, item?.urls?.es]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    if (
+      /villa|apartament|dupleks|duplex|квартир|апартамент|chalet|piso-|townhouse/i.test(urlOnly) &&
+      !/restoran|ресторан|bar-|бар-|cafe|кафе|business|negocio|otel|hotel|apteka|pab|паб/i.test(urlOnly)
+    ) {
+      return cats.filter((c) => c !== 'business' && c !== 'commercial');
+    }
+  }
 
   return cats;
 }

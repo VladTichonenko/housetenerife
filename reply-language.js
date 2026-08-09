@@ -82,6 +82,14 @@ const PLACE_NAME_FIXES = [
   ['teneriffa', 'Tenerife'],
 ];
 
+/** Кириллические каноны → латиница для не-русских диалогов */
+const CYR_PLACE_TO_LATIN = {
+  Марбелья: 'Marbella',
+  Ибица: 'Ibiza',
+  Дубай: 'Dubai',
+  Тенерифе: 'Tenerife',
+};
+
 /** Типичный мусор слабых моделей: Error→Арор, Budget→Баджет и т.п. */
 const RU_PHONETIC_FIXES = [
   [new RegExp(`${WB}Арор${WE}`, 'gu'), 'Ошибка'],
@@ -146,24 +154,30 @@ function stripUrlsAndBrands(text) {
  * Чинит искажённые названия районов/городов в ответе бота.
  * (Модель часто «считает» район верно, но пишет с орфографией от себя.)
  */
-function fixPlaceNameSpellings(text) {
+function fixPlaceNameSpellings(text, lang = 'ru') {
   if (!text) return text;
   let s = String(text);
+  const code = normalizeSalesLang(lang);
   for (const [from, to] of PLACE_NAME_FIXES) {
+    let repl = to;
+    if (code !== 'ru' && CYR_PLACE_TO_LATIN[to]) {
+      repl = CYR_PLACE_TO_LATIN[to];
+    } else if (code !== 'ru' && /[а-яё]/i.test(to)) {
+      continue;
+    }
     const re = new RegExp(`${WB}${from}${WE}`, 'giu');
     s = s.replace(re, (match) => {
-      // Сохраняем регистр первой буквы, если оригинал с заглавной
-      if (/^\p{Lu}/u.test(match) && to.length) {
-        return to.charAt(0).toUpperCase() + to.slice(1);
+      if (/^\p{Lu}/u.test(match) && repl.length) {
+        return repl.charAt(0).toUpperCase() + repl.slice(1);
       }
-      return to;
+      return repl;
     });
   }
   return s;
 }
 
 function fixPhoneticTransliterations(text, lang) {
-  let s = fixPlaceNameSpellings(text);
+  let s = fixPlaceNameSpellings(text, lang);
   if (!s || normalizeSalesLang(lang) !== 'ru') return s;
   for (const [re, repl] of RU_PHONETIC_FIXES) {
     s = s.replace(re, repl);
@@ -174,6 +188,13 @@ function fixPhoneticTransliterations(text, lang) {
 function hasPhoneticGarbage(text) {
   return PHONETIC_GARBAGE_RE.test(stripUrlsAndBrands(text));
 }
+
+const EN_MARKER_RE =
+  /\b(got it|looking for|what budget|cash available|mortgage|shortlist|which option|great!|here are|investment size)\b/i;
+const ES_MARKER_RE =
+  /\b(ya\s+s[eé]|buscas|presupuesto|cu[aá]nto|efectivo|hipoteca|contado|encaja|villas?\s+en|perfecto)\b/i;
+const RU_MARKER_RE =
+  /отлично|понял|бюджет|ипотек|апартамент|вилл|подборк|здравствуйте|размер инвестиций/i;
 
 /**
  * Ответ явно не на языке диалога (кириллица vs латиница), с иероглифами или фонетическим мусором.
@@ -187,7 +208,7 @@ function replyMismatchesLanguage(text, lang) {
   if (hasUnexpectedScripts(body)) return true;
 
   const cyr = (body.match(/[а-яё]/gi) || []).length;
-  const lat = (body.match(/[a-z]/gi) || []).length;
+  const lat = (body.match(/[a-zàáâãäåæçèéêëìíîïñòóôõöùúûüýÿœßąćęłńóśźż]/gi) || []).length;
   const letters = cyr + lat;
   if (letters < 12) return false;
 
@@ -195,38 +216,29 @@ function replyMismatchesLanguage(text, lang) {
     if (hasPhoneticGarbage(body)) return true;
     // Ответ почти целиком на латинице при русском диалоге
     if (lat > 40 && cyr / Math.max(letters, 1) < 0.25) return true;
+    // Заметная смесь: много латиницы рядом с кириллицей + английские маркеры
+    if (cyr >= 20 && lat >= 35 && EN_MARKER_RE.test(body)) return true;
     return false;
   }
 
+  // Любой не-русский диалог: кириллица в ответе = смесь / неверный язык
+  if (cyr >= 8 && cyr / Math.max(letters, 1) >= 0.12) return true;
+  if (cyr >= 15) return true;
+  if (RU_MARKER_RE.test(body)) return true;
+
   if (salesLang === 'en') {
-    if (cyr > 25 && lat / Math.max(letters, 1) < 0.35) return true;
-    // Испанский в английском диалоге (Ya sé, presupuesto, hipoteca, ¿…)
-    if (
-      /\b(ya\s+s[eé]|buscas|presupuesto|cu[aá]nto|efectivo|hipoteca|contado|encaja|villas?\s+en)\b/i.test(
-        body
-      ) ||
-      /¿/.test(body)
-    ) {
-      return true;
-    }
+    if (ES_MARKER_RE.test(body) || /¿/.test(body)) return true;
     return false;
   }
 
   if (salesLang === 'es') {
-    if (cyr > 20) return true;
-    // Английский в испанском диалоге
-    if (
-      /\b(got it|looking for|what budget|cash available|mortgage|shortlist|which option)\b/i.test(
-        body
-      )
-    ) {
-      return true;
-    }
+    if (EN_MARKER_RE.test(body)) return true;
     return false;
   }
 
   if (salesLang === 'de' || salesLang === 'fr' || salesLang === 'pl' || salesLang === 'nl') {
-    if (cyr > 20) return true;
+    // Английский/испанский «чужой» слой в DE/FR/PL/NL
+    if (EN_MARKER_RE.test(body) || ES_MARKER_RE.test(body) || /¿/.test(body)) return true;
     return false;
   }
 

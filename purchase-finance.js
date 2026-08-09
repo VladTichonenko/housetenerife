@@ -174,6 +174,12 @@ function detectMortgagePreference(text) {
     /(?:часть\s*(?:\+|и|плюс)|частичн|первый\s+взнос|down\s+payment).{0,25}(?:ипотек|кредит|mortgage|банк)/i.test(
       s
     ) ||
+    /(?:\d{1,2}\s*%).{0,40}(?:ипотек|кредит|mortgage|hipoteca)|(?:ипотек|кредит|mortgage).{0,40}\d{1,2}\s*%/i.test(
+      s
+    ) ||
+    /(?:\d{1,2}\s*%\s*(?:на\s+руках|есть|своими)|(?:на\s+руках|есть)\s*\d{1,2}\s*%).{0,50}(?:ипотек|кредит|mortgage)/i.test(
+      s
+    ) ||
     /(?:ипотек|кредит|mortgage|hipoteca|hypothek|hypotheek)/i.test(s);
 
   if (noMortgage && !yesMortgage) return { answered: true, needsMortgage: false };
@@ -331,7 +337,7 @@ function analyzePurchaseFinance(history, allUserText, lang = 'ru', opts = {}) {
 const FINANCE_STAGE_INSTRUCTIONS = {
   NEED_FUNDS_NOW: `Сейчас этап финансов ДО подборки (или клиент уже выбрал объект). Один вопрос: сколько денег есть *сейчас* на руках — можно ответить «все своими», «часть + ипотека» или сумму в €. Это не общий бюджет поиска. Без длинной лекции. Объекты пока НЕ показывай.`,
 
-  NEED_MORTGAGE: `Сумма/форма оплаты на руках понятна. Один вопрос — нужна ипотека/кредит в Испании или свои средства? Если нужна ипотека — скажи, что House Tenerife помогает с оформлением (банк, документы, NIE, счёт) и предложи коротко разобрать на созвоне; не отправляй клиента «самому в банк» и не рекламируй юристов. Если спрашивают ставки/шаги — mortgage_process + mortgage_lending_official + mortgage_rates_official (Euríbor BdE / Ley 5/2019). Не выдумывай оферту банка. Объекты пока НЕ показывай, если этап до подборки.`,
+  NEED_MORTGAGE: `Сумма/форма оплаты на руках понятна. Один вопрос — нужна ипотека/кредит в Испании или свои средства? Если клиент уже сказал, что берёт ипотеку (в т.ч. «остальное в ипотеку», 80/20) — не переспрашивай «нужна ли»; сразу расскажи, что House Tenerife помогает (NIE, счёт, банк, нотариус, документы) + 2–3 ориентира из spain_mortgage_overview / mortgage_rates_official, затем следующий шаг воронки. Не отправляй «самому в банк» и не рекламируй юристов. Не выдумывай оферту банка. Объекты пока НЕ показывай, если этап до подборки.`,
 
   FINANCE_DOCUMENTS: `Клиенту нужна ипотека/кредит. Если ещё не объяснял процесс — 5–7 шагов из mortgage_process (нумерованный список) + при необходимости FEIN/FiAE из mortgage_lending_official. Затем кратко документы из purchase_documents (mortgage_purchase_typical): NIE, паспорт, справка о доходах, выписка, одобрение банка. Один вопрос: есть ли справка о доходах. House Tenerife — сопровождение ипотеки (пакет €3 000). Без ставок «от юриста», без имён адвокатов и без гарантий одобрения.`,
 
@@ -348,16 +354,88 @@ const MORTGAGE_STEPS_INSTRUCTION = `Клиент спрашивает про и�
 5) По сайту: нерезиденты часто до ~70% LTV, резиденты ЕС до ~80%; комиссия открытия часто ~1,5–2% (ориентиры housetenerife.eu).
 6) В конце — один вопрос (NIE/счёт, взнос, справка о доходах) ИЛИ мягкий созвон 10–15 мин по ипотеке.`;
 
+/** Клиент только что сказал, что берёт ипотеку (в т.ч. «80/20», «остальное в ипотеку») — вплести помощь HT + ориентиры. */
+const MORTGAGE_CONFIRMED_PITCH_INSTRUCTION = `Клиент подтвердил ипотеку/кредит (часть суммы своими, остальное в ипотеку, или доля вроде 80%/20%). В ЭТОМ ответе *до* следующего вопроса воронки обязательно:
+1) Скажи, что House Tenerife как раз помогает со всем этим: NIE, испанский банковский счёт, пакет документов, подбор банка, предодобрение, оценка (tasación), подготовка к нотариусу (escritura) — в полном сопровождении (€3 000). Не отправляй клиента «самому в банк» и не рекламируй сторонних юристов.
+2) Дай коротко ситуацию по кредитам/ипотеке в Испании из базы (2–4 факта): LTV нерезиденты часто до ~70%, резиденты ЕС до ~80%; Euríbor 12 мес. и средний тип из mortgage_rates_official + оговорка «финальная ставка у банка»; FEIN минимум за 10 дней и визит к нотариусу по Ley 5/2019; доп. расходы с ипотекой ориентир ~8,7% (poryadok-sdelki на housetenerife.eu).
+3) Потом *один* следующий вопрос текущего этапа (тип / регион / район). Объекты и ссылки — только если этап уже SHOW_LISTINGS.`;
+
 function getFinanceStageInstruction(financeStage, lang = 'ru') {
   const localized = getLocalizedFinanceInstruction(lang, financeStage);
   if (localized) return localized;
+  const code = String(lang || 'ru').toLowerCase().slice(0, 2);
+  if (code !== 'ru') {
+    const en = getLocalizedFinanceInstruction('en', financeStage);
+    if (en) return en;
+  }
   return FINANCE_STAGE_INSTRUCTIONS[financeStage] || '';
 }
 
 function getMortgageStepsInstruction(lang = 'ru') {
   const localized = getLocalizedMortgageSteps(lang);
   if (localized) return localized;
+  const code = String(lang || 'ru').toLowerCase().slice(0, 2);
+  // Не-русский без пака — EN, не RU (иначе модель смешивает языки)
+  if (code !== 'ru') {
+    return getLocalizedMortgageSteps('en') || MORTGAGE_STEPS_INSTRUCTION;
+  }
   return MORTGAGE_STEPS_INSTRUCTION;
+}
+
+function lastMessageConfirmsMortgage(text) {
+  const s = String(text || '').toLowerCase();
+  if (!s.trim()) return false;
+  return (
+    /(?:ипотек|кредит|mortgage|hipoteca|hypothek|hypotheek|cr[eé]dit|pr[eê]t|kredyt)/i.test(s) ||
+    /(?:\d{1,2}\s*%).{0,40}(?:ипотек|кредит|mortgage|hipoteca|hypothek)|(?:ипотек|кредит|mortgage|hipoteca).{0,40}\d{1,2}\s*%/i.test(
+      s
+    ) ||
+    /(?:остальн(?:ое|ые)|часть|rest|remaining|parte|resto).{0,25}(?:в\s+)?(?:ипотек|кредит|mortgage|hipoteca|hypothek)/i.test(
+      s
+    )
+  );
+}
+
+const MORTGAGE_CONFIRMED_PITCH_BY_LANG = {
+  ru: MORTGAGE_CONFIRMED_PITCH_INSTRUCTION,
+  en: `The client confirmed they will use a mortgage/loan (part cash + mortgage, or a split like 80%/20%). In THIS reply *before* the next funnel question you MUST:
+1) Say House Tenerife helps with the full path: NIE, Spanish bank account, document pack, bank matching, pre-approval, valuation, notary prep — in the full support package (€3,000). Do not send them “to any bank alone” or advertise outside lawyers.
+2) Give 2–4 Spain mortgage facts from the knowledge base: non-residents often ~70% LTV / EU residents ~80%; Euríbor 12m + BdE average from mortgage_rates_official with “final rate is the bank’s”; FEIN 10 days + notary step per Ley 5/2019; extra costs with mortgage ~8.7% (housetenerife.eu deal process).
+3) Then one next-stage question (type/region/area). Listings only if stage is already SHOW_LISTINGS.
+Reply language: English only — no Russian mixed in.`,
+  es: `El cliente confirmó hipoteca/crédito (parte en efectivo + hipoteca, o un reparto tipo 80%/20%). En ESTA respuesta *antes* de la siguiente pregunta del embudo DEBES:
+1) Decir que House Tenerife ayuda con todo: NIE, cuenta en España, documentos, banco, preaprobación, tasación, notario — en el paquete de acompañamiento (€3.000). No lo envíes “solo al banco” ni anuncies abogados externos.
+2) Dar 2–4 datos de hipoteca en España de la base: no residentes ~70% LTV / residentes UE ~80%; Euríbor 12m + media BdE de mortgage_rates_official con “tipo final del banco”; FEIN 10 días + notario (Ley 5/2019); gastos extra con hipoteca ~8,7% (housetenerife.eu).
+3) Luego una sola pregunta de la etapa (tipo/región/zona). Fichas solo si la etapa ya es SHOW_LISTINGS.
+Idioma: solo español — sin mezclar ruso ni inglés.`,
+  de: `Der Kunde bestätigt eine Hypothek/einen Kredit (Teil bar + Hypothek, z. B. 80%/20%). In DIESER Antwort *vor* der nächsten Trichterfrage MUSST du:
+1) Sagen, dass House Tenerife genau dabei hilft: NIE, spanisches Konto, Unterlagen, Bankauswahl, Vorabgenehmigung, Bewertung (tasación), Notar — im Begleitpaket (€3.000). Nicht „allein zur Bank“ schicken, keine Fremdanwälte bewerben.
+2) 2–4 Fakten zur Hypothek in Spanien aus der Wissensbasis: Nicht-Residenten oft ~70% LTV / EU-Residenten ~80%; Euríbor 12M + BdE-Durchschnitt aus mortgage_rates_official mit „Endzins bestimmt die Bank“; FEIN 10 Tage + Notar laut Ley 5/2019; Mehrkosten mit Hypothek ~8,7% (housetenerife.eu).
+3) Dann eine Frage der aktuellen Stufe (Typ/Region/Zone). Objekte nur bei SHOW_LISTINGS.
+Antwortsprache: nur Deutsch — kein Russisch/Englisch mischen.`,
+  fr: `Le client confirme une hypothèque/un crédit (partie cash + hypothèque, ex. 80%/20%). Dans CETTE réponse *avant* la question suivante du tunnel tu DOIS:
+1) Dire que House Tenerife aide justement: NIE, compte espagnol, dossier, banque, préaccord, évaluation, notaire — pack accompagnement (€3.000). Ne pas l’envoyer « seul à la banque », pas d’avocats externes.
+2) 2–4 faits hypothèque Espagne depuis la base: non-résidents ~70% LTV / résidents UE ~80%; Euríbor 12m + moyenne BdE (mortgage_rates_official) + « taux final = banque »; FEIN 10 jours + notaire (Ley 5/2019); frais extra avec hypothèque ~8,7% (housetenerife.eu).
+3) Puis une question d’étape (type/région/zone). Fiches seulement si SHOW_LISTINGS.
+Langue: français uniquement — sans mélanger russe/anglais.`,
+  pl: `Klient potwierdził hipotekę/kredyt (część gotówką + hipoteka, np. 80%/20%). W TEJ odpowiedzi *przed* następnym pytaniem lejka MUSISZ:
+1) Powiedzieć, że House Tenerife właśnie w tym pomaga: NIE, konto w Hiszpanii, dokumenty, bank, wstępna zgoda, wycena, notariusz — pakiet towarzyszenia (€3.000). Nie wysyłaj „sam do banku”, nie reklamuj obcych prawników.
+2) 2–4 fakty o hipotece w Hiszpanii z bazy: nierezydenci ~70% LTV / rezydenci UE ~80%; Euríbor 12m + średnia BdE z mortgage_rates_official + „ostateczna stopa u banku”; FEIN 10 dni + notariusz (Ley 5/2019); koszty dodatkowe z hipoteką ~8,7% (housetenerife.eu).
+3) Potem jedno pytanie etapu (typ/region/strefa). Oferty tylko przy SHOW_LISTINGS.
+Język: tylko polski — bez mieszania rosyjskiego/angielskiego.`,
+  nl: `De klant bevestigt een hypotheek/krediet (deels cash + hypotheek, bv. 80%/20%). In DIT antwoord *vóór* de volgende trechtervraag MOET je:
+1) Zeggen dat House Tenerife precies hierbij helpt: NIE, Spaanse rekening, documenten, bank, voorgoedkeuring, taxatie, notaris — begeleidingspakket (€3.000). Niet “alleen naar de bank” sturen, geen externe advocaten adverteren.
+2) 2–4 feiten over hypotheek in Spanje uit de kennisbank: niet-ingezetenen ~70% LTV / EU-ingezetenen ~80%; Euríbor 12m + BdE-gemiddelde uit mortgage_rates_official + “eindrente bij de bank”; FEIN 10 dagen + notaris (Ley 5/2019); extra kosten met hypotheek ~8,7% (housetenerife.eu).
+3) Daarna één vraag van de fase (type/regio/zone). Objecten alleen bij SHOW_LISTINGS.
+Taal: alleen Nederlands — geen Russisch/Engels mengen.`
+};
+
+function getMortgageConfirmedPitchInstruction(lang = 'ru') {
+  const code = String(lang || 'ru').toLowerCase().slice(0, 2);
+  return (
+    MORTGAGE_CONFIRMED_PITCH_BY_LANG[code] ||
+    MORTGAGE_CONFIRMED_PITCH_BY_LANG.en
+  );
 }
 
 function formatFinanceSummaryForPrompt(finance, lang = 'ru') {
@@ -365,6 +443,40 @@ function formatFinanceSummaryForPrompt(finance, lang = 'ru') {
   if (localized) return localized;
   if (!finance.hasPropertyInterest && !finance.hasFundsNow && !finance.hasMortgageAnswered) {
     return '';
+  }
+
+  const code = String(lang || 'ru').toLowerCase().slice(0, 2);
+  // Не-русский без пака — EN, не RU
+  if (code !== 'ru') {
+    const enSummary = formatLocalizedFinanceSummary('en', finance);
+    if (enSummary) return enSummary;
+    const funds = finance.hasFundsNow ? finance.fundsNowLabel || 'yes' : 'still ask';
+    const mort = !finance.hasMortgageAnswered
+      ? 'unclear — ask'
+      : finance.needsMortgage
+        ? 'yes, needed'
+        : finance.needsMortgage === false
+          ? 'no, own funds'
+          : 'clarify';
+    const lines = [
+      finance.hasPropertyInterest
+        ? '**FINANCE / SPECIFIC PROPERTY:**'
+        : '**FINANCE BEFORE SHORTLIST:**',
+      `- Cash on hand now: ${funds}`,
+      `- Mortgage/loan: ${mort}`,
+    ];
+    if (finance.hasPropertyInterest) {
+      lines.push(
+        `- Documents/income proof: ${
+          finance.documentsDiscussed
+            ? 'discussed'
+            : finance.needsMortgage
+              ? 'briefly explain and ask about income certificate'
+              : 'short cash-purchase checklist'
+        }`
+      );
+    }
+    return lines.join('\n');
   }
 
   const lines = [
@@ -405,9 +517,12 @@ module.exports = {
   detectMortgagePreference,
   detectMortgageStepsQuestion,
   detectDocumentsDiscussed,
+  lastMessageConfirmsMortgage,
   getFinanceStageInstruction,
   getMortgageStepsInstruction,
+  getMortgageConfirmedPitchInstruction,
   formatFinanceSummaryForPrompt,
   FINANCE_STAGE_INSTRUCTIONS,
-  MORTGAGE_STEPS_INSTRUCTION
+  MORTGAGE_STEPS_INSTRUCTION,
+  MORTGAGE_CONFIRMED_PITCH_INSTRUCTION
 };
