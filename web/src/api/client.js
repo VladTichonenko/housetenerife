@@ -162,4 +162,19 @@ export const api = {
     request(`/api/admin/handoffs/${encodeURIComponent(id)}/assign`, { method: 'PUT', body: '{}' }),
   closeHandoff: (id) =>
     request(`/api/admin/handoffs/${encodeURIComponent(id)}/close`, { method: 'PUT', body: '{}' }),
+  getPurchaseRequests: ({ page = 1, limit = 24, q = '', filter = 'open' } = {}) => {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+      filter,
+    });
+    if (q) params.set('q', q);
+    return request(`/api/admin/purchase-requests?${params}`);
+  },
+  getPurchaseRequest: (id) => request(`/api/admin/purchase-requests/${encodeURIComponent(id)}`),
+  closePurchaseRequest: (id) =>
+    request(`/api/admin/purchase-requests/${encodeURIComponent(id)}/close`, {
+      method: 'PUT',
+      body: '{}',
+    }),
 };

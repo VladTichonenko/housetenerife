@@ -3,6 +3,11 @@ const { getBotConfig, saveBotConfig } = require('./bot-config');
 const { getKnowledgeBase, saveKnowledgeBase } = require('./knowledge-base');
 const { listProperties } = require('./property-catalog');
 const { listHandoffs, getHandoff, assignHandoff, closeHandoff } = require('./handoff-leads');
+const {
+  listPurchaseRequests,
+  getPurchaseRequest,
+  closePurchaseRequest,
+} = require('./purchase-requests');
 const { listClients, getClient } = require('./clients-store');
 const { getDbStats, DB_PATH } = require('./db');
 const {
@@ -19,6 +24,10 @@ const {
 } = require('./conversation-store');
 const { getChatSettings, setAiDisabled } = require('./chat-settings');
 const { getInterestedProperties } = require('./property-interest');
+const {
+  getMortgageData,
+  syncMortgageData,
+} = require('./bank-mortgage-data');
 
 function requireAdmin(req, res, next) {
   const auth = req.headers.authorization || '';
@@ -383,6 +392,47 @@ function registerAdminRoutes(app, state) {
     }
   });
 
+  app.get('/api/admin/purchase-requests', requireAdmin, (req, res) => {
+    try {
+      const result = listPurchaseRequests({
+        page: req.query.page,
+        limit: req.query.limit,
+        q: req.query.q,
+        filter: req.query.filter || 'open',
+      });
+      res.json({ success: true, ...result });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/admin/purchase-requests/:id', requireAdmin, (req, res) => {
+    try {
+      const item = getPurchaseRequest(req.params.id);
+      if (!item) {
+        return res.status(404).json({ success: false, message: 'Заявка не найдена' });
+      }
+      res.json({ success: true, item });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.put('/api/admin/purchase-requests/:id/close', requireAdmin, (req, res) => {
+    try {
+      const item = closePurchaseRequest(req.params.id, {
+        id: req.managerSession.managerId,
+        name: req.managerSession.managerName,
+      });
+      if (!item) {
+        return res.status(404).json({ success: false, message: 'Заявка не найдена' });
+      }
+      res.json({ success: true, item });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
   app.put('/api/admin/knowledge', requireAdmin, (req, res) => {
     try {
       const knowledge = saveKnowledgeBase(req.body?.knowledge ?? req.body);
@@ -394,6 +444,29 @@ function registerAdminRoutes(app, state) {
       });
     } catch (e) {
       res.status(400).json({ success: false, message: e.message });
+    }
+  });
+
+  app.get('/api/admin/mortgage-rates', requireAdmin, (req, res) => {
+    try {
+      const data = getMortgageData();
+      res.json({ success: true, data });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.post('/api/admin/mortgage-rates/sync', requireAdmin, async (req, res) => {
+    try {
+      const force = Boolean(req.body?.force);
+      const result = await syncMortgageData({ force });
+      res.json({
+        success: true,
+        skipped: Boolean(result.skipped),
+        data: result.data || getMortgageData(),
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
     }
   });
 }

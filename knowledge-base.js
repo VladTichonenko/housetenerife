@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { formatMortgageLiveBlock } = require('./bank-mortgage-data');
 
 const KNOWLEDGE_PATH =
   process.env.KNOWLEDGE_PATH || path.join(__dirname, 'consultant-knowledge.json');
@@ -115,6 +116,7 @@ function getScenarioPriorities(scenario, query) {
     add('spain_mortgage_overview', 27);
     add('mortgage_lending_official', 26);
     add('mortgage_rates_official', 22);
+    add('bank_mortgage_live', 25);
     add('purchase_documents', 24);
     add('company_services', 12);
     add('topics', 8);
@@ -141,6 +143,7 @@ function getScenarioPriorities(scenario, query) {
     add('spain_mortgage_overview', 31);
     add('mortgage_lending_official', 30);
     add('mortgage_rates_official', 28);
+    add('bank_mortgage_live', 29);
     add('purchase_documents', 25);
     add('company_services', 14);
     add('official_sources', 16);
@@ -221,6 +224,13 @@ function selectRelevantKnowledge(kb, options = {}) {
     .slice(0, 2)
     .map((entry) => entry.article);
   if (articleMatches.length) selected.custom_articles = articleMatches;
+
+  const wantsMortgageLive =
+    scenario === 'mortgage_docs' ||
+    /ипотек|кредит|mortgage|hipoteca|eur[ií]bor|ставк|tae|tin/i.test(query);
+  if (wantsMortgageLive) {
+    selected.bank_mortgage_live = formatMortgageLiveBlock(options.language);
+  }
 
   return selected;
 }

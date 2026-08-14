@@ -119,6 +119,15 @@ async function recordHandoff(payload) {
   saveStore(store);
   console.log(`📋 Лид handoff сохранён: ${phone} (${reasonKey}) → ${HANDOFF_PATH}`);
 
+  if (reasonKey === 'purchase' && chatId) {
+    try {
+      const { linkHandoffToPurchaseRequest } = require('./purchase-requests');
+      linkHandoffToPurchaseRequest(chatId, id);
+    } catch (e) {
+      console.warn('⚠️ linkHandoffToPurchaseRequest:', e.message);
+    }
+  }
+
   try {
     const { notifyHandoffLead } = require('./telegram-notify');
     notifyHandoffLead(item);

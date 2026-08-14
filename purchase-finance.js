@@ -35,15 +35,31 @@ function detectPropertyInterest(history, allUserText) {
   const lower = String(allUserText || '').toLowerCase();
   const userMsgs = (history || []).filter((m) => m.sender === 'user');
   const assistantMsgs = (history || []).filter((m) => m.sender !== 'user');
+  const lastUser = String(userMsgs[userMsgs.length - 1]?.text || '').toLowerCase().trim();
 
   const listingsShown = assistantMsgs.some((m) => /housetenerife\.eu/i.test(m.text || ''));
   const userTurns = userMsgs.length;
 
+  const ordinalOnly =
+    listingsShown &&
+    /^(?:\s*(?:да\s+)?(?:перв(?:ый|ая|ое)?|1-?й|втор(?:ой|ая|ое)?|2-?й|трет(?:ий|ья|ье)?|3-?й|четв[её]рт(?:ый|ая|ое)?|4-?й|пят(?:ый|ая|ое)?|5-?й|first|second|third|fourth|fifth|1st|2nd|3rd|primera?|segunda?|tercera?)|(?:номер\s*)?[1-5])\s*[.!]?$/i.test(
+      lastUser
+    );
+
+  const shortPick =
+    listingsShown &&
+    /^(?:этот|эта|это|this\s+one|este|esta)$/i.test(lastUser);
+
   const pickedObject =
+    ordinalOnly ||
+    shortPick ||
     /(?:вариант|объект|квартир|вилл|апартамент)\s*(?:№\s*)?[12345]|(?:первый|второй|третий|четвёрт|пятый)\s+вариант/i.test(
       lower
     ) ||
-    /(?:этот|эту|это)\s+(?:объект|вариант|квартир|вилл)/i.test(lower) ||
+    /(?:перв(?:ый|ая|ое)?|1-?й|втор(?:ой|ая|ое)?|2-?й|трет(?:ий|ья|ье)?|3-?й)\s+(?:подходит|нрав|бер|выбира|интерес)/i.test(
+      lower
+    ) ||
+    /(?:этот|эту|это)\s+(?:объект|вариант|квартир|вилл|нрав|подходит|бер)/i.test(lower) ||
     /(?:option|listing|property|apartment|villa)\s*(?:#|no\.?|number)?\s*[12345]/i.test(lower) ||
     /(?:the\s+)?(?:first|second|third|fourth|fifth)\s+(?:one|option|listing|property)/i.test(lower) ||
     /(?:opción|ficha|propiedad|apartamento|villa)\s*(?:#|n[ºo]\.?)?\s*[12345]/i.test(lower) ||
@@ -69,7 +85,7 @@ function detectPropertyInterest(history, allUserText) {
     /(?:cómo\s+comprar|siguiente\s+paso|qué\s+sigue)/i.test(lower);
 
   if (pickedObject) return true;
-  if (listingsShown && strongInterest && userTurns >= 2) return true;
+  if (listingsShown && strongInterest) return true;
   if (
     listingsShown &&
     /(?:какой|какая).{0,15}(?:ближе|подходит)|этот\s+подходит|which\s+one.{0,20}(?:closest|best)|this\s+one\s+fits|cuál.{0,20}(?:encaja|mejor)/i.test(
@@ -293,12 +309,34 @@ function analyzePurchaseFinance(history, allUserText, lang = 'ru', opts = {}) {
   const hasPropertyInterest = detectPropertyInterest(history, text);
   const requireBeforeListings = Boolean(opts.requireBeforeListings);
 
-  // До подборки — смотрим всю переписку; после интереса к объекту — scoped после ссылок
-  const capabilitySource =
-    requireBeforeListings || !hasPropertyInterest ? text : scopedText || text;
-  const capability = analyzeFinanceCapability(capabilitySource, {
-    lastUserMessage: lastUser,
-  });
+  const fullCapability = analyzeFinanceCapability(text, { lastUserMessage: lastUser });
+  let capability;
+  if (hasPropertyInterest && !requireBeforeListings) {
+    const scopedCapability = analyzeFinanceCapability(scopedText || lastUser, {
+      lastUserMessage: lastUser,
+    });
+    capability = {
+      hasFundsNow: scopedCapability.hasFundsNow || fullCapability.hasFundsNow,
+      fundsNow:
+        scopedCapability.hasFundsNow && scopedCapability.fundsNow != null
+          ? scopedCapability.fundsNow
+          : fullCapability.fundsNow,
+      fundsNowLabel: scopedCapability.hasFundsNow
+        ? scopedCapability.fundsNowLabel
+        : fullCapability.fundsNowLabel,
+      hasMortgageAnswered:
+        scopedCapability.hasMortgageAnswered || fullCapability.hasMortgageAnswered,
+      needsMortgage: scopedCapability.hasMortgageAnswered
+        ? scopedCapability.needsMortgage
+        : fullCapability.needsMortgage,
+    };
+  } else {
+    const capabilitySource =
+      requireBeforeListings || !hasPropertyInterest ? text : scopedText || text;
+    capability = analyzeFinanceCapability(capabilitySource, {
+      lastUserMessage: lastUser,
+    });
+  }
 
   const {
     hasFundsNow,
@@ -337,27 +375,35 @@ function analyzePurchaseFinance(history, allUserText, lang = 'ru', opts = {}) {
 const FINANCE_STAGE_INSTRUCTIONS = {
   NEED_FUNDS_NOW: `Сейчас этап финансов ДО подборки (или клиент уже выбрал объект). Один вопрос: сколько денег есть *сейчас* на руках — можно ответить «все своими», «часть + ипотека» или сумму в €. Это не общий бюджет поиска. Без длинной лекции. Объекты пока НЕ показывай.`,
 
-  NEED_MORTGAGE: `Сумма/форма оплаты на руках понятна. Один вопрос — нужна ипотека/кредит в Испании или свои средства? Если клиент уже сказал, что берёт ипотеку (в т.ч. «остальное в ипотеку», 80/20) — не переспрашивай «нужна ли»; сразу расскажи, что House Tenerife помогает (NIE, счёт, банк, нотариус, документы) + 2–3 ориентира из spain_mortgage_overview / mortgage_rates_official, затем следующий шаг воронки. Не отправляй «самому в банк» и не рекламируй юристов. Не выдумывай оферту банка. Объекты пока НЕ показывай, если этап до подборки.`,
+  NEED_MORTGAGE: `Сумма/форма оплаты на руках понятна. Один вопрос — нужна ипотека/кредит в Испании или свои средства? Если клиент уже сказал, что берёт ипотеку (в т.ч. «остальное в ипотеку», 80/20) — не переспрашивай «нужна ли»; сразу расскажи, что House Tenerife помогает (NIE, счёт, банк, нотариус, документы) + 2–3 ориентира из bank_mortgage_live / spain_mortgage_overview / mortgage_rates_official, затем следующий шаг воронки. Не отправляй «самому в банк» и не рекламируй юристов. Не выдумывай оферту банка. Объекты пока НЕ показывай, если этап до подборки.`,
 
   FINANCE_DOCUMENTS: `Клиенту нужна ипотека/кредит. Если ещё не объяснял процесс — 5–7 шагов из mortgage_process (нумерованный список) + при необходимости FEIN/FiAE из mortgage_lending_official. Затем кратко документы из purchase_documents (mortgage_purchase_typical): NIE, паспорт, справка о доходах, выписка, одобрение банка. Один вопрос: есть ли справка о доходах. House Tenerife — сопровождение ипотеки (пакет €3 000). Без ставок «от юриста», без имён адвокатов и без гарантий одобрения.`,
 
   FINANCE_DOCUMENTS_CASH: `Покупка своими средствами (без ипотеки). Кратко (3–5 пунктов) из purchase_documents (cash_purchase_typical): паспорт, NIE, счёт в Испании, подтверждение происхождения средств, этапы arras/escritura. Справку о доходах не требуй — только если клиент сам спросит про кредит. Один вопрос: готовы ли документы или нужен чек-лист от менеджера.`,
 
-  PROPERTY_CLOSING: `Финансы по объекту ясны. Коротко резюмируй: объект, сумма на руках, ипотека да/нет. Предложи созвон с менеджером для просмотра и расчёта сделки — один вопрос да/нет. Или ответь на последний вопрос клиента по документам.`
+  PROPERTY_CLOSING: `Финансы по объекту ясны. Коротко резюмируй: объект, сумма на руках, ипотека да/нет. Предложи созвон с менеджером для просмотра и расчёта сделки — один вопрос да/нет. Или ответь на последний вопрос клиента по документам.`,
+
+  PROPERTY_SELECTED: `Клиент выбрал конкретный объект из подборки. ОБЯЗАТЕЛЬНО:
+1) Коротко подтверди выбор — назови объект (название/ID из блока «интерес к объектам» или последней подборки), цену если есть.
+2) Не показывай новую подборку и не предлагай другие варианты.
+3) Если финансы уже известны из воронки (деньги на руках + ипотека) — не переспрашивай, переходи к документам или созвону.
+4) Если финансы по объекту ещё не ясны — один вопрос: сколько денег *сейчас* на руках (все своими / часть + ипотека / сумма в €).
+5) В конце мягко намекни, что дальше — просмотр и оформление заявки с менеджером.
+Тон WhatsApp, 3–6 строк, один вопрос.`,
 };
 
 const MORTGAGE_STEPS_INSTRUCTION = `Клиент спрашивает про ипотеку/кредит в Испании. 
 1) Скажи, что *House Tenerife помогает с оформлением ипотеки* (NIE, счёт, пакет документов, подбор банка, оценка) в пакете сопровождения €3 000 — не нужно уходить оформлять самому «на стороне» и не рекламируй сторонних юристов.
-2) Дай *основные шаги* из mortgage_process (5–7 пунктов, 1. … 2. …). При вопросе про закон/FEIN — добавь 1–2 факта из mortgage_lending_official (BdE / Ley 5/2019).
-3) По ставкам: опирайся на mortgage_rates_official (Euríbor 12 мес. и средний тип BdE за указанный месяц) + оговорка «финальная ставка — у банка». Можно кратко сослаться на Banco de España. Не выдумывай оферту конкретного банка и не гарантируй одобрение.
-4) Источники правды: Banco de España Cliente Bancario, BOE Ley 5/2019, база HT. ЗАПРЕЩЕНО цитировать адвокатов, юрфирмы и их рекламные гайды.
-5) По сайту: нерезиденты часто до ~70% LTV, резиденты ЕС до ~80%; комиссия открытия часто ~1,5–2% (ориентиры housetenerife.eu).
+2) Дай *текущую ситуацию по ипотекам* из bank_mortgage_live: официальный Euríbor/BdE + ориентиры **Santander, CaixaBank и BBVA** с их сайтов (TAE/TIN, Euríbor+маржа). Цифры — только из блока, с оговоркой «не оферта, финальная ставка у банка».
+3) Дай *основные шаги* из mortgage_process (5–7 пунктов, 1. … 2. …). При вопросе про закон/FEIN — добавь 1–2 факта из mortgage_lending_official (BdE / Ley 5/2019).
+4) Источники правды: Banco de España Cliente Bancario, BOE Ley 5/2019, официальные сайты банков, база HT. ЗАПРЕЩЕНО цитировать адвокатов, юрфирмы и их рекламные гайды.
+5) По сайту HT: нерезиденты часто до ~70% LTV, резиденты ЕС до ~80%; комиссия открытия часто ~1,5–2% (ориентиры housetenerife.eu).
 6) В конце — один вопрос (NIE/счёт, взнос, справка о доходах) ИЛИ мягкий созвон 10–15 мин по ипотеке.`;
 
 /** Клиент только что сказал, что берёт ипотеку (в т.ч. «80/20», «остальное в ипотеку») — вплести помощь HT + ориентиры. */
 const MORTGAGE_CONFIRMED_PITCH_INSTRUCTION = `Клиент подтвердил ипотеку/кредит (часть суммы своими, остальное в ипотеку, или доля вроде 80%/20%). В ЭТОМ ответе *до* следующего вопроса воронки обязательно:
 1) Скажи, что House Tenerife как раз помогает со всем этим: NIE, испанский банковский счёт, пакет документов, подбор банка, предодобрение, оценка (tasación), подготовка к нотариусу (escritura) — в полном сопровождении (€3 000). Не отправляй клиента «самому в банк» и не рекламируй сторонних юристов.
-2) Дай коротко ситуацию по кредитам/ипотеке в Испании из базы (2–4 факта): LTV нерезиденты часто до ~70%, резиденты ЕС до ~80%; Euríbor 12 мес. и средний тип из mortgage_rates_official + оговорка «финальная ставка у банка»; FEIN минимум за 10 дней и визит к нотариусу по Ley 5/2019; доп. расходы с ипотекой ориентир ~8,7% (poryadok-sdelki на housetenerife.eu).
+2) Дай коротко *текущую ситуацию по ипотекам* из bank_mortgage_live (2–4 факта): официальный Euríbor 12 мес.; ориентиры **Santander, CaixaBank и BBVA** (TAE, Euríbor+маржа); LTV нерезиденты часто до ~70%, резиденты ЕС до ~80%; FEIN минимум за 10 дней и визит к нотариусу по Ley 5/2019; доп. расходы с ипотекой ориентир ~8,7% (poryadok-sdelki на housetenerife.eu). Всегда оговорка «финальная ставка и одобрение — у банка».
 3) Потом *один* следующий вопрос текущего этапа (тип / регион / район). Объекты и ссылки — только если этап уже SHOW_LISTINGS.`;
 
 function getFinanceStageInstruction(financeStage, lang = 'ru') {
@@ -508,6 +554,10 @@ function formatFinanceSummaryForPrompt(finance, lang = 'ru') {
   return lines.join('\n');
 }
 
+function getPropertySelectedStageInstruction(lang = 'ru') {
+  return getFinanceStageInstruction('PROPERTY_SELECTED', lang);
+}
+
 module.exports = {
   analyzePurchaseFinance,
   analyzeFinanceCapability,
@@ -522,6 +572,7 @@ module.exports = {
   getMortgageStepsInstruction,
   getMortgageConfirmedPitchInstruction,
   formatFinanceSummaryForPrompt,
+  getPropertySelectedStageInstruction,
   FINANCE_STAGE_INSTRUCTIONS,
   MORTGAGE_STEPS_INSTRUCTION,
   MORTGAGE_CONFIRMED_PITCH_INSTRUCTION

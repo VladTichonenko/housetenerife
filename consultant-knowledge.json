@@ -114,7 +114,7 @@
     "never_do": [
       "Не отправляй клиента оформлять ипотеку самостоятельно «в любой банк» без предложения помощи House Tenerife",
       "Не гарантируй одобрение, точную ставку конкретного банка или срок одобрения",
-      "Не выдумывай ставки банков — только официальный Euríbor/средние из mortgage_rates_official + оговорка",
+      "Не выдумывай ставки банков — используй bank_mortgage_live (актуальные данные с сайтов банков + Euríbor BdE) и mortgage_rates_official + оговорка",
       "Не упоминай имена конкретных юристов / адвокатских бюро и не вставляй их рекламу",
       "Не бери факты по кредитованию из блогов/сайтов адвокатов — только BdE, BOE, база HT",
       "Не отвечай на вопрос про кредит текстом «обратитесь к нашему юристу X» вместо процесса и официальных ориентиров"
@@ -123,11 +123,11 @@
   },
   "mortgage_rates_official": {
     "when_to_use": "Клиент спрашивает про процентные ставки, Euríbor, «сколько сейчас процент по ипотеке», сравнение фиксированной/плавающей.",
-    "updated_at": "2026-07-01",
-    "as_of_month": "июнь 2026",
+    "updated_at": "2026-08-13",
+    "as_of_month": "2026-08",
     "primary_source": {
       "name": "Banco de España — Tabla de tipos de referencia oficiales del mercado hipotecario",
-      "url": "https://clientebancario.bde.es/pcb/es/menu-horizontal/podemosayudarte/tiposinteres/guia_textual/tiposinteresreferenciaotrostiposfrecuentes/tabla_tipos_referencia_oficiales_mercado_hipotecario.html"
+      "url": "https://www.euribor-rates.eu/en/current-euribor-rates/"
     },
     "boe_publication_example": {
       "name": "BOE — Resolución Banco de España (публикация официальных индексов, июнь 2026)",
@@ -136,10 +136,13 @@
     },
     "values": {
       "euribor_1y_pct": 2.798,
-      "euribor_6m_pct": 2.596,
-      "euribor_3m_pct": 2.339,
+      "euribor_6m_pct": 2.658,
+      "euribor_3m_pct": 2.505,
       "avg_mortgage_loans_over_3y_spain_entities_pct": 3.049,
-      "irs_5y_pct": 2.823
+      "irs_5y_pct": 2.823,
+      "euribor_1w_pct": 2.162,
+      "euribor_1m_pct": 2.185,
+      "euribor_12m_pct": 2.957
     },
     "how_to_explain": "Euríbor 12 мес. — главный ориентир для плавающей ипотеки в Испании (ставка клиента ≈ Euríbor + маржа банка). Средний тип по новым ипотекам >3 лет у испанских сущностей — отдельный официальный ряд BdE (~3,05% в июне 2026). Фиксированная ставка банка — своя оферта, не равна Euríbor. Цифры — справочные на месяц публикации; перед сделкой сверь на сайте BdE/BOE.",
     "bot_rules": [
@@ -147,7 +150,9 @@
       "Обязательно: «это официальный ориентир, ваша ставка = банк после анализа досье»",
       "Не обещай «дадим под 2,8%» или «как на сайте до 3,5% гарантированно»",
       "После цифр — предложи помощь House Tenerife с подбором банка и созвон"
-    ]
+    ],
+    "live_sync_source": "euribor-rates.eu (fallback; сверяйте с Banco de España)",
+    "live_sync_at": "2026-08-13T12:00:26.246Z"
   },
   "purchase_documents": {
     "when_to_use": "Когда клиент заинтересовался конкретным объектом и обсуждает покупку, ипотеку или оформление.",
@@ -1423,7 +1428,11 @@
       "eu_resident_typical_ltv_pct": 80,
       "down_payment_non_resident_note": "Нерезидентам часто нужен первый взнос от ~30%+",
       "term_years_typical": "часто 15–30 лет (короче срок — выше платёж)",
-      "rate_types": ["плавающая (Euríbor + маржа)", "фиксированная", "смешанная"]
+      "rate_types": [
+        "плавающая (Euríbor + маржа)",
+        "фиксированная",
+        "смешанная"
+      ]
     },
     "official_spain_context": [
       "Euríbor 12 мес. — главный ориентир плавающей ипотеки; цифры месяца — из mortgage_rates_official (BdE)",

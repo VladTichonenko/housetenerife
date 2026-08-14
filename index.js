@@ -67,6 +67,7 @@ const {
 const { analyzeConversation } = require('./dialog-context');
 const { wantsEscalation } = require('./bot-core-rules');
 const { recordHandoff, HANDOFF_PATH, touchHandoffActivity } = require('./handoff-leads');
+const { upsertPurchaseRequestFromDialog, markPurchaseRequestCallRequested } = require('./purchase-requests');
 const { recordClientMessage, CLIENTS_PATH } = require('./clients-store');
 const {
   recordMessage: persistMessage,
@@ -75,6 +76,7 @@ const {
 const { hydrateConversationHistory } = require('./conversation-history');
 const { getDb, DB_PATH } = require('./db');
 const { migrateFromJsonIfNeeded } = require('./db-migrate');
+const { ensureFreshMortgageData } = require('./bank-mortgage-data');
 
 try {
   getDb();
@@ -3688,6 +3690,9 @@ async function handleIncomingMessage(msg, options = {}) {
         addToHistory(chatId, 'user', messageText, { language: offerLang });
         clearPendingCallOffer(chatId);
         console.log(`📞 Клиент согласился на созвон: ${chatId}`);
+        if (pendingCallOffer.reasonKey === 'purchase') {
+          markPurchaseRequestCallRequested(chatId);
+        }
         const result = await startHandoffFromCallAcceptance(
           msg,
           client,
@@ -3862,9 +3867,19 @@ async function handleIncomingMessage(msg, options = {}) {
         }
 
         const dialog = analyzeConversation(getHistory(chatId), dialogLanguage);
+        if (dialog.hasPropertyInterest) {
+          const { getInterestedProperties } = require('./property-interest');
+          upsertPurchaseRequestFromDialog({
+            chatId,
+            dialog,
+            properties: getInterestedProperties(chatId, dialogLanguage),
+            language: dialogLanguage,
+            preview: messageText,
+          });
+        }
         if (shouldTrackCallOfferAfterReply(dialog, outgoing)) {
           setPendingCallOffer(chatId, {
-            reasonKey: dialog.hasPropertyInterest ? 'handoff' : 'handoff',
+            reasonKey: dialog.hasPropertyInterest ? 'purchase' : 'handoff',
             preview: messageText,
             language: dialogLanguage,
           });
@@ -4096,6 +4111,10 @@ const server = app.listen(BOT_PORT, '0.0.0.0', async () => {
     `📡 Панель: GET / ${panel.adminUi ? '(OK)' : '(не собрана)'} | API /api/admin/* | health /health`
   );
   console.log(`✅ HTTP сервер готов, Railway может проверить healthcheck`);
+
+  ensureFreshMortgageData().catch((e) =>
+    console.warn('⚠️ Ипотечные ставки при старте:', e.message)
+  );
 
   const telegramReady = await telegramNotify.startTelegram(app, getServiceStatus);
   if (telegramReady.ok) {

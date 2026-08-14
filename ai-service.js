@@ -60,6 +60,10 @@ const {
   formatTopicSummaryForPrompt,
 } = require('./topic-memory');
 const { formatCoreRulesForPrompt } = require('./bot-core-rules');
+const {
+  formatMortgageLiveBlock,
+  getMortgageOpeningInstruction,
+} = require('./bank-mortgage-data');
 
 function truncateKnowledge(knowledge, maxChars) {
   const raw = JSON.stringify(knowledge, null, 2);
@@ -138,6 +142,7 @@ async function buildPromptParts(
       maxPrice: budget.maxPrice,
       priceTarget,
       propertyTypes: dialog.propertyTypes,
+      businessSectors: dialog.businessSectors,
       macroRegions: dialog.macroRegions,
       microAreaGroupIds: dialog.microAreaGroupIds || [],
       microDetection: dialog.microAreas,
@@ -191,13 +196,13 @@ async function buildPromptParts(
   } else if (!dialog.hasBudget && !dialog.ignoreBudget && tier === 'full') {
     // Клиент просит объекты / любой этап без бюджета — каталог не даём, только запрос бюджета
     const noBudgetByLang = {
-      ru: '\n\n(**БЮДЖЕТ НЕ ИЗВЕСТЕН — ЗАПРЕЩЕНО показывать объекты.** Клиент просит варианты или ещё не назвал бюджет. Поблагодари за интерес и спроси бюджет в €. Скажи, что после этого покажешь подходящие варианты. Без вилл, без цен 500k–9M, без ссылок, без фраз про «±20%» / коридор цен.)\n',
-      es: '\n\n(**SIN PRESUPUESTO — PROHIBIDO mostrar fichas.** El cliente pidió ver opciones o aún no dijo presupuesto. Agradece el interés y pregunta el presupuesto en €. Di que luego mostrarás opciones adecuadas. Sin villas, sin precios, sin enlaces, sin mencionar ±20%.)\n',
-      en: '\n\n(**NO BUDGET — FORBIDDEN to show listings.** Client asked to see options or has not stated a budget. Thank them and ask for budget in €. Say you’ll then show matching options. No villas, no prices, no links, no «±20%» talk.)\n',
-      de: '\n\n(**KEIN BUDGET — VERBOTEN Objekte zu zeigen.** Kunde will Optionen sehen oder hat kein Budget genannt. Danke kurz und frage nach Budget in €. Danach passende Optionen. Keine Villen, Preise, Links, kein «±20%».)\n',
-      fr: '\n\n(**PAS DE BUDGET — INTERDIT de montrer des fiches.** Le client demande des options ou n’a pas dit de budget. Remercie et demande le budget en €. Ensuite options adaptées. Pas de villas, prix, liens, ni «±20%».)\n',
-      pl: '\n\n(**BRAK BUDŻETU — ZAKAZ pokazywania ofert.** Klient prosi o opcje lub nie podał budżetu. Podziękuj i zapytaj o budżet w €. Potem dopasowane opcje. Bez willi, cen, linków, bez «±20%».)\n',
-      nl: '\n\n(**GEEN BUDGET — VERBODEN objecten te tonen.** Klant wil opties zien of noemde geen budget. Bedank kort en vraag budget in €. Daarna passende opties. Geen villa’s, prijzen, links, geen «±20%».)\n',
+      ru: '\n\n(**БЮДЖЕТ НЕ ИЗВЕСТЕН — ЗАПРЕЩЕНО показывать объекты.** Клиент просит варианты или ещё не назвал бюджет. Поблагодари за интерес и спроси бюджет в €. Скажи, что после этого покажешь подходящие варианты. Без вилл, без цен 500k–9M, без ссылок, без фраз про «±26%» / коридор цен.)\n',
+      es: '\n\n(**SIN PRESUPUESTO — PROHIBIDO mostrar fichas.** El cliente pidió ver opciones o aún no dijo presupuesto. Agradece el interés y pregunta el presupuesto en €. Di que luego mostrarás opciones adecuadas. Sin villas, sin precios, sin enlaces, sin mencionar ±26%.)\n',
+      en: '\n\n(**NO BUDGET — FORBIDDEN to show listings.** Client asked to see options or has not stated a budget. Thank them and ask for budget in €. Say you’ll then show matching options. No villas, no prices, no links, no «±26%» talk.)\n',
+      de: '\n\n(**KEIN BUDGET — VERBOTEN Objekte zu zeigen.** Kunde will Optionen sehen oder hat kein Budget genannt. Danke kurz und frage nach Budget in €. Danach passende Optionen. Keine Villen, Preise, Links, kein «±26%».)\n',
+      fr: '\n\n(**PAS DE BUDGET — INTERDIT de montrer des fiches.** Le client demande des options ou n’a pas dit de budget. Remercie et demande le budget en €. Ensuite options adaptées. Pas de villas, prix, liens, ni «±26%».)\n',
+      pl: '\n\n(**BRAK BUDŻETU — ZAKAZ pokazywania ofert.** Klient prosi o opcje lub nie podał budżetu. Podziękuj i zapytaj o budżet w €. Potem dopasowane opcje. Bez willi, cen, linków, bez «±26%».)\n',
+      nl: '\n\n(**GEEN BUDGET — VERBODEN objecten te tonen.** Klant wil opties zien of noemde geen budget. Bedank kort en vraag budget in €. Daarna passende opties. Geen villa’s, prijzen, links, geen «±26%».)\n',
     };
     catalogBlock = noBudgetByLang[salesLang] || noBudgetByLang.en;
   } else if (!dialog.hasType && tier === 'full' && hints) {
@@ -299,6 +304,8 @@ async function buildPromptParts(
           : 4,
   });
   const consultantKnowledge = localizeKnowledgeBase(consultantKnowledgeRaw, salesLang);
+  const wantsMortgageKnowledge =
+    Boolean(dialog.wantsMortgageSteps) || Boolean(dialog.needsMortgage) || mortgageKnowledgeFocus;
   const mortgageKnowledgeSlice = {
     disclaimer: consultantKnowledge.disclaimer,
     mortgage_process: consultantKnowledge.mortgage_process,
@@ -307,9 +314,19 @@ async function buildPromptParts(
     mortgage_rates_official: consultantKnowledge.mortgage_rates_official,
     spain_mortgage_overview: consultantKnowledge.spain_mortgage_overview,
     purchase_documents: consultantKnowledge.purchase_documents,
+    bank_mortgage_live: formatMortgageLiveBlock(salesLang),
   };
-  const wantsMortgageKnowledge =
-    Boolean(dialog.wantsMortgageSteps) || Boolean(dialog.needsMortgage) || mortgageKnowledgeFocus;
+  const topicUserTurns = limitedHistory.filter((m) => m.sender === 'user').length;
+  const mortgageOpeningInstruction =
+    wantsMortgageKnowledge &&
+    (Boolean(dialog.wantsMortgageSteps) ||
+      activeScenario === 'mortgage_docs' ||
+      topicUserTurns <= 2)
+      ? getMortgageOpeningInstruction(salesLang, {
+          isEarlyTopic: topicUserTurns <= 2 || Boolean(dialog.wantsMortgageSteps),
+          force: Boolean(dialog.wantsMortgageSteps),
+        })
+      : '';
   const ck =
     tier === 'minimal'
       ? truncateKnowledge(
@@ -412,10 +429,11 @@ ${blocks.conversation}`;
 Поиск идёт по всей базе (${catalog.totalInDb || 'все'} объектов на сайте); в блоке ниже — лучшие совпадения по критериям переписки. Если блок каталога не пустой — ЗАПРЕЩЕНО писать «нет объектов / ничего нет / в этом районе нет». Показывай то, что есть; если мало — предложи соседний бюджет/зону или сайт. Не утверждай, что «других нет» — предложи уточнить бюджет/район или каталог на сайте.
 На этапах SHOW_LISTINGS / REFINE — покажи 3–5 РАЗНЫХ объектов из блока ниже (название, цена, ссылка, одна фраза почему подходит). Только тот регион (${dialog.regionLabel || 'из критериев'})${dialog.microAreaLabel ? ` и район (${dialog.microAreaLabel})` : ''}, что выбрал клиент сейчас — не подмешивай Тенерифе/Дубай/другие, если просили Ибицу (и наоборот). Не подмешивай Adeje, если просили Los Cristianos.
 **Тип объекта:** строго соблюдай запрошенный тип (${dialog.propertyTypeLabel || 'из критериев'}). Если просили виллы — только виллы (не апартаменты и не «виллы и апартаменты»). Если просили апартаменты — не давай виллы и тем более бизнес/рестораны. Если просили готовый бизнес — только бизнес/ресторан/бар из каталога; ЗАПРЕЩЕНО подменять апартаментами «под аренду». Копируй из блока каталога пары «название + URL» как есть — не подставляй одну ссылку к разным объектам и не повторяй ссылку из предыдущих сообщений чата.
+${dialog.hasBusinessSector && dialog.businessSectorLabel && !dialog.businessSectorIsOther ? `**Сфера бизнеса:** строго ${dialog.businessSectorLabel}. Блок каталога уже отфильтрован — показывай только объекты этой сферы, не подмешивай отели/авто/яхты и т.д., если клиент выбрал другое.` : ''}
 **Цена:** ${
         dialog.ignoreBudget
           ? 'клиент снял ограничение по цене — показывай подходящие по типу и району объекты из блока без фильтра «около бюджета».'
-          : 'держись около бюджета клиента (каталог уже отфильтрован). ЗАПРЕЩЕНО говорить клиенту про «±20%», «коридор €800k–€1.2M» и т.п. — просто покажи 3–5 вариантов.'
+          : 'держись около бюджета клиента (каталог уже отфильтрован). ЗАПРЕЩЕНО говорить клиенту про «±26%», «коридор €800k–€1.2M» и т.п. — просто покажи 3–5 вариантов.'
       }
 **Ссылки:** копируй URL из блока каталога БУКВАЛЬНО (формат https://housetenerife.eu/…/property/slug/). Запрещено выдумывать /objekt/123, /object/ID и любые другие пути. Не давай ссылки на Idealista, Fotocasa, Habitaclia и любые внешние порталы — только карточки House Tenerife из блока.
 Если клиент просит ссылки на объекты — ОБЯЗАТЕЛЬНО вставь в ответ URL из блока каталога по его параметрам (тип/регион/бюджет/район). Запрещено отвечать только «посмотрите на сайте / в разделе недвижимости» без конкретных карточек. Не описывай объекты без их URL.
@@ -423,7 +441,7 @@ ${blocks.conversation}`;
 Подборка только когда ясны *цель*, тип, бюджет, регион и конкретная зона/район; ссылки только из блока ниже.
 Никогда не пиши клиенту, что отправишь подборку позже. Системная задержка ссылок уже есть: твоя задача — сформировать подборку сразу в текущем ответе.
 После подборки — один вопрос: какой вариант ближе или что скорректировать (бюджет/район).
-**Ипотека/кредит:** House Tenerife *помогает оформить ипотеку* (NIE, счёт, документы, подбор банка) — всегда предлагай нашу помощь, не отправляй клиента заниматься этим самостоятельно. Шаги — из mortgage_process + mortgage_lending_official (FEIN/FiAE, Ley 5/2019). Ставки — только из mortgage_rates_official (Euríbor / средний тип Banco de España) с оговоркой «финальная ставка у банка». Источники правды: Banco de España Cliente Bancario и BOE — ЗАПРЕЩЕНО цитировать юристов, рекламу адвокатских бюро и блоги адвокатов. Нотариус — только как обязательный шаг по закону, без имён. Без гарантии одобрения и без выдуманных оферт банков.
+**Ипотека/кредит:** House Tenerife *помогает оформить ипотеку* (NIE, счёт, документы, подбор банка) — всегда предлагай нашу помощь, не отправляй клиента заниматься этим самостоятельно. Шаги — из mortgage_process + mortgage_lending_official (FEIN/FiAE, Ley 5/2019). Ставки — из bank_mortgage_live (актуальные Euríbor/BdE + ориентиры Santander, CaixaBank и BBVA с их сайтов) и mortgage_rates_official с оговоркой «финальная ставка у банка». При старте темы ипотеки — сначала представь House Tenerife и дай снимок текущей ситуации из bank_mortgage_live. Источники правды: Banco de España Cliente Bancario, BOE и официальные сайты банков — ЗАПРЕЩЕНО цитировать юристов, рекламу адвокатских бюро и блоги адвокатов. Нотариус — только как обязательный шаг по закону, без имён. Без гарантии одобрения и без выдуманных оферт.
 **Конкретный объект:** если клиент выбрал вариант — уточни деньги *сейчас на руках*, нужна ли ипотека, какие документы уже есть; при ипотеке — шаги + наша помощь + созвон (да/нет).
 **Связь с менеджером:** если клиент хочет человека / звонок / просмотр / жалоба / сложный запрос — тепло предложи короткий созвон 10–15 минут. Не проси писать слово «менеджер» и не давай телефон вместо заявки.`
       : `**PROPERTY CATALOG (${catalog.totalInDb || 'full'} listings on site; block below = best matches):**
@@ -521,6 +539,7 @@ ${coreRulesBlock}
 
 ${stageHeader}
 ${stageBlock}
+${mortgageOpeningInstruction ? `\n${mortgageOpeningInstruction}\n` : ''}
 
 ${criteriaBlock}
 
@@ -805,6 +824,7 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fal
       return aAvoid - bAvoid;
     });
     const { itemMatchesRegions } = require('./catalog-regions');
+    const { itemMatchesBusinessSectors } = require('./business-sectors');
     const wantedRegions = dialog.macroRegions || [];
 
     for (const raw of ranked) {
@@ -812,6 +832,13 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fal
       if (!item) continue;
       if (wantedRegions.length && !itemMatchesRegions(item, wantedRegions)) continue;
       if (typeFilter.length && !itemMatchesPropertyTypes(item, typeFilter)) continue;
+      if (
+        dialog.businessSectors?.length &&
+        !dialog.businessSectorIsOther &&
+        !itemMatchesBusinessSectors(item, dialog.businessSectors)
+      ) {
+        continue;
+      }
       const share = getShareUrl(item, lang);
       if (!share || seen.has(share)) continue;
       seen.add(share);
@@ -960,16 +987,16 @@ function countValidCatalogPropertyLinks(text) {
   return new Set(matches.map((u) => u.toLowerCase().replace(/\/+$/, ''))).size;
 }
 
-/** Модель иногда копирует «коридор €800k–€1.2M / ±20%» из внутренних подсказок — вырезаем. */
+/** Модель иногда копирует «коридор €800k–€1.2M / ±26%» из внутренних подсказок — вырезаем. */
 function stripBudgetBandTalkFromReply(text) {
   let out = String(text || '');
   // «в коридоре €800,000—€1,200,000» / «в коридоре цены …»
   out = out.replace(
-    /\s*в\s+коридор[еа]?\s*(?:цены\s*)?(?:±\s*20\s*%\s*)?€?[\d\s.,]+(?:\s*[—–−\-]\s*€?[\d\s.,]+)?/gi,
+    /\s*в\s+коридор[еа]?\s*(?:цены\s*)?(?:±\s*\d+\s*%\s*)?€?[\d\s.,]+(?:\s*[—–−\-]\s*€?[\d\s.,]+)?/gi,
     ''
   );
   out = out.replace(
-    /(?:±\s*20\s*%|banda\s*±\s*20\s*%|(?:price\s+)?band\s*(?:of\s*)?±\s*20\s*%|within\s+(?:about\s+)?±\s*20\s*%|around\s*±\s*20\s*%|en\s+torno\s+a\s*±\s*20\s*%|коридоре?\s*±\s*20\s*%)[^.!\n,]*/gi,
+    /(?:±\s*\d+\s*%|banda\s*±\s*\d+\s*%|(?:price\s+)?band\s*(?:of\s*)?±\s*\d+\s*%|within\s+(?:about\s+)?±\s*\d+\s*%|around\s*±\s*\d+\s*%|en\s+torno\s+a\s*±\s*\d+\s*%|коридоре?\s*±\s*\d+\s*%)[^.!\n,]*/gi,
     ''
   );
   out = out.replace(
@@ -1260,6 +1287,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
           maxPrice: budget.maxPrice,
           priceTarget,
           propertyTypes: dialog.propertyTypes,
+          businessSectors: dialog.businessSectors,
           macroRegions: dialog.macroRegions,
           microAreaGroupIds: dialog.microAreaGroupIds || [],
           microDetection: dialog.microAreas,

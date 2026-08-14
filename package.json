@@ -10,6 +10,7 @@
     "build": "npm ci --prefix web --include=dev && npm run build --prefix web",
     "build:web": "npm run build",
     "sync-db": "node scripts/sync-properties.js",
+    "sync-mortgage-rates": "node scripts/sync-mortgage-rates.js",
     "sync-missing": "node scripts/sync-missing-properties.js",
     "enrich-i18n": "node scripts/enrich-properties-i18n.js",
     "validate-urls": "node scripts/validate-catalog-urls.js",

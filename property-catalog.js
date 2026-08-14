@@ -21,6 +21,10 @@ const {
   scoreRegionFit,
   formatRegionLabel
 } = require('./catalog-regions');
+const {
+  filterByBusinessSectors,
+  scoreBusinessSectorFit,
+} = require('./business-sectors');
 
 function resolveCatalogPath() {
   if (process.env.PROPERTIES_PATH) return process.env.PROPERTIES_PATH;
@@ -265,6 +269,10 @@ function scoreItem(item, tokens, options = {}) {
 
   if (options.macroRegions?.length) {
     sc += scoreRegionFit(item, options.macroRegions);
+  }
+
+  if (options.businessSectors?.length) {
+    sc += scoreBusinessSectorFit(item, options.businessSectors);
   }
 
   return sc;
@@ -555,6 +563,7 @@ function searchForContext(query, limit = 8, options = {}) {
       maxPrice: options.maxPrice ?? null
     });
   const propertyTypes = options.propertyTypes ?? [];
+  const businessSectors = options.businessSectors ?? [];
   const macroRegions = options.macroRegions ?? [];
   const microAreaGroupIds = options.microAreaGroupIds ?? [];
   const microDetection =
@@ -565,6 +574,7 @@ function searchForContext(query, limit = 8, options = {}) {
     maxPrice: options.maxPrice ?? null,
     priceTarget,
     propertyTypes,
+    businessSectors,
     macroRegions,
     microDetection,
     contextText: options.contextText || query || ''
@@ -611,6 +621,13 @@ function searchForContext(query, limit = 8, options = {}) {
     ranked = typed.ranked;
     usedSoftTypeFallback = typed.usedSoftFallback;
     usedLastResortTypeFallback = typed.usedLastResortTypeFallback;
+  }
+
+  if (businessSectors.length) {
+    ranked = filterByBusinessSectors(ranked, businessSectors, {
+      allowSectorFallback: Boolean(options.allowSectorFallback),
+    });
+    ranked = ranked.sort((a, b) => b.s - a.s);
   }
 
   if (microAreaGroupIds.length) {
@@ -687,6 +704,12 @@ function searchForContext(query, limit = 8, options = {}) {
       usedSoftTypeFallback = typed.usedSoftFallback;
       usedLastResortTypeFallback = typed.usedLastResortTypeFallback;
     }
+    if (businessSectors.length) {
+      ranked = filterByBusinessSectors(ranked, businessSectors, {
+        allowSectorFallback: Boolean(options.allowSectorFallback),
+      });
+      ranked = ranked.sort((a, b) => b.s - a.s);
+    }
     if (microAreaGroupIds.length) {
       const regionalTypePool = ranked;
       const exactArea = filterByMicroAreas(ranked, microAreaGroupIds);
@@ -760,10 +783,19 @@ function searchForContext(query, limit = 8, options = {}) {
   const priceHint =
     priceTarget
       ? lang === 'en'
-        ? ' (internal filter: near client budget — NEVER tell the client «±20%» or quote a €floor–€ceiling corridor aloud).'
+        ? ' (internal filter: near client budget — NEVER tell the client «±26%» or quote a €floor–€ceiling corridor aloud).'
         : lang === 'es'
-          ? ' (filtro interno: cerca del presupuesto — NUNCA digas «±20%» ni cites un corredor €min–€max al cliente).'
-          : ' (внутренний фильтр: около бюджета клиента — ЗАПРЕЩЕНО говорить клиенту «±20%», «коридор €X–€Y» или что бюджет расширен).'
+          ? ' (filtro interno: cerca del presupuesto — NUNCA digas «±26%» ni cites un corredor €min–€max al cliente).'
+          : ' (внутренний фильтр: около бюджета клиента — ЗАПРЕЩЕНО говорить клиенту «±26%», «коридор €X–€Y» или что бюджет расширен).'
+      : '';
+
+  const sectorHint =
+    businessSectors.length && !businessSectors.includes('other')
+      ? lang === 'en'
+        ? ' STRICT sector filter active — only listings matching the client sector below.'
+        : lang === 'es'
+          ? ' Filtro ESTRICTO de sector — solo fichas del sector elegido abajo.'
+          : ' ЖЁСТКИЙ фильтр по сфере — ниже только объекты выбранной клиентом сферы.'
       : '';
 
   const typeHint =
@@ -820,18 +852,18 @@ function searchForContext(query, limit = 8, options = {}) {
 
   const header =
     lang === 'en'
-      ? `[Full catalog: ${totalInDb} listings; search picked ${lines.length} diverse matches below — use only these URLs.${priceHint}${typeHint}${fallbackHint}${areaHint}]`
+      ? `[Full catalog: ${totalInDb} listings; search picked ${lines.length} diverse matches below — use only these URLs.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`
       : lang === 'es'
-        ? `[Catálogo completo: ${totalInDb} anuncios; abajo ${lines.length} opciones variadas — solo estos enlaces.${priceHint}${typeHint}${fallbackHint}${areaHint}]`
+        ? `[Catálogo completo: ${totalInDb} anuncios; abajo ${lines.length} opciones variadas — solo estos enlaces.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`
         : lang === 'de'
-          ? `[Vollständiger Katalog: ${totalInDb} Objekte; unten ${lines.length} passende Varianten — nur diese URLs verwenden.${priceHint}${typeHint}${fallbackHint}${areaHint}]`
+          ? `[Vollständiger Katalog: ${totalInDb} Objekte; unten ${lines.length} passende Varianten — nur diese URLs verwenden.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`
           : lang === 'fr'
-            ? `[Catalogue complet: ${totalInDb} annonces; ci-dessous ${lines.length} options — utiliser uniquement ces liens.${priceHint}${typeHint}${fallbackHint}${areaHint}]`
+            ? `[Catalogue complet: ${totalInDb} annonces; ci-dessous ${lines.length} options — utiliser uniquement ces liens.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`
             : lang === 'pl'
-              ? `[Pełny katalog: ${totalInDb} ofert; poniżej ${lines.length} dopasowanych wariantów — używaj tylko tych URL.${priceHint}${typeHint}${fallbackHint}${areaHint}]`
+              ? `[Pełny katalog: ${totalInDb} ofert; poniżej ${lines.length} dopasowanych wariantów — używaj tylko tych URL.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`
               : lang === 'nl'
-                ? `[Volledige catalogus: ${totalInDb} objecten; hieronder ${lines.length} passende opties — gebruik alleen deze URL’s.${priceHint}${typeHint}${fallbackHint}${areaHint}]`
-                : `[Полный каталог: ${totalInDb} объектов; ниже ${lines.length} разных вариантов по запросу — другие ссылки не выдумывай.${priceHint}${typeHint}${fallbackHint}${areaHint}]`;
+                ? `[Volledige catalogus: ${totalInDb} objecten; hieronder ${lines.length} passende opties — gebruik alleen deze URL’s.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`
+                : `[Полный каталог: ${totalInDb} объектов; ниже ${lines.length} разных вариантов по запросу — другие ссылки не выдумывай.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`;
 
   return {
     found: true,

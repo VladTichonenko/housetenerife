@@ -1,0 +1,219 @@
+{
+  "fetched_at": "2026-08-13T12:00:26.245Z",
+  "official": {
+    "source": "euribor-rates.eu (fallback; сверяйте с Banco de España)",
+    "updated_at": "2026-08-13",
+    "as_of_month": "2026-08",
+    "values": {
+      "euribor_1w_pct": 2.162,
+      "euribor_1m_pct": 2.185,
+      "euribor_3m_pct": 2.505,
+      "euribor_6m_pct": 2.658,
+      "euribor_12m_pct": 2.957
+    },
+    "primary_source_url": "https://www.euribor-rates.eu/en/current-euribor-rates/"
+  },
+  "banks": [
+    {
+      "id": "santander",
+      "name": "Banco Santander",
+      "fetched_at": "2026-08-13T12:00:04.927Z",
+      "source_urls": [
+        "https://www.bancosantander.es/particulares/hipotecas/hipoteca-fija",
+        "https://www.bancosantander.es/particulares/hipotecas/hipoteca-variable",
+        "https://www.bancosantander.es/particulares/hipotecas/hipoteca-mixta"
+      ],
+      "products": [
+        {
+          "type": "fixed",
+          "name": "Hipoteca fija",
+          "tae_pct": 4.16,
+          "conditions_note": "TAE publicada cumpliendo condiciones del banco",
+          "source_url": "https://www.bancosantander.es/particulares/hipotecas/hipoteca-fija",
+          "label": "Hipoteca fija"
+        },
+        {
+          "type": "fixed",
+          "name": "Hipoteca fija",
+          "tae_pct": 3.65,
+          "conditions_note": "TAE publicada sin bonificación / sin condiciones",
+          "source_url": "https://www.bancosantander.es/particulares/hipotecas/hipoteca-fija",
+          "label": "Hipoteca fija"
+        },
+        {
+          "type": "variable",
+          "name": "Hipoteca variable",
+          "euribor_spread_pct": 1.84,
+          "tae_pct": 4.82,
+          "rate_formula": "Euríbor + 1,84% TIN",
+          "conditions_note": "Tipo sin bonificación / sin cumplir condiciones publicadas en la web",
+          "source_url": "https://www.bancosantander.es/particulares/hipotecas/hipoteca-variable",
+          "label": "Hipoteca variable"
+        },
+        {
+          "type": "variable",
+          "name": "Hipoteca variable",
+          "euribor_spread_pct": 0.84,
+          "tae_pct": 4.32,
+          "rate_formula": "Euríbor + 0,84% TIN",
+          "conditions_note": "Tipo bonificado cumpliendo condiciones publicadas en la web del banco (domiciliación, seguros, etc.)",
+          "source_url": "https://www.bancosantander.es/particulares/hipotecas/hipoteca-variable",
+          "label": "Hipoteca variable"
+        },
+        {
+          "type": "variable",
+          "name": "Hipoteca variable",
+          "euribor_spread_pct": 0.84,
+          "tae_pct": 4.82,
+          "rate_formula": "Euríbor + 0,84% TIN",
+          "conditions_note": "Tipo bonificado cumpliendo condiciones publicadas en la web del banco (domiciliación, seguros, etc.)",
+          "source_url": "https://www.bancosantander.es/particulares/hipotecas/hipoteca-variable",
+          "label": "Hipoteca variable"
+        },
+        {
+          "type": "mixed",
+          "name": "Hipoteca mixta",
+          "tin_pct": 2.34,
+          "tae_pct": 3.76,
+          "conditions_note": "Periodo fijo inicial + variable Euríbor (condiciones en web del banco)",
+          "source_url": "https://www.bancosantander.es/particulares/hipotecas/hipoteca-mixta",
+          "label": "Hipoteca mixta"
+        },
+        {
+          "type": "mixed",
+          "name": "Hipoteca mixta",
+          "tin_pct": 3.34,
+          "tae_pct": 4.24,
+          "conditions_note": "Periodo fijo inicial + variable Euríbor (condiciones en web del banco)",
+          "source_url": "https://www.bancosantander.es/particulares/hipotecas/hipoteca-mixta",
+          "label": "Hipoteca mixta"
+        }
+      ],
+      "disclaimer": "Información publicada en la web del banco; no es oferta vinculante ni garantía de aprobación para no residentes."
+    },
+    {
+      "id": "caixabank",
+      "name": "CaixaBank",
+      "fetched_at": "2026-08-13T12:00:07.228Z",
+      "source_urls": [
+        "https://www.caixabank.es/particular/hipotecas.html"
+      ],
+      "products": [
+        {
+          "type": "fixed",
+          "name": "Hipoteca fija (web CaixaBank)",
+          "tin_pct": 3.8,
+          "tae_pct": 2.85,
+          "conditions_note": "Valores publicados en caixabank.es; sujetos a condiciones y perfil del cliente",
+          "source_url": "https://www.caixabank.es/particular/hipotecas.html",
+          "label": "Hipotecas CaixaBank"
+        },
+        {
+          "type": "fixed",
+          "name": "Hipoteca fija (web CaixaBank)",
+          "tin_pct": 3.85,
+          "tae_pct": 3.85,
+          "conditions_note": "Valores publicados en caixabank.es; sujetos a condiciones y perfil del cliente",
+          "source_url": "https://www.caixabank.es/particular/hipotecas.html",
+          "label": "Hipotecas CaixaBank"
+        },
+        {
+          "type": "variable",
+          "name": "Hipoteca variable (web CaixaBank)",
+          "tin_pct": null,
+          "tae_pct": 4.309,
+          "conditions_note": "Valores publicados en caixabank.es; sujetos a condiciones y perfil del cliente",
+          "source_url": "https://www.caixabank.es/particular/hipotecas.html",
+          "label": "Hipotecas CaixaBank"
+        },
+        {
+          "type": "variable",
+          "name": "Hipoteca variable (web CaixaBank)",
+          "tin_pct": null,
+          "tae_pct": 4.317,
+          "conditions_note": "Valores publicados en caixabank.es; sujetos a condiciones y perfil del cliente",
+          "source_url": "https://www.caixabank.es/particular/hipotecas.html",
+          "label": "Hipotecas CaixaBank"
+        }
+      ],
+      "disclaimer": "Información publicada en la web del banco; no es oferta vinculante ni garantía de aprobación para no residentes."
+    },
+    {
+      "id": "bbva",
+      "name": "BBVA",
+      "fetched_at": "2026-08-13T12:00:08.048Z",
+      "source_urls": [
+        "https://www.bbva.es/personas/productos/hipotecas/hipoteca-variable.html",
+        "https://www.bbva.es/personas/productos/hipotecas/hipoteca-fija.html"
+      ],
+      "products": [
+        {
+          "type": "variable",
+          "name": "Hipoteca variable BBVA",
+          "euribor_spread_pct": 1.6,
+          "tae_pct": 4.9,
+          "rate_formula": "Euríbor + 1,6%",
+          "term_years_max": 30,
+          "ltv_note": "Hasta 80% vivienda habitual / 70% segunda vivienda (según web BBVA)",
+          "conditions_note": "Publicado en bbva.es",
+          "source_url": "https://www.bbva.es/personas/productos/hipotecas/hipoteca-variable.html",
+          "label": "Hipoteca variable"
+        },
+        {
+          "type": "variable",
+          "name": "Hipoteca variable BBVA",
+          "euribor_spread_pct": 0.6,
+          "tae_pct": 4.3,
+          "rate_formula": "Euríbor + 0,6%",
+          "term_years_max": 30,
+          "ltv_note": "Hasta 80% vivienda habitual / 70% segunda vivienda (según web BBVA)",
+          "conditions_note": "Publicado en bbva.es",
+          "source_url": "https://www.bbva.es/personas/productos/hipotecas/hipoteca-variable.html",
+          "label": "Hipoteca variable"
+        },
+        {
+          "type": "fixed",
+          "name": "Hipoteca fija BBVA",
+          "tin_pct": 3.85,
+          "tae_pct": 4.59,
+          "term_years": 15,
+          "term_years_max": 30,
+          "ltv_note": "Hasta 80% vivienda habitual / 70% segunda vivienda (según web BBVA)",
+          "conditions_note": "Tipo publicado en bbva.es (puede incluir bonificación inicial)",
+          "source_url": "https://www.bbva.es/personas/productos/hipotecas/hipoteca-fija.html",
+          "label": "Hipoteca fija"
+        },
+        {
+          "type": "fixed",
+          "name": "Hipoteca fija BBVA",
+          "tin_pct": 2.85,
+          "tae_pct": 3.75,
+          "term_years": null,
+          "term_years_max": 30,
+          "ltv_note": "Hasta 80% vivienda habitual / 70% segunda vivienda (según web BBVA)",
+          "conditions_note": "Con nómina y seguros BBVA (condiciones en bbva.es)",
+          "source_url": "https://www.bbva.es/personas/productos/hipotecas/hipoteca-fija.html",
+          "label": "Hipoteca fija"
+        }
+      ],
+      "disclaimer": "Información publicada en la web del banco; no es oferta vinculante ni garantía de aprobación para no residentes."
+    }
+  ],
+  "sync_log": [
+    {
+      "step": "bde_api",
+      "ok": false,
+      "error": "timeout of 35000ms exceeded"
+    },
+    {
+      "step": "euribor_fallback",
+      "ok": true,
+      "source": "euribor-rates.eu (fallback; сверяйте с Banco de España)"
+    },
+    {
+      "step": "bank_pages",
+      "ok": true,
+      "count": 3
+    }
+  ]
+}

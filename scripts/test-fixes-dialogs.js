@@ -350,8 +350,8 @@ function runDeterministicTests() {
   // Проверяем по тексту каталога цены
   const pricesOver = [...(ctxBudget.text || '').matchAll(/€([\d,]+)/g)]
     .map((m) => parseInt(m[1].replace(/,/g, ''), 10))
-    .filter((p) => p > 350000 * 1.2);
-  check('нет объектов сильно выше ±20% от 350k', pricesOver.length === 0, pricesOver.join(', '));
+    .filter((p) => p > 350000 * 1.26);
+  check('нет объектов сильно выше ±26% от 350k', pricesOver.length === 0, pricesOver.join(', '));
 
   console.log('\n=== 7. Район Adeje (не Galeón / ложный fuzzy) ===\n');
   check('la calma не = Palm-Mar', detectMicroAreas('la calma').groupIds.length === 0);
@@ -565,6 +565,92 @@ function runDeterministicTests() {
     'gate: после бизнеса — не переспрос бюджета',
     businessDialog.hasBudget && businessDialog.stage !== 'NEED_BUDGET'
   );
+  check(
+    'gate: готовый бизнес → сначала сфера, не регион',
+    businessDialog.stage === 'NEED_BUSINESS_SECTOR' &&
+      businessDialog.needsBusinessSector &&
+      !businessDialog.hasBusinessSector
+  );
+  const {
+    detectBusinessSectorPreference,
+    resolveBusinessSectorPreference,
+    classifyItemBusinessSector,
+    itemMatchesBusinessSectors,
+    getBusinessSectorStageInstruction,
+  } = require('../business-sectors');
+  check(
+    'sector: «ресторан» распознаётся',
+    detectBusinessSectorPreference('интересует ресторан на Тенерифе', 'ru').sectors.includes(
+      'restaurant_cafe_bar'
+    )
+  );
+  const bizSectorDone = analyzeConversation(
+    [
+      ...investFunnelHistory,
+      { sender: 'user', text: 'готовый бизнес' },
+      { sender: 'user', text: 'ресторан или кафе' },
+    ],
+    'ru'
+  );
+  check(
+    'invest+business: после сферы → регион',
+    bizSectorDone.hasBusinessSector &&
+      bizSectorDone.businessSectors.includes('restaurant_cafe_bar') &&
+      bizSectorDone.stage === 'NEED_REGION'
+  );
+  const sectorInstr = getBusinessSectorStageInstruction('ru');
+  check(
+    'sector: инструкция запрещает статичный список',
+    /ЗАПРЕЩЕНО.*маркированный список/i.test(sectorInstr)
+  );
+  check(
+    'sector: инструкция содержит все направления',
+    /ресторан|отель|море|авто|девелопер|коммерческ|другое/i.test(sectorInstr)
+  );
+  check(
+    'sector: «общепит» → restaurant',
+    detectBusinessSectorPreference('общепит', 'ru').sectors.includes('restaurant_cafe_bar')
+  );
+  check(
+    'sector: после смены типа старая сфера не тащится',
+    resolveBusinessSectorPreference(
+      user(
+        'ищу инвестиционный проект',
+        'бюджет 1 миллион евро',
+        'планирую покупку через 1 или 2 месяца',
+        'у меня есть вся сумма на руках',
+        'я ищу готовый бизнес, в каких регионах можете предложить такую недвижимость'
+      ),
+      'ru',
+      { propertyTypes: ['business'] }
+    ).hasSector === false
+  );
+  const hotelSearch = searchForContext('', 8, {
+    propertyTypes: ['business'],
+    businessSectors: ['hotel_hospitality'],
+    macroRegions: ['tenerife'],
+    lang: 'ru',
+  });
+  check('sector: каталог отдаёт только hotel', hotelSearch.found && hotelSearch.urls?.length >= 1);
+  if (hotelSearch.urls?.length) {
+    const { findItemByUrl } = require('../property-share');
+    const hotelItemsOk = hotelSearch.urls.every((url) => {
+      const item = findItemByUrl(url);
+      return item && itemMatchesBusinessSectors(item, ['hotel_hospitality']);
+    });
+    check('sector: все URL поиска — hotel', hotelItemsOk);
+  }
+  const restSearch = searchForContext('', 8, {
+    propertyTypes: ['business'],
+    businessSectors: ['restaurant_cafe_bar'],
+    macroRegions: ['tenerife'],
+    lang: 'ru',
+  });
+  const restVsHotel =
+    restSearch.urls?.length &&
+    hotelSearch.urls?.length &&
+    restSearch.urls[0] !== hotelSearch.urls[0];
+  check('sector: restaurant ≠ hotel в каталоге', restVsHotel);
   const topicStoreBiz = { version: 1, chats: {}, updatedAt: null };
   const bizTopicCtx = prepareTopicContext(
     topicStoreBiz,
@@ -720,11 +806,11 @@ function runDeterministicTests() {
   const coverKnowledge = require('../consultant-knowledge.json');
   const coverWeb = require('../web-search');
   check('cover: 9 CORE_RULES', coverRules.CORE_RULES.length === 9);
-  check('cover: ±20% ratio', coverRules.BUDGET_RANGE_RATIO === 0.2);
+  check('cover: ±26% ratio', coverRules.BUDGET_RANGE_RATIO === 0.26);
   check(
-    'cover: 2M → 1.6–2.4M',
-    coverRules.expandBudgetBand({ maxPrice: 2_000_000 }).floor === 1_600_000 &&
-      coverRules.expandBudgetBand({ maxPrice: 2_000_000 }).ceiling === 2_400_000
+    'cover: 2M → 1.48–2.52M',
+    coverRules.expandBudgetBand({ maxPrice: 2_000_000 }).floor === 1_480_000 &&
+      coverRules.expandBudgetBand({ maxPrice: 2_000_000 }).ceiling === 2_520_000
   );
   check(
     'cover: срок в правиле 3',
@@ -1030,7 +1116,8 @@ function runDeterministicTests() {
   );
   check(
     'rag: официальный Euríbor BdE в базе',
-    fullKnowledge.mortgage_rates_official?.values?.euribor_1y_pct === 2.798
+    (fullKnowledge.mortgage_rates_official?.values?.euribor_12m_pct ??
+      fullKnowledge.mortgage_rates_official?.values?.euribor_1y_pct) > 0
   );
   check('rag: устаревшие featured properties исключены', !mortgageKnowledge.featured_properties);
   check('rag: дублирующий concierge playbook исключён', !mortgageKnowledge.concierge_playbook);
@@ -1651,19 +1738,93 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
   );
   check(
     'show: инструкция просит бюджет, не объекты',
-    /бюджет|ЗАПРЕЩЕНО|±20%/i.test(showNoBudget.stageInstruction)
+    /бюджет|ЗАПРЕЩЕНО|±26%/i.test(showNoBudget.stageInstruction)
   );
   const band2m = derivePriceTarget({ maxPrice: 2_000_000 });
-  check('show: 2M → пол 1.6M', band2m.floor === 1_600_000);
-  check('show: 2M → потолок 2.4M', band2m.ceiling === 2_400_000);
+  check('show: 2M → пол 1.48M', band2m.floor === 1_480_000);
+  check('show: 2M → потолок 2.52M', band2m.ceiling === 2_520_000);
   check(
     'show: label коридора',
-    /1,600,000|1600000/.test(formatBudgetBandLabel({ maxPrice: 2_000_000 }, 'ru'))
+    /1,480,000|1480000/.test(formatBudgetBandLabel({ maxPrice: 2_000_000 }, 'ru'))
   );
   const twoMln = extractBudgetRange('2 миллиона');
   check('show: «2 миллиона» → max 2M', twoMln.maxPrice === 2_000_000 && twoMln.minPrice == null);
   const twoMlnBand = derivePriceTarget(twoMln);
-  check('show: «2 миллиона» → 1.6–2.4M', twoMlnBand.floor === 1_600_000 && twoMlnBand.ceiling === 2_400_000);
+  check('show: «2 миллиона» → 1.48–2.52M', twoMlnBand.floor === 1_480_000 && twoMlnBand.ceiling === 2_520_000);
+
+  console.log('\n=== 20. После выбора объекта — воронка и заявка ===\n');
+  const { detectPropertyInterest, analyzePurchaseFinance } = require('../purchase-finance');
+  const {
+    upsertPurchaseRequestFromDialog,
+    linkHandoffToPurchaseRequest,
+    listPurchaseRequests,
+  } = require('../purchase-requests');
+
+  const listingBot =
+    'Вот варианты:\n1. Villa A — €1.5M\nhttps://housetenerife.eu/property/HZ100\n2. Villa B\nhttps://housetenerife.eu/property/HZ200';
+  const pickHistory = [
+    ...user(
+      'инвестиции',
+      'бюджет 2 млн',
+      'сейчас',
+      'все своими',
+      'вилла',
+      'Тенерифе Costa Adeje'
+    ),
+    { sender: 'assistant', text: listingBot },
+    { sender: 'user', text: 'первый' },
+  ];
+  check(
+    'pick: «первый» после подборки → интерес к объекту',
+    detectPropertyInterest(pickHistory, pickHistory.map((m) => m.text).join('\n'))
+  );
+  const pickDialog = analyzeConversation(pickHistory, 'ru');
+  check(
+    'pick: не возвращаемся к SHOW_LISTINGS',
+    pickDialog.stage !== 'SHOW_LISTINGS' && pickDialog.hasPropertyInterest
+  );
+  check(
+    'pick: финансы из воронки → документы или созвон',
+    ['FINANCE_DOCUMENTS_CASH', 'FINANCE_DOCUMENTS', 'OFFER_MANAGER_CALL', 'PROPERTY_CLOSING'].includes(
+      pickDialog.stage
+    ) || pickDialog.financeStage === 'FINANCE_DOCUMENTS_CASH',
+    pickDialog.stage
+  );
+
+  const pickNoFundsHistory = [
+    ...user('апартамент Adeje для жизни бюджет 350000', 'все своими без ипотеки'),
+    { sender: 'assistant', text: listingBot },
+    { sender: 'user', text: 'второй нравится' },
+  ];
+  const pickNoFunds = analyzeConversation(pickNoFundsHistory, 'ru');
+  check('pick: «второй нравится» → hasPropertyInterest', pickNoFunds.hasPropertyInterest);
+  check(
+    'pick: после выбора → не подборка',
+    pickNoFunds.stage !== 'SHOW_LISTINGS',
+    pickNoFunds.stage
+  );
+
+  const financeMerge = analyzePurchaseFinance(pickHistory, pickHistory.map((m) => m.text).join('\n'), 'ru');
+  check(
+    'pick: наследует «все своими» из воронки',
+    financeMerge.hasFundsNow && financeMerge.hasMortgageAnswered === true
+  );
+
+  const testChatId = `test-purchase-${Date.now()}@test.c.us`;
+  const pr = upsertPurchaseRequestFromDialog({
+    chatId: testChatId,
+    dialog: pickDialog,
+    properties: [{ id: 'HZ100', title: 'Villa A', price: '€1.5M', siteUrl: 'https://housetenerife.eu/property/HZ100' }],
+    language: 'ru',
+    preview: 'первый',
+  });
+  check('purchase request: создаётся заявка', pr && ['draft', 'ready'].includes(pr.status));
+  linkHandoffToPurchaseRequest(testChatId, 'handoff-test-id');
+  const listed = listPurchaseRequests({ filter: 'handed_off', q: testChatId.replace('@test.c.us', '') });
+  check(
+    'purchase request: после handoff → handed_off',
+    listed.items.some((x) => x.handoffId === 'handoff-test-id')
+  );
 
   console.log(`\n--- Итого: ${passed} passed, ${failed} failed ---\n`);
   return failed === 0;
@@ -1739,12 +1900,12 @@ const MANUAL_DIALOGS = [
   },
   {
     id: 'qa-6-band-20',
-    title: 'QA-6. Коридор ±20% от бюджета',
+    title: 'QA-6. Коридор ±26% от бюджета',
     lang: 'ru',
-    note: 'Правило 6 — бюджет 2M → объекты примерно €1.6M–€2.4M',
+    note: 'Правило 6 — бюджет 2M → объекты примерно €1.48M–€2.52M',
     steps: [
       { who: 'user', text: 'Инвестиции, вилла, Тенерифе, Adeje, бюджет 2 миллиона, через 2 месяца, всё наличными' },
-      { who: 'bot', expect: 'Подборка ~1.6–2.4M по факту фильтра. ❌ НЕ говорить клиенту «±20%» / «коридор €…». ❌ НЕ виллы за 400k и НЕ за 5M без просьбы расширить.' },
+      { who: 'bot', expect: 'Подборка ~1.48–2.52M по факту фильтра. ❌ НЕ говорить клиенту «±26%» / «коридор €…». ❌ НЕ виллы за 400k и НЕ за 5M без просьбы расширить.' },
     ],
   },
   {
@@ -1831,7 +1992,7 @@ const MANUAL_DIALOGS = [
     id: 'qa-full-invest',
     title: 'QA-C. Полный инвест-путь (сквозной)',
     lang: 'ru',
-    note: 'Все шаги подряд: бюджет → срок → финансы → регион → подборка ±20%',
+    note: 'Все шаги подряд: бюджет → срок → финансы → регион → подборка ±26%',
     steps: [
       { who: 'user', text: 'Ищу инвестиционный проект' },
       { who: 'bot', expect: 'Бюджет?' },
@@ -1844,7 +2005,23 @@ const MANUAL_DIALOGS = [
       { who: 'user', text: 'Вилла' },
       { who: 'bot', expect: 'Регион / зона (можно подсказать под бюджет).' },
       { who: 'user', text: 'Тенерифе, Costa Adeje' },
-      { who: 'bot', expect: 'Подборка вилл ~1.6–2.4M, ссылки housetenerife.eu. Опционально мягкий созвон.' },
+      { who: 'bot', expect: 'Подборка вилл ~1.48–2.52M, ссылки housetenerife.eu. Опционально мягкий созвон.' },
+    ],
+  },
+  {
+    id: 'qa-post-pick',
+    title: 'QA-D. После выбора объекта — документы → созвон → заявка',
+    lang: 'ru',
+    note: 'Воронка после подборки + вкладка «Запрос покупки»',
+    steps: [
+      { who: 'user', text: 'Ищу виллу на Тенерифе под инвестиции, бюджет 2 млн, покупка сейчас, все своими' },
+      { who: 'bot', expect: 'Уточняет тип/регион/район или сразу подборка 3–5 вилл со ссылками.' },
+      { who: 'user', text: 'Costa Adeje, вилла' },
+      { who: 'bot', expect: 'Подборка вилл ±26% со ссылками housetenerife.eu. В конце: «Какой вариант ближе?»' },
+      { who: 'user', text: 'Первый вариант нравится' },
+      { who: 'bot', expect: 'Подтверждает выбор (название/ID). НЕ новая подборка. Кратко про документы или сразу предложение созвона с менеджером для просмотра и заявки.' },
+      { who: 'user', text: 'Да, давайте созвон' },
+      { who: 'bot', expect: 'Передаёт менеджеру / просит имя. В админке появляется «Запрос покупки» с объектом и статусом «Созвон запрошен».' },
     ],
   },
   // ——— Регрессии каталога / языка ———
@@ -1869,7 +2046,7 @@ const MANUAL_DIALOGS = [
       { who: 'user', text: 'Puerto de la Cruz' },
       { who: 'bot', expect: '❌ НЕ «Какую зону вы имеете в виду?». Следующий вопрос — бюджет (мягко).' },
       { who: 'user', text: 'до 400000 евро' },
-      { who: 'bot', expect: 'Подборка 3–5 апартаментов в Puerto de la Cruz / север. ❌ НЕ одна ссылка. ❌ НЕ «коридор ±20%» вслух.' },
+      { who: 'bot', expect: 'Подборка 3–5 апартаментов в Puerto de la Cruz / север. ❌ НЕ одна ссылка. ❌ НЕ «коридор ±26%» вслух.' },
     ],
   },
   {
@@ -1911,7 +2088,7 @@ const MANUAL_DIALOGS = [
     steps: [
       { who: 'user', text: 'Вилла Adeje для жизни, бюджет 800000' },
       { who: 'user', text: 'Давайте до 350000' },
-      { who: 'bot', expect: 'Подборка с объектами до ~350k (±20%). ❌ НЕ €1.5M и не €890k без явной просьбы «дороже».' },
+      { who: 'bot', expect: 'Подборка с объектами до ~350k (±26%). ❌ НЕ €1.5M и не €890k без явной просьбы «дороже».' },
     ],
   },
   {
@@ -1947,7 +2124,7 @@ const MANUAL_DIALOGS = [
     lang: 'ru',
     steps: [
       { who: 'user', text: 'Апартамент Costa Adeje для жизни, бюджет 350000' },
-      { who: 'bot', expect: '3–5 вариантов с разным ценником в коридоре ±20%. ❌ НЕ один единственный вариант.' },
+      { who: 'bot', expect: '3–5 вариантов с разным ценником в коридоре ±26%. ❌ НЕ один единственный вариант.' },
     ],
   },
   {

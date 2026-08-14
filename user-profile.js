@@ -5,6 +5,7 @@ const path = require('path');
 const { detectPropertyTypePreference } = require('./property-types');
 const { detectRegionPreference } = require('./catalog-regions');
 const { detectMicroAreas } = require('./location-matching');
+const { detectBusinessSectorPreference } = require('./business-sectors');
 const { extractBudgetRange, wantsIgnoreBudget } = require('./dialog-context');
 
 function resolveProfilesPath() {
@@ -109,6 +110,10 @@ function buildUpdatedProfile(
       ? { ids: result.groupIds || [], label: result.label || '' }
       : null;
   });
+  const latestBusinessSector = latestDetected(userTexts, (text) => {
+    const result = detectBusinessSectorPreference(text, language);
+    return result.hasSector ? { sectors: result.sectors, label: result.label, isOther: result.isOther } : null;
+  });
   const latestBudget = latestDetected(userTexts, (text) => {
     const budget = extractBudgetRange(text);
     const ignoreBudget = wantsIgnoreBudget(text);
@@ -139,6 +144,18 @@ function buildUpdatedProfile(
     latestMicro?.label ||
     previousCriteria.microAreaLabel ||
     (dialog?.hasLocation ? dialog.microAreaLabel || '' : '');
+  const businessSectors =
+    latestBusinessSector?.sectors ||
+    previousCriteria.businessSectors ||
+    (dialog?.hasBusinessSector ? dialog.businessSectors || [] : []);
+  const businessSectorLabel =
+    latestBusinessSector?.label ||
+    previousCriteria.businessSectorLabel ||
+    (dialog?.hasBusinessSector ? dialog.businessSectorLabel || '' : '');
+  const businessSectorIsOther =
+    latestBusinessSector?.isOther ??
+    previousCriteria.businessSectorIsOther ??
+    Boolean(dialog?.businessSectorIsOther);
   const budget = latestBudget || fallbackBudget || previousCriteria.budget || null;
   const purpose = latestPurpose || previousCriteria.purpose || null;
 
@@ -158,6 +175,9 @@ function buildUpdatedProfile(
       regions: unique(regions),
       microAreas: unique(microAreas),
       microAreaLabel,
+      businessSectors: unique(businessSectors),
+      businessSectorLabel,
+      businessSectorIsOther,
       budget,
       source: 'conversation',
       updatedAt: now,
@@ -209,6 +229,10 @@ function formatUserProfileForPrompt(profile) {
   }
   if (criteria.regions?.length) facts.push(`regions=${criteria.regions.join(',')}`);
   if (criteria.microAreaLabel) facts.push(`area=${criteria.microAreaLabel}`);
+  if (criteria.businessSectors?.length && !criteria.businessSectorIsOther) {
+    facts.push(`businessSector=${criteria.businessSectors.join(',')}`);
+    if (criteria.businessSectorLabel) facts.push(`businessSectorLabel=${criteria.businessSectorLabel}`);
+  }
   if (criteria.budget) {
     const { minPrice, maxPrice, ignoreBudget } = criteria.budget;
     if (ignoreBudget) facts.push('budget=no_limit');

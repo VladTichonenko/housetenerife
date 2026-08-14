@@ -5,7 +5,7 @@
  * Этот блок всегда попадает в system prompt — не конфигурируется из админки.
  */
 
-const BUDGET_RANGE_RATIO = 0.2; // ±20% от бюджета (правило 6)
+const BUDGET_RANGE_RATIO = 0.26; // ±26% от бюджета (правило 6)
 
 const CORE_RULES = Object.freeze([
   {
@@ -38,8 +38,8 @@ const CORE_RULES = Object.freeze([
   },
   {
     id: 6,
-    title: 'Диапазон ±20%',
-    summary: 'Подбирай объекты в коридоре ±20% от названного бюджета.',
+    title: 'Диапазон ±26%',
+    summary: 'Подбирай объекты в коридоре ±26% от названного бюджета.',
   },
   {
     id: 7,
@@ -98,7 +98,7 @@ function wantsEscalation(text) {
 }
 
 /**
- * Расширить бюджет до коридора ±ratio (по умолчанию 20%).
+ * Расширить бюджет до коридора ±ratio (по умолчанию 26%).
  * @param {{ minPrice: number|null, maxPrice: number|null }} budget
  * @param {number} [ratio]
  */
@@ -117,7 +117,7 @@ function expandBudgetBand(budget, ratio = BUDGET_RANGE_RATIO) {
     const mid = (minPrice + maxPrice) / 2;
     const spread = mid > 0 ? (maxPrice - minPrice) / mid : 1;
     if (spread < 0.3) {
-      // Узкая «около X» / почти точка → ±20% от середины (как на скрине: 2M → 1.6–2.4M)
+      // Узкая «около X» / почти точка → ±26% от середины (напр. 2M → 1.48–2.52M)
       anchor = Math.round(mid);
       floor = Math.round(mid * (1 - r));
       ceiling = Math.round(mid * (1 + r));
@@ -156,7 +156,7 @@ function formatCoreRulesForPrompt(lang = 'ru') {
 3. *Clarify timeline* — ask when they plan to buy/invest (separate message, not bundled with budget).
 4. *Ask finances* — after interest in a listing: cash available now (€), mortgage yes/no, which documents they already have.
 5. *Soft call offer* — suggest a 10–15 min call; hand off to a manager only after they agree.
-6. *±20% band* — shortlist only around ±20% of the stated budget (system already filters; do not push far cheaper/dearer unless asked).
+6. *±26% band* — shortlist only around ±26% of the stated budget (system already filters; do not push far cheaper/dearer unless asked).
 7. *Remember context* — dialog history is stored; never re-ask known budget/region/type/goal.
 8. *Keywords / relevance* — stay in the active scenario; greetings like «how are you?» without property keywords → warm funnel intro, NEVER dump villas.
 9. *Escalate complexity* — complaints or specialist topics → warm handoff to a human; do not argue in chat.
@@ -168,8 +168,8 @@ function formatCoreRulesForPrompt(lang = 'ru') {
 - Tone: WhatsApp human *always*, not a robot. Do not end every short line with a full stop; mix short fragments, questions, light connectors + occasional 🙂/:). No corporate filler. Casual lines like «What about villas?» *anytime* → continue the selection funnel; do NOT lecture why villas are good for investment unless they explicitly ask.
 
 **TWO FUNNELS (mandatory):**
-*INVESTMENT:* investment budget € → timeline → cash now (all/part/mortgage) → then selection WITHOUT re-asking price (type → region → area) → shortlist ±20%. NEVER dump villas after "looking for an investment project".
-*FOR LIVING:* goal → city/region → district → type → budget € → cash/mortgage → shortlist ±20%.`;
+*INVESTMENT:* investment budget € → timeline → cash now (all/part/mortgage) → then selection WITHOUT re-asking price (type → region → area) → shortlist ±26%. NEVER dump villas after "looking for an investment project".
+*FOR LIVING:* goal → city/region → district → type → budget € → cash/mortgage → shortlist ±26%.`;
   }
 
   if (code === 'es') {
@@ -179,7 +179,7 @@ function formatCoreRulesForPrompt(lang = 'ru') {
 3. *Plazo* — pregunta cuándo planean comprar/invertir (mensaje aparte, no junto al presupuesto).
 4. *Finanzas* — tras interés en una ficha: efectivo disponible ahora (€), hipoteca sí/no, documentos que ya tienen.
 5. *Llamada suave* — ofrece 10–15 min; pasa al manager solo tras el sí.
-6. *Banda ±20%* — selección en torno a ±20% del presupuesto.
+6. *Banda ±26%* — selección en torno a ±26% del presupuesto.
 7. *Memoria* — el historial está guardado; no repitas presupuesto/región/tipo/objetivo ya conocidos.
 8. *Palabras clave* — mantén el escenario activo (búsqueda / hipoteca / soporte / escalado).
 9. *Escalar lo complejo* — quejas o temas de especialista → handoff humano, sin discutir.
@@ -187,8 +187,8 @@ function formatCoreRulesForPrompt(lang = 'ru') {
 **Fallos a evitar:** fichas antes del presupuesto y finanzas; olvidar el presupuesto (confirmar «anotado» y seguir — NUNCA «¿cuál es su presupuesto?» de nuevo); hipoteca desde consejos/anuncios de abogados (solo BdE / Ley 5/2019 / mortgage_process / mortgage_lending_official); tono robótico con punto en cada frase; «¿y las villas?» en *cualquier* momento → continuar embudo, NO folleto de inversión.
 
 **DOS EMBUDOS (obligatorio):**
-*INVERSIÓN:* presupuesto € → plazo → dinero ahora (todo/parte/hipoteca) → criterios SIN repetir precio (tipo → región → zona) → selección ±20%. NUNCA vuelques villas tras «busco proyecto de inversión».
-*PARA VIVIR:* objetivo → ciudad/región → zona → tipo → presupuesto € → dinero/hipoteca → selección ±20%.`;
+*INVERSIÓN:* presupuesto € → plazo → dinero ahora (todo/parte/hipoteca) → criterios SIN repetir precio (tipo → región → zona) → selección ±26%. NUNCA vuelques villas tras «busco proyecto de inversión».
+*PARA VIVIR:* objetivo → ciudad/región → zona → tipo → presupuesto € → dinero/hipoteca → selección ±26%.`;
   }
 
   const lines = CORE_RULES.map((r) => `${r.id}. *${r.title}* — ${r.summary}`).join('\n');
@@ -196,8 +196,8 @@ function formatCoreRulesForPrompt(lang = 'ru') {
 ${lines}
 
 **ДВЕ ВЕТКИ ДИАЛОГА (обязательно):**
-*ИНВЕСТИЦИИ:* бюджет для инвестиций → срок инвестирования → деньги сейчас (все/часть/ипотека) → затем критерии подбора БЕЗ переспроса цены (тип → регион → район) → подборка ±20%. ЗАПРЕЩЕНО слать объекты/виллы сразу после «ищу инвестпроект».
-*ДЛЯ СЕБЯ:* цель (для себя или инвестиции) → город/регион → район → тип → бюджет € → деньги на руках / ипотека → подборка ±20%.
+*ИНВЕСТИЦИИ:* бюджет для инвестиций → срок инвестирования → деньги сейчас (все/часть/ипотека) → затем критерии подбора БЕЗ переспроса цены (тип → регион → район) → подборка ±26%. ЗАПРЕЩЕНО слать объекты/виллы сразу после «ищу инвестпроект».
+*ДЛЯ СЕБЯ:* цель (для себя или инвестиции) → город/регион → район → тип → бюджет € → деньги на руках / ипотека → подборка ±26%.
 
 **Исправление типичных сбоев:**
 - Неправильный порядок: объекты/ссылки ДО бюджета и финансов — запрещено.
