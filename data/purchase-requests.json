@@ -1,6 +1,37 @@
 {
   "items": [
     {
+      "id": "bff83201-d61e-4312-a01d-70cd1401df91",
+      "chatId": "test-purchase-1786785879970@test.c.us",
+      "phone": "test-purchase-1786785879970@test.c.us",
+      "phoneDisplay": "+1786785879970",
+      "waLink": "https://wa.me/1786785879970",
+      "status": "handed_off",
+      "handoffId": "handoff-test-id",
+      "clientName": "",
+      "createdAt": "2026-08-15T09:24:39.971Z",
+      "language": "ru",
+      "languageLabel": "Русский",
+      "properties": [
+        {
+          "id": "HZ100",
+          "title": "Villa A",
+          "price": "€1.5M",
+          "siteUrl": "https://housetenerife.eu/property/HZ100"
+        }
+      ],
+      "fundsNowLabel": "все своими",
+      "needsMortgage": false,
+      "financeStage": "FINANCE_DOCUMENTS_CASH",
+      "budget": "до €2,000,000",
+      "region": "Тенерифе / Канары",
+      "propertyType": "виллы",
+      "businessSector": "",
+      "preview": "первый",
+      "lastActivityAt": "2026-08-15T09:24:39.972Z",
+      "updatedAt": "2026-08-15T09:24:39.972Z"
+    },
+    {
       "id": "dd9a24be-51d2-4915-8cb9-1f7a3a0911cb",
       "chatId": "test-purchase-1786784899759@test.c.us",
       "phone": "test-purchase-1786784899759@test.c.us",
@@ -435,5 +466,5 @@
       "updatedAt": "2026-08-13T13:08:27.654Z"
     }
   ],
-  "updatedAt": "2026-08-15T09:08:19.761Z"
+  "updatedAt": "2026-08-15T09:24:39.972Z"
 }

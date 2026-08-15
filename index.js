@@ -762,8 +762,8 @@ const SEND_SOFT_TIMEOUT_MS = Math.max(
   parseInt(process.env.WA_SEND_SOFT_TIMEOUT_MS, 10) || 25000
 );
 const SEND_SOFT_TIMEOUT_LID_MS = Math.max(
-  5000,
-  parseInt(process.env.WA_SEND_SOFT_TIMEOUT_LID_MS, 10) || 12000
+  12000,
+  parseInt(process.env.WA_SEND_SOFT_TIMEOUT_LID_MS, 10) || 25000
 );
 const OUTBOUND_RETRY_MAX = Math.max(1, parseInt(process.env.WA_OUTBOUND_RETRY_MAX, 10) || 8);
 /** @type {Map<string, { chatId: string, text: string, attempts: number, nextAt: number, enqueuedAt: number }>} */
@@ -828,7 +828,15 @@ async function withSendSoftTimeout(promise, timeoutMs = SEND_SOFT_TIMEOUT_MS) {
       sendSoftTimeoutStreak += 1;
       pauseMessagePolling(30000);
       markChromiumSlow(20000);
-      if (sendSoftTimeoutStreak >= 2) {
+      // @lid reply часто живёт дольше обычного sendMessage. Если он всё же
+      // завис, очередь иначе ждёт abandoned CDP бесконечно и не может начать
+      // вторую попытку. Сразу перезагружаем только вкладку WA, не весь процесс.
+      if (isLidChatId(chatId)) {
+        console.warn('⚠️ @lid reply timeout — soft reload WA для доставки сообщения из очереди');
+        softReloadWhatsAppPage('LID reply soft-timeout', { force: true }).catch((e) =>
+          console.warn('⚠️ softReload after LID send:', e.message)
+        );
+      } else if (sendSoftTimeoutStreak >= 2) {
         console.warn(
           `⚠️ Send soft-timeout ×${sendSoftTimeoutStreak} — force soft reload WhatsApp page`
         );
