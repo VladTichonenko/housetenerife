@@ -1218,6 +1218,16 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       { userProfile, intentGate, topicSummary, analysisHistory }
     );
     let reply = await callAI(messages, 'chat');
+    if (dialog.stage === 'NEED_BUSINESS_SECTOR') {
+      const {
+        buildBusinessSectorAskReply,
+        replySkipsBusinessSectorAsk,
+      } = require('./business-sectors');
+      if (replySkipsBusinessSectorAsk(reply)) {
+        console.warn('⚠️ Этап сферы бизнеса — фиксированный вопрос со всеми направлениями');
+        reply = buildBusinessSectorAskReply(salesLang);
+      }
+    }
     if (hasUnsupportedDelayedListingPromise(reply)) {
       console.warn('⚠️ AI обещал отправить подборку позже — переписываю ответ без отложенного обещания');
       reply = await callAI(
@@ -1520,6 +1530,36 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       reply = stripNonCatalogUrls(reply);
     }
 
+    // Финальный жёсткий гард для готового бизнеса: текст и ссылки не могут
+    // расходиться со сферой, которую выбрал клиент.
+    const replyHasWrongBusinessSector =
+      Boolean(dialog.businessSectors?.length) &&
+      !dialog.businessSectorIsOther &&
+      (() => {
+        const { itemMatchesBusinessSectors } = require('./business-sectors');
+        const re =
+          /https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[^\s<>\])"'}]+/gi;
+        const urls = String(reply).match(re) || [];
+        return urls.some((u) => {
+          const item = findItemByUrl(u);
+          return item && !itemMatchesBusinessSectors(item, dialog.businessSectors);
+        });
+      })();
+
+    if (replyHasWrongBusinessSector && urlsForRepair.length) {
+      const safe = buildDeterministicListingsReply(
+        urlsForRepair,
+        userLanguage,
+        dialog,
+        recentUrls,
+        fallbackMeta
+      );
+      if (safe) {
+        console.warn('⚠️ Подборка заменена: ссылки не совпадали с выбранной сферой бизнеса');
+        reply = safe;
+      }
+    }
+
     // Финальный предохранитель: тип/дубли/чужой регион/цены после починки
     if (
       urlsForRepair.length > 0 &&
@@ -1529,6 +1569,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         websiteOnlyNoCards ||
         dialog.wantsPropertyLinks) &&
       (forceStrictCatalog ||
+        replyHasWrongBusinessSector ||
         replyNeedsCatalogForce(reply, dialog.propertyTypes) ||
         (() => {
           if (!dialog.macroRegions?.length) return false;

@@ -405,7 +405,7 @@ const MORTGAGE_STEPS_INSTRUCTION = `Клиент спрашивает про и�
 const MORTGAGE_CONFIRMED_PITCH_INSTRUCTION = `Клиент подтвердил ипотеку/кредит (часть суммы своими, остальное в ипотеку, или доля вроде 80%/20%). В ЭТОМ ответе *до* следующего вопроса воронки обязательно:
 1) Скажи, что House Tenerife как раз помогает со всем этим: NIE, испанский банковский счёт, пакет документов, подбор банка, предодобрение, оценка (tasación), подготовка к нотариусу (escritura) — в полном сопровождении (€3 000). Не отправляй клиента «самому в банк» и не рекламируй сторонних юристов.
 2) Дай коротко *текущую ситуацию по ипотекам* из bank_mortgage_live (2–4 факта): официальный Euríbor 12 мес.; типичные ориентиры крупных банков (плавающая ставка Euríbor+маржа / TAE — цифры из блока); LTV нерезиденты часто до ~70%, резиденты ЕС до ~80%; FEIN минимум за 10 дней и визит к нотариусу по Ley 5/2019; доп. расходы с ипотекой ориентир ~8,7% (poryadok-sdelki на housetenerife.eu). ЗАПРЕЩЕНО называть клиенту Santander, CaixaBank, BBVA или другие банки по имени — только обобщённо («крупные банки», «рыночные ориентиры»). Всегда оговорка «финальная ставка и одобрение — у банка».
-3) Потом *один* следующий вопрос текущего этапа (тип / регион / район). Объекты и ссылки — только если этап уже SHOW_LISTINGS.`;
+3) Потом *один* следующий вопрос текущего этапа. Если это тип недвижимости — ОБЯЗАТЕЛЬНО перечисли варианты в вопросе: апартаменты, вилла, дом, земля, коммерция, готовый бизнес, инвест-проект (не спрашивай голое «какой тип?»). Объекты и ссылки — только если этап уже SHOW_LISTINGS.`;
 
 function getFinanceStageInstruction(financeStage, lang = 'ru') {
   const localized = getLocalizedFinanceInstruction(lang, financeStage);
@@ -448,7 +448,7 @@ const MORTGAGE_CONFIRMED_PITCH_BY_LANG = {
   en: `The client confirmed they will use a mortgage/loan (part cash + mortgage, or a split like 80%/20%). In THIS reply *before* the next funnel question you MUST:
 1) Say House Tenerife helps with the full path: NIE, Spanish bank account, document pack, bank matching, pre-approval, valuation, notary prep — in the full support package (€3,000). Do not send them “to any bank alone” or advertise outside lawyers.
 2) Give 2–4 Spain mortgage facts from the knowledge base: non-residents often ~70% LTV / EU residents ~80%; Euríbor 12m + BdE average from mortgage_rates_official with “final rate is the bank’s”; FEIN 10 days + notary step per Ley 5/2019; extra costs with mortgage ~8.7% (housetenerife.eu deal process).
-3) Then one next-stage question (type/region/area). Listings only if stage is already SHOW_LISTINGS.
+3) Then one next-stage question. If asking property type — MUST name options in the question: apartments, villa, house, land, commercial, ready-made business, investment project (never bare “what type?”). Listings only if stage is already SHOW_LISTINGS.
 When citing rates from bank_mortgage_live, NEVER name Santander/CaixaBank/BBVA — say “major banks / market orientations”.
 Reply language: English only — no Russian mixed in.`,
   es: `El cliente confirmó hipoteca/crédito (parte en efectivo + hipoteca, o un reparto tipo 80%/20%). En ESTA respuesta *antes* de la siguiente pregunta del embudo DEBES:

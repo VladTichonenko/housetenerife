@@ -593,7 +593,7 @@ function runDeterministicTests() {
   } = require('../business-sectors');
   check(
     'sector: инструкция запрещает навязывать одну сферу',
-    /НЕ выбирай|не навязывай|Do NOT assume|NO asumas/i.test(
+    /НЕ выбирай|НЕ навязывай|Do NOT assume|NO asumas/i.test(
       getBusinessSectorStageInstruction('ru')
     )
   );
@@ -619,12 +619,40 @@ function runDeterministicTests() {
   );
   const sectorInstr = getBusinessSectorStageInstruction('ru');
   check(
-    'sector: инструкция запрещает статичный список',
-    /ЗАПРЕЩЕНО.*маркированный список/i.test(sectorInstr)
+    'sector: инструкция требует назвать все сферы',
+    /ОБЯЗАТЕЛЬНО назови|ВСЕ направления|All sectors \(MUST name/i.test(sectorInstr)
   );
   check(
     'sector: инструкция содержит все направления',
     /ресторан|отель|море|авто|девелопер|коммерческ|другое/i.test(sectorInstr)
+  );
+  check(
+    'sector: «хотел бы… готовые бизнесы» ≠ отель',
+    !detectBusinessSectorPreference('хотел бы посмотреть готовые бизнесы', 'ru').hasSector
+  );
+  const afterBizType = analyzeConversation(
+    [
+      ...investFunnelHistory,
+      { sender: 'user', text: 'хотел бы посмотреть готовые бизнесы' },
+    ],
+    'ru'
+  );
+  check(
+    'sector: после «готовые бизнесы» → NEED_BUSINESS_SECTOR',
+    afterBizType.stage === 'NEED_BUSINESS_SECTOR' &&
+      afterBizType.needsBusinessSector &&
+      !afterBizType.hasBusinessSector
+  );
+  const { buildBusinessSectorAskReply, replySkipsBusinessSectorAsk } = require('../business-sectors');
+  check(
+    'sector: ask reply перечисляет все сферы',
+    /ресторан.+отель.+мор|яхт.+авто.+инвест|коммерческ/i.test(buildBusinessSectorAskReply('ru'))
+  );
+  check(
+    'sector: ответ с отелем+регионом = skip',
+    replySkipsBusinessSectorAsk(
+      'Отлично, готовые бизнесы. По инвестициям могу предложить варианты в сфере отельного бизнеса. В каком регионе?'
+    )
   );
   check(
     'sector: «общепит» → restaurant',

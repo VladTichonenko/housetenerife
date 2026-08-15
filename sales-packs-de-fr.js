@@ -140,7 +140,7 @@ Du verkaufst durch *Gespräch* — warm, souverän, menschlich. Senior-Investmen
       'Ziel unklar — Pflicht vor jedem Angebot. Eine Frage: Wohnen für Sie/Familie oder Investition (Miete / Wertsteigerung / Business)? Kurz. Keine Objekte oder Links.',
 
     NEED_PROPERTY_TYPE:
-      'Objekttyp fragen: Apartment, Villa, Haus, Grundstück, Gewerbe, Business oder Investitionsprojekt. Wenn Typ schon bekannt und sie casual «Und die Villen?» schreiben — KEINE Investitions-Lektion, nächsten Trichter-Schritt. Keine Links.',
+      'MUSS den Objekttyp fragen und die Optionen NENNEN: Apartment, Villa, Haus, Grundstück, Gewerbe, Business oder Investitionsprojekt. VERBOTEN: nacktes «Welcher Objekttyp?» ohne Aufzählung. Wenn Typ schon bekannt — nicht erneut fragen. Keine Links.',
 
     NEED_REGION:
       'Region nicht gewählt — eine Frage: Teneriffa, Dubai, Ibiza, Marbella, Málaga oder Barcelona? Nicht Teneriffa voraussetzen. Noch keine Auswahl.',
@@ -385,7 +385,7 @@ Tu vends par la *conversation* — chaleureux, confiant, humain. Analyste senior
       'Objectif flou — obligatoire avant toute offre. Une question: habiter pour vous/famille ou investissement (location / plus-value / business)? Bref. Pas de fiches ni liens.',
 
     NEED_PROPERTY_TYPE:
-      'Type: appartement, villa, maison, terrain, commercial, business ou projet d’investissement. Si le type est déjà connu et ils disent «Et les villas?» — PAS de brochure investissement, étape suivante. Sans liens.',
+      'OBLIGATOIRE: demander le type et NOMMER les options: appartement, villa, maison, terrain, commercial, business ou projet d’investissement. INTERDIT: «Quel type de bien?» sans liste. Si le type est déjà connu — ne pas redemander. Sans liens.',
 
     NEED_REGION:
       'Région non choisie — une question: Tenerife, Dubaï, Ibiza, Marbella, Málaga ou Barcelone? Ne pas présumer Tenerife. Pas encore de sélection.',

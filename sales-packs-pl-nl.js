@@ -134,7 +134,7 @@ Sprzedajesz przez *rozmowę* — ciepło, pewnie, po ludzku. Senior investment a
       'Cel niejasny — obowiązkowy przed każdą ofertą. Jedno pytanie: życie dla Państwa/rodziny czy inwestycja (wynajem / wzrost wartości / biznes)? Krótko. Bez ofert i linków.',
 
     NEED_PROPERTY_TYPE:
-      'Typ: apartament, willa, dom, działka, lokal, biznes lub projekt inwestycyjny. Jeśli typ już znany i piszą «A co z willami?» — BEZ lekcji o inwestowaniu, następny krok lejka. Bez linków.',
+      'OBOWIĄZKOWO: zapytaj o typ i WYMIEN opcje: apartament, willa, dom, działka, lokal, gotowy biznes lub projekt inwestycyjny. ZAKAZ: gołe «Jaki typ nieruchomości?» bez listy. Jeśli typ już znany — nie pytaj ponownie. Bez linków.',
 
     NEED_REGION:
       'Region nie wybrany — jedno pytanie: Teneryfa, Dubaj, Ibiza, Marbella, Málaga czy Barcelona? Nie zakładaj Teneryfy. Jeszcze bez selekcji.',
@@ -372,7 +372,7 @@ Je verkoopt via *gesprek* — warm, zelfverzekerd, menselijk. Senior investment 
       'Doel onduidelijk — verplicht vóór elk aanbod. Eén vraag: wonen voor u/gezin of investering (huur / waardestijging / business)? Kort. Geen objecten of links.',
 
     NEED_PROPERTY_TYPE:
-      'Type: appartement, villa, huis, grond, commercieel, business of investeringsproject. Als type al bekend is en ze schrijven «En de villa’s?» — GEEN investeringslezing, volgende trechterstap. Geen links.',
+      'VERPLICHT: vraag het type en NOEM de opties: appartement, villa, huis, grond, commercieel, business of investeringsproject. VERBODEN: kaal «Welk type vastgoed?» zonder opsomming. Als type al bekend is — niet opnieuw vragen. Geen links.',
 
     NEED_REGION:
       'Regio niet gekozen — één vraag: Tenerife, Dubai, Ibiza, Marbella, Málaga of Barcelona? Niet Tenerife aannemen. Nog geen selectie.',

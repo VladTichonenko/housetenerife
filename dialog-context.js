@@ -575,9 +575,11 @@ const stageInstructions = {
 
   NEED_PURPOSE: `Цель не ясна — обязательный шаг ДО любых предложений. Не повторяй вопрос клиента и не начинай с канцелярского «понял ваш запрос». Живо: один вопрос — жизнь/семья/переезд или инвестиция (аренда, перепродажа, бизнес)? Одна короткая фраза, зачем это важно. Без объектов.`,
 
-  NEED_PROPERTY_TYPE: `Сразу уточни *тип*: апартаменты, вилла, дом, земля, коммерция, готовый бизнес, инвест-проект — не «жильё» в общем. Не предполагай виллу. Если тип УЖЕ известен и клиент просто вернулся («а что по виллам?») — НЕ читай лекцию про инвестиции в виллы, иди к следующему шагу воронки. Без ссылок и без переспроса уже известного бюджета.`,
+  NEED_PROPERTY_TYPE: `ОБЯЗАТЕЛЬНО спроси тип и *назови варианты в вопросе* (не общим «какой тип недвижимости?»): {propertyTypeOptions}.
+Образец: «Какой тип интересует — апартаменты, вилла, дом, земля, коммерция, готовый бизнес или инвест-проект?»
+ЗАПРЕЩЕНО: голый вопрос без перечисления («Какой тип недвижимости интересует для инвестиций?» — плохо). Не предполагай виллу. Если тип УЖЕ известен — не переспрашивай, иди к следующему шагу. Без ссылок и без переспроса бюджета.`,
 
-  NEED_BUSINESS_SECTOR: `Клиент выбрал готовый бизнес или инвест-проект — один живой вопрос про *сферу* (несколько направлений + «другое»), своими словами. НЕ выбирай одну сферу за клиента (запрещено сразу предлагать только морской/яхты). Регион в этом ответе не спрашивай. Без объектов и ссылок.`,
+  NEED_BUSINESS_SECTOR: `Клиент выбрал готовый бизнес или инвест-проект. ОБЯЗАТЕЛЬНО спроси сферу и назови ВСЕ направления: ресторан/кафе/бар, отель/apart-hotel, море и водный бизнес, авто, девелоперский/инвест-проект, коммерческое помещение/офис/склад, или другой формат. НЕ навязывай одну сферу (отель/морской и т.п.). Регион в этом ответе не спрашивай. Без объектов и ссылок.`,
 
   NEED_REGION: `Один живой вопрос про регион/город: Тенерифе, Дубай, Ибица, Марбелья, Малага, Барселона? Если бюджет уже известен — мягко подскажи 1–2 сильные зоны под этот бюджет из каталога (напр. Adeje / Ибица / Марбелья — только реальные названия). Можно: «если не определились — подскажу сильные зоны под вашу цель и бюджет». Без подборки и без буклета.`,
 
@@ -751,12 +753,12 @@ function getJustRememberedBudgetInstruction(lang, budget) {
 function getInvestmentSelectionPreamble(lang) {
   const code = normalizeSalesLang(lang);
   if (code === 'ru') {
-    return `**Подбор для инвестиций (цена уже известна):** Бюджет, срок и финансы собраны. Сейчас только тип/регион/район — цену НЕ переспрашивай. Потом подборка.`;
+    return `**Подбор для инвестиций (цена уже известна):** Бюджет, срок и финансы собраны. Сейчас только тип/регион/район — цену НЕ переспрашивай. Если спрашиваешь тип — обязательно перечисли: апартаменты, вилла, дом, земля, коммерция, готовый бизнес, инвест-проект. Потом подборка.`;
   }
   if (code === 'es') {
-    return `**Selección inversión (precio ya conocido):** Presupuesto, plazo y finanzas listos. Ahora solo tipo/región/zona — NO repitas el precio. Luego la selección.`;
+    return `**Selección inversión (precio ya conocido):** Presupuesto, plazo y finanzas listos. Ahora solo tipo/región/zona — NO repitas el precio. Si preguntas el tipo — enumera: apartamentos, villa, casa, terreno, comercial, negocio, proyecto de inversión. Luego la selección.`;
   }
-  return `**Investment selection (price already known):** Budget, timeline and finances are set. Now collect type/region/area only — do NOT re-ask price. Then shortlist. Reply in the dialog language only.`;
+  return `**Investment selection (price already known):** Budget, timeline and finances are set. Now collect type/region/area only — do NOT re-ask price. If asking type — name options: apartments, villa, house, land, commercial, ready-made business, investment project. Then shortlist. Reply in the dialog language only.`;
 }
 
 function getEscalationInstruction(lang = 'ru') {
@@ -781,8 +783,11 @@ function resolveStageInstruction(stage, dialog) {
     dialog.budgetQuestionExample || pickBudgetQuestionExample('ru');
   const budgetBandHint = '';
   const businessSectorHint = dialog.businessSectorHint || '';
+  const propertyTypeOptions =
+    dialog.propertyTypeOptions || formatPropertyTypeOptions('ru');
   return text
     .replace(/\{propertyTypeLabel\}/g, typeLabel)
+    .replace(/\{propertyTypeOptions\}/g, propertyTypeOptions)
     .replace(/\{businessSectorHint\}/g, businessSectorHint)
     .replace(/\{regionLabel\}/g, regionLabel)
     .replace(/\{microAreaLabel\}/g, microAreaLabel)

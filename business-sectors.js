@@ -20,7 +20,8 @@ const SECTORS = [
       en: 'hotel / apart-hotel / hospitality',
       es: 'hotel / apart-hotel / hostelería',
     },
-    detect: /отел|hotel|hostel|хостел|apart[\s-]?hotel|гостиниц|гостинич|hospitality|bnb|resort|мини[\s-]?отел/i,
+    // Не «отел» внутри «хотел» — только отель/гостиница/hotel…
+    detect: /(?:^|[^\p{L}])(?:отел|гостиниц|гостинич|мини[\s-]?отел)|hotel|hostel|хостел|apart[\s-]?hotel|hospitality|\bbnb\b|resort/iu,
   },
   {
     id: 'marine_water',
@@ -100,9 +101,22 @@ function itemTextBlob(item) {
     .toLowerCase();
 }
 
-function classifyItemBusinessSector(item) {
-  const text = itemTextBlob(item);
+function itemTitleBlob(item) {
+  return [
+    item?.title,
+    item?.titles?.ru,
+    item?.titles?.en,
+    item?.titles?.es,
+    item?.url,
+    item?.urls?.ru,
+    item?.urls?.en,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
 
+function classifyBusinessSectorText(text) {
   if (/аптек|pharmacy|farmacia/.test(text)) return 'commercial_building';
   if (/азс|gas\s*station|заправ/.test(text)) return 'commercial_building';
   if (/аренд[аы]\s+авто|car\s+rent|прокат\s+авто|rent\s+a\s+car|автопрокат|buggy|бaggy|гидроцикл/.test(text)) {
@@ -111,14 +125,14 @@ function classifyItemBusinessSector(item) {
   if (/автосервис|car\s+wash|мойк|garage|автомоб|automotive|motorbike|мото|scooter|скутер|такси|taxi/.test(text)) {
     return 'auto_mobility';
   }
-  if (/яхт|yacht|катер|лодк|boat|marina|марин|jet[\s-]?ski|jetski|дайв|dive|diving|водн|nautica|лодочн|экскурсион|excursion|причал|zodiac/.test(text)) {
-    return 'marine_water';
-  }
-  if (/отел|hotel|hostel|хостел|apart[\s-]?hotel|гостиниц|bnb|resort|мини[\s-]?отел/.test(text)) {
+  if (/(?:^|[^\p{L}])(?:отел|гостиниц|мини[\s-]?отел)|hotel|hostel|хостел|apart[\s-]?hotel|\bbnb\b|resort/iu.test(text)) {
     return 'hotel_hospitality';
   }
   if (/ресторан|restaurant|кафе|cafe|café|\bbar\b|бар\b|паб|pub|tapas|pizzer|пицц|бистро|bistro|night\s*club|ночной\s+клуб|discoteca|дискотек|общепит|gastro|столов|horeca/.test(text)) {
     return 'restaurant_cafe_bar';
+  }
+  if (/яхт|yacht|катер|лодк|boat|marina|марин|jet[\s-]?ski|jetski|дайв|dive|diving|водн|nautica|лодочн|экскурсион|excursion|причал|zodiac/.test(text)) {
+    return 'marine_water';
   }
   if (/супермаркет|supermarket|minimarket|магазин|shop\b|store\b|boutique|ритейл|retail|торгов|kiosk|киоск|tabaco|салон\s+красот|beauty|spa\b|wellness|фитнес|fitness|gym/.test(text)) {
     return 'commercial_building';
@@ -132,6 +146,17 @@ function classifyItemBusinessSector(item) {
   if (/ферм|farm|agricult|vin[ey]ard|виноград|winery|финка|finca/.test(text)) {
     return 'other';
   }
+  return null;
+}
+
+function classifyItemBusinessSector(item) {
+  // Заголовок и URL задают тип бизнеса надёжнее длинного описания:
+  // ресторан у моря не становится «морским бизнесом» из-за слов в тексте.
+  const titleSector = classifyBusinessSectorText(itemTitleBlob(item));
+  if (titleSector) return titleSector;
+
+  const textSector = classifyBusinessSectorText(itemTextBlob(item));
+  if (textSector) return textSector;
 
   const cats = getItemPropertyCategories(item);
   if (cats.includes('investment')) return 'development_project';
@@ -154,6 +179,18 @@ function detectSectorByNumber(text) {
   if (idx >= 1 && idx <= ordered.length) return ordered[idx - 1].id;
   if (idx === ordered.length + 1) return 'other';
   return null;
+}
+
+function formatSectorLabel(sectorIds, lang = 'ru') {
+  const code = normalizeLang(lang);
+  const ids = Array.isArray(sectorIds) ? sectorIds : [];
+  return ids
+    .map((id) => {
+      const sector = SECTORS.find((s) => s.id === id);
+      return sector ? sector.label[code] || sector.label.ru : id;
+    })
+    .filter(Boolean)
+    .join(', ');
 }
 
 function detectBusinessSectorPreference(text, lang = 'ru') {
@@ -241,14 +278,6 @@ function resolveBusinessSectorPreference(history, lang = 'ru', options = {}) {
   return empty;
 }
 
-function formatSectorLabel(sectorIds, lang = 'ru') {
-  const code = normalizeLang(lang);
-  const labels = (sectorIds || [])
-    .map((id) => SECTORS.find((s) => s.id === id)?.label?.[code] || SECTORS.find((s) => s.id === id)?.label?.ru)
-    .filter(Boolean);
-  return labels.join('; ');
-}
-
 function formatSectorOptionsList(lang = 'ru') {
   const code = normalizeLang(lang);
   const lines = SECTORS.filter((s) => s.id !== 'other').map((s, i) => {
@@ -259,76 +288,90 @@ function formatSectorOptionsList(lang = 'ru') {
   return lines.join('\n');
 }
 
-/** Внутренний справочник сфер для промпта — НЕ отдавать клиенту списком. */
+/** Короткие названия сфер для живого вопроса клиенту (все направления). */
+function formatSectorOptionsForClient(lang = 'ru') {
+  const code = normalizeLang(lang);
+  if (code === 'en') {
+    return 'restaurant/café/bar, hotel/apart-hotel, marine & water (yachts, jet-ski, diving), car rental/auto, development/investment project, commercial premises/office/warehouse, or another format';
+  }
+  if (code === 'es') {
+    return 'restaurante/café/bar, hotel/apart-hotel, náutico (yates, jet-ski, buceo), alquiler de coches/auto, proyecto de inversión/desarrollo, local/oficina/nave, u otro formato';
+  }
+  return 'ресторан/кафе/бар, отель/apart-hotel, море и водный бизнес (яхты, jet-ski, дайвинг), автопрокат/автосервис, девелоперский/инвест-проект, коммерческое помещение/офис/склад, или другой формат';
+}
+
+/** Детерминированный вопрос про сферу — все направления, без навязывания одной. */
+function buildBusinessSectorAskReply(lang = 'ru') {
+  const code = normalizeLang(lang);
+  const options = formatSectorOptionsForClient(code);
+  if (code === 'en') {
+    return `Great — ready-made business. Which sector fits you best: ${options}?`;
+  }
+  if (code === 'es') {
+    return `Perfecto — negocio en venta. ¿Qué sector le encaja más: ${options}?`;
+  }
+  return `Отлично, готовый бизнес. Какая сфера Вам ближе: ${options}?`;
+}
+
 function getBusinessSectorOptionsReference(lang = 'ru') {
   const code = normalizeLang(lang);
   const labels = SECTORS.map((s) => s.label[code] || s.label.ru);
   if (code === 'en') {
-    return `Reference sectors (for you only — weave into natural text, never dump as a list):
-${labels.map((l) => `- ${l}`).join('\n')}`;
+    return `All sectors (MUST name them all to the client in the question):\n${labels.map((l) => `- ${l}`).join('\n')}`;
   }
   if (code === 'es') {
-    return `Sectores de referencia (solo para ti — intégralos en texto natural, nunca como lista):
-${labels.map((l) => `- ${l}`).join('\n')}`;
+    return `Todos los sectores (DEBES nombrarlos todos al cliente en la pregunta):\n${labels.map((l) => `- ${l}`).join('\n')}`;
   }
-  return `Справочник сфер (только для тебя — вплетай в живой текст, клиенту списком НЕ выдавай):
-${labels.map((l) => `- ${l}`).join('\n')}`;
+  return `Все сферы (ОБЯЗАТЕЛЬНО назови клиенту ВСЕ в вопросе):\n${labels.map((l) => `- ${l}`).join('\n')}`;
 }
 
 function getBusinessSectorStageInstruction(lang = 'ru') {
   const code = normalizeLang(lang);
   const optionsRef = getBusinessSectorOptionsReference(code);
+  const clientOptions = formatSectorOptionsForClient(code);
 
   if (code === 'ru') {
-    return `Клиент выбрал *готовый бизнес* или *инвестиционный/девелоперский проект* — тип уже известен.
+    return `Клиент выбрал *готовый бизнес* или *инвест-проект* — тип уже известен.
 
-ОБЯЗАТЕЛЬНО: один вопрос про *сферу бизнеса*. Регион / локации / подборку в ЭТОМ ответе НЕ спрашивай и НЕ предлагай.
+АЛГОРИТМ (строго):
+1) Спроси сферу бизнеса.
+2) В вопросе назови *ВСЕ* направления: ${clientOptions}.
+3) Регион, локации и подборку в ЭТОМ ответе НЕ спрашивай и НЕ предлагай.
+4) НЕ выбирай сферу за клиента (запрещено: «могу предложить отельный / морской…»).
 
 ${optionsRef}
 
-Как писать клиенту:
-- Упомяни 3–4 направления *естественно* в одном предложении (ресторан/общепит, отель, авто, коммерция…) + «или свой вариант».
-- НЕ выбирай и НЕ навязывай одну сферу от себя (запрещено: «по морскому бизнесу могу подобрать…», «давайте посмотрим яхты» и т.п.).
-- НЕ сужай разговор до одной отрасли, пока клиент сам не ответил.
-- Заканчивай: «что Вам ближе?» / «какое направление смотрим?»
-- ЗАПРЕЩЕНО: маркированный список (•), нумерация 1–7, «стена» из пунктов, регион в этом же сообщении, объекты и ссылки.
+Образец:
+«Отлично, готовый бизнес. Какая сфера Вам ближе: ${clientOptions}?»
 
-Пример тона (НЕ копировать дословно):
-«Отлично, готовый бизнес. Какая сфера Вам ближе — ресторан или кафе, отель, прокат авто, коммерческое помещение — или другой формат?»
-
-Правила:
-- Не переспрашивай бюджет, срок и тип.
-- Если клиент уже назвал сферу («ресторан», «яхты», «прокат авто») — коротко подтверди и только тогда спрашивай регион.
-- Тон WhatsApp, обращение на «Вы».`;
+ЗАПРЕЩЕНО: навязывать одну сферу, спрашивать регион, показывать объекты/ссылки, переспрашивать бюджет/срок/тип.
+Если клиент уже назвал сферу — коротко подтверди и только тогда спрашивай регион.
+Тон WhatsApp, на «Вы».`;
   }
   if (code === 'es') {
-    return `El cliente eligió *negocio en venta* o *proyecto de inversión* — tipo conocido.
+    return `El cliente eligió *negocio en venta* o *proyecto de inversión*.
 
-OBLIGATORIO: una pregunta sobre *sector*. En ESTA respuesta NO preguntes región ni ofrezcas fichas.
+ALGORITMO:
+1) Pregunta el sector.
+2) Nombra TODOS: ${clientOptions}.
+3) NO preguntes región ni ofrezcas fichas en ESTA respuesta.
+4) NO asumas un sector (prohibido: «puedo ofrecer hotelero / náutico…»).
 
 ${optionsRef}
 
-Cómo escribir:
-- Menciona 3–4 sectores de forma natural (restaurante, hotel, auto, local comercial…) + «u otro formato».
-- NO asumas ni empujes un solo sector (prohibido: «en náutico puedo seleccionar…»).
-- Cierra: «¿qué le encaja más?»
-- PROHIBIDO: lista 1–7, región en el mismo mensaje, fichas/enlaces.
-
-Sin repetir presupuesto/plazo/tipo.`;
+Ejemplo: «Perfecto — negocio en venta. ¿Qué sector le encaja más: ${clientOptions}?»`;
   }
-  return `Client chose *business for sale* or *investment/development project* — type is known.
+  return `Client chose *business for sale* or *investment project*.
 
-MUST: ask ONE *business sector* question. In THIS reply do NOT ask region and do NOT offer listings.
+ALGORITHM:
+1) Ask the business sector.
+2) Name ALL options: ${clientOptions}.
+3) Do NOT ask region or show listings in THIS reply.
+4) Do NOT assume one sector (forbidden: “I can offer hotel / marine…”).
 
 ${optionsRef}
 
-How to write:
-- Mention 3–4 sectors naturally (restaurant/F&B, hotel, auto rental, commercial premises…) + “or another format”.
-- Do NOT assume or push one sector (forbidden: “for marine/yachts I can shortlist…”).
-- End with: “what fits you best?”
-- FORBIDDEN: numbered 1–7 list, region in the same message, property links.
-
-Do not re-ask budget/timeline/type.`;
+Example: “Great — ready-made business. Which sector fits you best: ${clientOptions}?”`;
 }
 
 function itemMatchesBusinessSectors(item, sectorIds) {
@@ -354,6 +397,24 @@ function filterByBusinessSectors(ranked, sectorIds, options = {}) {
   return filtered;
 }
 
+/** Ответ модели «убежал» со сферы — подменяем на корректный вопрос. */
+function replySkipsBusinessSectorAsk(reply) {
+  const t = String(reply || '');
+  if (!t.trim()) return true;
+  const assumesSector =
+    /могу предложить.{0,40}(?:отель|гостинич|морск|яхт|ресторан|автопрокат)|варианты в сфере (?:отель|морск|ресторан)|по инвестициям.{0,60}(?:отельн|гостинич|морск)/i.test(
+      t
+    );
+  const asksRegionTooEarly =
+    /(?:в каком|какой)\s+регион|Тенерифе,\s*Дуба|в какой\s+(?:регион|город)|which\s+region|qué\s+regi[oó]n/i.test(
+      t
+    ) && !/(?:сфера|направлени|sector|restauran|отель|яхт|авто)/i.test(t);
+  const namesTooFewSectors =
+    assumesSector ||
+    (asksRegionTooEarly && !/ресторан.{0,80}отель.{0,80}(?:мор|яхт|авто)/i.test(t));
+  return namesTooFewSectors || assumesSector || asksRegionTooEarly;
+}
+
 module.exports = {
   SECTORS,
   SECTOR_IDS,
@@ -363,9 +424,12 @@ module.exports = {
   classifyItemBusinessSector,
   formatSectorLabel,
   formatSectorOptionsList,
+  formatSectorOptionsForClient,
+  buildBusinessSectorAskReply,
   getBusinessSectorOptionsReference,
   getBusinessSectorStageInstruction,
   itemMatchesBusinessSectors,
   scoreBusinessSectorFit,
   filterByBusinessSectors,
+  replySkipsBusinessSectorAsk,
 };
