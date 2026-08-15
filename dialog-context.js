@@ -131,11 +131,18 @@ function analyzeConversation(history, lang = 'ru') {
   const businessSectors = sectorPref.sectors;
   const businessSectorLabel = sectorPref.label || formatSectorLabel(businessSectors, salesLang);
   const businessSectorIsOther = Boolean(sectorPref.isOther);
-  const wantsListings =
-    /покаж|подбер|вариант|объект|каталог|ссылк|похож|ещё\s*(?:раз|вариант|объект|опци)|еще\s*(?:раз|вариант|объект|опци)|другие\s*(?:вариант|опци|объект)|по\s+моим\s+параметр|кроме\s+цен|show me|send me|options|listings|properties|shortlist|similar|more\s+options|another|mu[eé]strame|ens[eé]ñame|opciones|fichas|propiedades|selecci[oó]n|parecid|otras?\s+opcion|zeig|optionen|objekte|vorschl[aä]ge|montre|montrez|options|fiches|biens|s[ée]lection/i.test(
-      lower
-    );
   const lastUserLower = lastUser.toLowerCase();
+  /** Выбор из уже показанной подборки — не запрос новой. */
+  const pickingFromShortlist =
+    /(?:понрав|нравит|выбира|беру|берём|ближе|подходит|interested|like\s+this|me\s+gusta).{0,40}(?:вариант|объект|option|listing|[1-5])|(?:вариант|объект|option)\s*(?:№\s*)?[1-5]|[1-5]\s*(?:-?й(?:\s+вариант)?|вариант)|(?:перв|втор|трет|четв|пят).{0,12}вариант/i.test(
+      lastUserLower
+    );
+  /** Явная просьба новой подборки — только по последней реплике (не по всей истории). */
+  const wantsListings =
+    !pickingFromShortlist &&
+    /покаж|подбер|вариант|объект|каталог|ссылк|похож|ещё\s*(?:раз|вариант|объект|опци)|еще\s*(?:раз|вариант|объект|опци)|другие\s*(?:вариант|опци|объект)|по\s+моим\s+параметр|кроме\s+цен|show me|send me|options|listings|properties|shortlist|similar|more\s+options|another|mu[eé]strame|ens[eé]ñame|opciones|fichas|propiedades|selecci[oó]n|parecid|otras?\s+opcion|zeig|optionen|objekte|vorschl[aä]ge|montre|montrez|options|fiches|biens|s[ée]lection/i.test(
+      lastUserLower
+    );
   /** Явная просьба дать ссылки на объекты (не «посмотреть сайт»). */
   const wantsPropertyLinks =
     /(?:дай|дайте|скинь|скиньте|пришли|пришлите|отправь|отправьте|покажи|покажите|нужн[аы]|хочу|можно).{0,40}ссылк|(?:ссылк|линк).{0,30}(?:на\s+(?:них|не[её]|объект|вариант|этот|эти|карт)|пожалуйста)|ссылк[аиуеы]?\s*$|send(?:\s+me)?\s+(?:the\s+)?links?|give(?:\s+me)?\s+(?:the\s+)?links?|links?\s+(?:to|for)\s+(?:them|it|the|these|those)|proporcion(?:a|e|ar)?\s+(?:me\s+)?(?:los\s+)?enlaces?|muéstrame\s+los\s+enlaces|dame\s+(?:los\s+)?(?:enlaces?|links?)|env[ií]ame\s+(?:los\s+)?enlaces?|enlaces?\s+a\s+(?:estos|esas|ellos|ellas|las|los|dichos)|los\s+enlaces\s+(?:por\s+favor)?|Zeig(?:e)?\s+(?:mir\s+)?(?:die\s+)?Links?|donne(?:z)?[- ]moi\s+les\s+liens|les\s+liens\s+(?:s'?il\s+vous\s+pla[iî]t)?/i.test(
@@ -486,13 +493,13 @@ function analyzeConversation(history, lang = 'ru') {
     clientGreetedNow;
   if (needsGreetingReply) {
     const greetingMustByLang = {
-      ru: `**ПРИВЕТСТВИЕ (обязательно в ЭТОМ ответе — приоритет выше памяти/воронки):** Клиент${clientGreetedNow ? ' поздоровался («привет» / «здравствуйте»…)' : ' пишет первое сообщение'}. ОБЯЗАТЕЛЬНО начни ответ с приветствия и представления: «Здравствуйте! Меня зовут Максим, House Tenerife.» (или «Привет! Меня зовут Максим, House Tenerife.»). Затем — вопрос текущего этапа. ЗАПРЕЩЕНО начинать с «Отлично» / «Понял» / сразу с вопроса про регион без приветствия. Всегда на «Вы».`,
-      en: `**GREETING (mandatory in THIS reply — overrides memory/funnel):** The client${clientGreetedNow ? ' greeted you («hi» / «hello»…)' : ' is on the first message'}. You MUST start with a greeting and introduction: “Hi! I’m Maxim from House Tenerife.” Then the current-stage question. FORBIDDEN to open with “Great” / “Got it” / a region question without greeting.`,
-      es: `**SALUDO (obligatorio en ESTA respuesta — prioridad sobre memoria/embudo):** El cliente${clientGreetedNow ? ' saludó («hola»…)' : ' está en el primer mensaje'}. DEBES empezar con saludo y presentación: «¡Hola! Soy Maxim de House Tenerife.» Luego la pregunta de la etapa. PROHIBIDO empezar con «Perfecto» / «Entendido» sin saludo.`,
-      de: `**BEGRÜSSUNG (pflicht in DIESER Antwort — Vorrang vor Gedächtnis/Trichter):** Der Kunde${clientGreetedNow ? ' hat gegrüßt («hallo»…)' : ' schreibt die erste Nachricht'}. Du MUSST mit Begrüßung und Vorstellung beginnen: «Hallo! Ich bin Maxim von House Tenerife.» Dann die Stufenfrage. VERBOTEN mit «Super» / «Verstanden» ohne Begrüßung zu starten.`,
-      fr: `**SALUTATION (obligatoire dans CETTE réponse — priorité sur mémoire/entonnoir):** Le client${clientGreetedNow ? ' a salué («bonjour» / «salut»…)' : ' est au premier message'}. Tu DOIS commencer par salutation et présentation: «Bonjour! Je suis Maxim de House Tenerife.» Puis la question d’étape. INTERDIT de commencer par «Parfait» / «Compris» sans salutation.`,
-      pl: `**POWITANIE (obowiązkowe w TEJ odpowiedzi — priorytet nad pamięcią/lejkiem):** Klient${clientGreetedNow ? ' się przywitał («cześć» / «dzień dobry»…)' : ' pisze pierwszą wiadomość'}. MUSISZ zacząć od powitania i przedstawienia: «Dzień dobry! Nazywam się Maxim, House Tenerife.» Potem pytanie etapu. ZAKAZ zaczynać od «Świetnie» / «Rozumiem» bez powitania.`,
-      nl: `**BEGROETING (verplicht in DIT antwoord — voorrang op geheugen/trechter):** De klant${clientGreetedNow ? ' groette («hallo»…)' : ' stuurt het eerste bericht'}. Je MOET beginnen met begroeting en voorstelling: «Hallo! Ik ben Maxim van House Tenerife.» Daarna de fasevraag. VERBODEN te openen met «Top» / «Begrepen» zonder begroeting.`,
+      ru: `**ПРИВЕТСТВИЕ (обязательно в ЭТОМ ответе — приоритет выше памяти/воронки):** Клиент${clientGreetedNow ? ' поздоровался («привет» / «здравствуйте»…)' : ' пишет первое сообщение'}. ОБЯЗАТЕЛЬНО начни ответ ТОЧНО в духе: «Приветствую! Максим, House Tenerife.» Затем — вопрос текущего этапа (для инвестиций: «Какой у вас размер инвестиций?»). ЗАПРЕЩЕНО: «Спасибо за интерес», «Отлично» / «Понял» без представления, вопрос без приветствия. Всегда на «Вы».`,
+      en: `**GREETING (mandatory in THIS reply — overrides memory/funnel):** The client${clientGreetedNow ? ' greeted you («hi» / «hello»…)' : ' is on the first message'}. You MUST open like: “Hi! Maxim, House Tenerife.” Then the current-stage question (investments: investment size in €). FORBIDDEN: “Thanks for the interest”, “Great” / “Got it” without intro, or a question with no greeting.`,
+      es: `**SALUDO (obligatorio en ESTA respuesta — prioridad sobre memoria/embudo):** El cliente${clientGreetedNow ? ' saludó («hola»…)' : ' está en el primer mensaje'}. DEBES empezar: «¡Hola! Maxim, House Tenerife.» Luego la pregunta de la etapa. PROHIBIDO: «Gracias por el interés», «Perfecto» / «Entendido» sin presentación.`,
+      de: `**BEGRÜSSUNG (pflicht in DIESER Antwort — Vorrang vor Gedächtnis/Trichter):** Der Kunde${clientGreetedNow ? ' hat gegrüßt («hallo»…)' : ' schreibt die erste Nachricht'}. Du MUSST öffnen mit: «Hallo! Maxim, House Tenerife.» Dann die Stufenfrage. VERBOTEN: «Danke für Ihr Interesse», «Super» / «Verstanden» ohne Vorstellung.`,
+      fr: `**SALUTATION (obligatoire dans CETTE réponse — priorité sur mémoire/entonnoir):** Le client${clientGreetedNow ? ' a salué («bonjour» / «salut»…)' : ' est au premier message'}. Tu DOIS commencer: «Bonjour! Maxim, House Tenerife.» Puis la question d’étape. INTERDIT: «Merci pour votre intérêt», «Parfait» / «Compris» sans présentation.`,
+      pl: `**POWITANIE (obowiązkowe w TEJ odpowiedzi — priorytet nad pamięcią/lejkiem):** Klient${clientGreetedNow ? ' się przywitał («cześć» / «dzień dobry»…)' : ' pisze pierwszą wiadomość'}. MUSISZ zacząć: «Dzień dobry! Maxim, House Tenerife.» Potem pytanie etapu. ZAKAZ: «Dziękuję za zainteresowanie», «Świetnie» / «Rozumiem» bez przedstawienia.`,
+      nl: `**BEGROETING (verplicht in DIT antwoord — voorrang op geheugen/trechter):** De klant${clientGreetedNow ? ' groette («hallo»…)' : ' stuurt het eerste bericht'}. Je MOET openen met: «Hallo! Maxim, House Tenerife.» Daarna de fasevraag. VERBODEN: «Bedankt voor uw interesse», «Top» / «Begrepen» zonder voorstelling.`,
     };
     stageInstruction = `${greetingMustByLang[salesLang] || greetingMustByLang.en}\n\n${stageInstruction}`;
   }
@@ -564,13 +571,13 @@ function analyzeConversation(history, lang = 'ru') {
 }
 
 const stageInstructions = {
-  FIRST_CONTACT: `Первый контакт / приветствие. ОБЯЗАТЕЛЬНО начни с приветствия и представления: «Здравствуйте! Меня зовут Максим, House Tenerife» (допустимо «Привет!» — но не без представления). Помогаешь с недвижимостью и инвестициями. Не «бот». Обращение только на «Вы». Тон WhatsApp: коротко, тепло, один 🙂 или :). Если клиент написал «привет / как дела?» без темы недвижимости — НЕ присылай виллы и ссылки. Образец: «Здравствуйте! Меня зовут Максим, House Tenerife. Я здесь, чтобы помочь с инвестициями в недвижимость. Какой у Вас размер инвестиций?» (или: для себя / под инвестиции, если цель ещё не ясна). Не начинай сразу с «Отлично» без приветствия. Объекты и ссылки ЗАПРЕЩЕНЫ.`,
+  FIRST_CONTACT: `Первый контакт / приветствие. ОБЯЗАТЕЛЬНО начни: «Приветствую! Максим, House Tenerife.» Помогаешь с недвижимостью и инвестициями. Не «бот». Обращение только на «Вы». Тон WhatsApp: коротко, тепло. ЗАПРЕЩЕНО: «Спасибо за интерес», «Отлично» без представления. Если клиент уже сказал «для инвестиций» — сразу: «Приветствую! Максим, House Tenerife. Какой у вас размер инвестиций?» Если цель не ясна — после представления спроси: для себя или под инвестиции. Объекты и ссылки ЗАПРЕЩЕНЫ.`,
 
   NEED_PURPOSE: `Цель не ясна — обязательный шаг ДО любых предложений. Не повторяй вопрос клиента и не начинай с канцелярского «понял ваш запрос». Живо: один вопрос — жизнь/семья/переезд или инвестиция (аренда, перепродажа, бизнес)? Одна короткая фраза, зачем это важно. Без объектов.`,
 
   NEED_PROPERTY_TYPE: `Сразу уточни *тип*: апартаменты, вилла, дом, земля, коммерция, готовый бизнес, инвест-проект — не «жильё» в общем. Не предполагай виллу. Если тип УЖЕ известен и клиент просто вернулся («а что по виллам?») — НЕ читай лекцию про инвестиции в виллы, иди к следующему шагу воронки. Без ссылок и без переспроса уже известного бюджета.`,
 
-  NEED_BUSINESS_SECTOR: `Клиент выбрал готовый бизнес или инвест-проект — один живой вопрос про *сферу* (7 направлений + «другое»), своими словами, без списка и нумерации. Регион пока не спрашивай. Без объектов и ссылок.`,
+  NEED_BUSINESS_SECTOR: `Клиент выбрал готовый бизнес или инвест-проект — один живой вопрос про *сферу* (несколько направлений + «другое»), своими словами. НЕ выбирай одну сферу за клиента (запрещено сразу предлагать только морской/яхты). Регион в этом ответе не спрашивай. Без объектов и ссылок.`,
 
   NEED_REGION: `Один живой вопрос про регион/город: Тенерифе, Дубай, Ибица, Марбелья, Малага, Барселона? Если бюджет уже известен — мягко подскажи 1–2 сильные зоны под этот бюджет из каталога (напр. Adeje / Ибица / Марбелья — только реальные названия). Можно: «если не определились — подскажу сильные зоны под вашу цель и бюджет». Без подборки и без буклета.`,
 

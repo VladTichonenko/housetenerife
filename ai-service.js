@@ -105,12 +105,15 @@ async function buildPromptParts(
     : dialog.budget || extractBudgetRange(dialog.allUserText);
   const priceTarget = dialog.ignoreBudget ? null : derivePriceTarget(budget);
   const showingListings =
-    dialog.stage === 'SHOW_LISTINGS' ||
-    (dialog.stage === 'REFINE' &&
-      (dialog.hasBudget || dialog.ignoreBudget) &&
-      Boolean(dialog.readyForListings || dialog.wantsListings || dialog.wantsMoreLikeThese));
+    !dialog.hasPropertyInterest &&
+    (dialog.stage === 'SHOW_LISTINGS' ||
+      (dialog.stage === 'REFINE' &&
+        (dialog.hasBudget || dialog.ignoreBudget) &&
+        Boolean(dialog.readyForListings || dialog.wantsListings || dialog.wantsMoreLikeThese)));
   // Правило: без бюджета каталог не подмешиваем (кроме «любой бюджет»)
+  // После выбора объекта каталог не подмешиваем — иначе модель снова шлёт подборку
   const maySearchCatalog =
+    !dialog.hasPropertyInterest &&
     !dialog.offTopicChatter &&
     dialog.hasType &&
     dialog.hasPurpose &&
@@ -404,8 +407,8 @@ ${dialog.hasBudget ? `- ⛔ Бюджет / размер инвестиций у�
 - Не предлагай объекты, пока не ясны цель, тип и бюджет (для инвестиций — размер инвестиций).
 - Никогда не переспрашивай то, что клиент уже сказал (бюджет/размер инвестиций, район, тип, цель, срок) — смотри блок «ПАМЯТЬ ДИАЛОГА» / собранные критерии. История диалога сохраняется в БД между сообщениями. Если назвали сумму — подтверди («Отлично» / «Отлично, миллион евро») и спроси следующий шаг, а не бюджет снова.
 - На русском всегда на «Вы» (скажите / подскажите / ваш / Вам). Запрещено тыкать клиента: «скажи», «ты», «тебе», «давай» как обращение.
-- Если клиент в *этом* сообщении написал «привет» / «здравствуйте» / «hello» (даже в середине чата, напр. «привет, хочу купить для себя») — ОБЯЗАТЕЛЬНО начни ответ с приветствия и представления («Здравствуйте! Меня зовут Максим, House Tenerife»), потом вопрос этапа. ЗАПРЕЩЕНО начинать с «Отлично» / «Понял» без приветствия.
-- Первое сообщение в диалоге — тоже всегда приветствие + представление.
+- Если клиент в *этом* сообщении написал «привет» / «здравствуйте» / «hello» (даже в середине чата, напр. «привет, хочу купить для себя») — ОБЯЗАТЕЛЬНО начни: «Приветствую! Максим, House Tenerife.» (или аналог на языке диалога), потом вопрос этапа. ЗАПРЕЩЕНО: «Спасибо за интерес», «Отлично» / «Понял» без представления.
+- Первое сообщение в диалоге — тоже всегда «Приветствую! Максим, House Tenerife.» + вопрос этапа. Для инвестиций после приветствия: «Какой у вас размер инвестиций?»
 - Если диалог уже идёт и клиент *не* поздоровался в текущем сообщении — НЕ пиши снова «Привет» / не представляйся заново.
 - Никогда не обещай «пришлю через пару минут / позже / через 90 секунд». Если пора показывать объекты — показывай их в этом же ответе. Если рано — задай следующий вопрос.
 - Названия районов и городов копируй БУКВАЛЬНО из блока критериев / каталога (латиница: Costa Adeje, Los Cristianos, Las Américas, Golf del Sur, El Médano, Sant Antoni). Не транслитерируй («Лос Кристианос», «Коста Адеже») и не искажай орфографию.
@@ -441,7 +444,7 @@ ${dialog.hasBusinessSector && dialog.businessSectorLabel && !dialog.businessSect
 Подборка только когда ясны *цель*, тип, бюджет, регион и конкретная зона/район; ссылки только из блока ниже.
 Никогда не пиши клиенту, что отправишь подборку позже. Системная задержка ссылок уже есть: твоя задача — сформировать подборку сразу в текущем ответе.
 После подборки — один вопрос: какой вариант ближе или что скорректировать (бюджет/район).
-**Ипотека/кредит:** House Tenerife *помогает оформить ипотеку* (NIE, счёт, документы, подбор банка) — всегда предлагай нашу помощь, не отправляй клиента заниматься этим самостоятельно. Шаги — из mortgage_process + mortgage_lending_official (FEIN/FiAE, Ley 5/2019). Ставки — из bank_mortgage_live (актуальные Euríbor/BdE + ориентиры Santander, CaixaBank и BBVA с их сайтов) и mortgage_rates_official с оговоркой «финальная ставка у банка». При старте темы ипотеки — сначала представь House Tenerife и дай снимок текущей ситуации из bank_mortgage_live. Источники правды: Banco de España Cliente Bancario, BOE и официальные сайты банков — ЗАПРЕЩЕНО цитировать юристов, рекламу адвокатских бюро и блоги адвокатов. Нотариус — только как обязательный шаг по закону, без имён. Без гарантии одобрения и без выдуманных оферт.
+**Ипотека/кредит:** House Tenerife *помогает оформить ипотеку* (NIE, счёт, документы, подбор банка) — всегда предлагай нашу помощь, не отправляй клиента заниматься этим самостоятельно. Шаги — из mortgage_process + mortgage_lending_official (FEIN/FiAE, Ley 5/2019). Ставки — из bank_mortgage_live (актуальные Euríbor/BdE + ориентиры крупных банков из блока) и mortgage_rates_official с оговоркой «финальная ставка у банка». В ответе клиенту ЗАПРЕЩЕНО называть Santander, CaixaBank, BBVA и другие банки по имени — говори «крупные банки», «рыночные ориентиры». При старте темы ипотеки — сначала представь House Tenerife и дай снимок текущей ситуации из bank_mortgage_live. Источники правды: Banco de España Cliente Bancario, BOE и официальные сайты банков (для тебя) — ЗАПРЕЩЕНО цитировать юристов, рекламу адвокатских бюро и блоги адвокатов. Нотариус — только как обязательный шаг по закону, без имён. Без гарантии одобрения и без выдуманных оферт.
 **Конкретный объект:** если клиент выбрал вариант — уточни деньги *сейчас на руках*, нужна ли ипотека, какие документы уже есть; при ипотеке — шаги + наша помощь + созвон (да/нет).
 **Связь с менеджером:** если клиент хочет человека / звонок / просмотр / жалоба / сложный запрос — тепло предложи короткий созвон 10–15 минут. Не проси писать слово «менеджер» и не давай телефон вместо заявки.`
       : `**PROPERTY CATALOG (${catalog.totalInDb || 'full'} listings on site; block below = best matches):**
@@ -930,18 +933,18 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fal
   if (fallbackMeta.usedBudgetFallback) {
     const warning =
       salesLang === 'es'
-        ? 'En el presupuesto indicado no hay opciones disponibles; estas son las más cercanas del mismo tipo y región, pero superan el presupuesto.'
+        ? 'Cerca de su presupuesto hay poca oferta exacta; estas son las opciones más cercanas (más baratas y más caras).'
         : salesLang === 'en'
-          ? 'There are no available options within the stated budget; these are the nearest in the same region and type, but they are over budget.'
+          ? 'Exact matches around your budget are scarce; these are the closest options (both under and over).'
           : salesLang === 'de'
-            ? 'Im genannten Budget gibt es keine verfügbaren Optionen; diese sind in Region und Typ am nächsten, liegen aber darüber.'
+            ? 'Genau passend zu Ihrem Budget gibt es wenig; dies sind die nächsten Optionen (günstiger und teurer).'
             : salesLang === 'fr'
-              ? 'Aucune option disponible dans le budget indiqué ; voici les plus proches du même type et de la même région, mais au-dessus du budget.'
+              ? 'Peu d’options exactes autour de votre budget ; voici les plus proches (moins cher et plus cher).'
               : salesLang === 'pl'
-                ? 'Brak dostępnych opcji w podanym budżecie; to najbliższe oferty tego samego typu i regionu, ale powyżej budżetu.'
+                ? 'Mało dokładnych opcji wokół budżetu; to najbliższe oferty (tańsze i droższe).'
                 : salesLang === 'nl'
-                  ? 'Binnen het opgegeven budget zijn geen opties beschikbaar; dit zijn de dichtstbijzijnde van hetzelfde type en in dezelfde regio, maar boven budget.'
-                  : 'В указанном бюджете доступных вариантов нет; это ближайшие объекты того же типа и региона, но они выше бюджета.';
+                  ? 'Weinig exacte opties rond uw budget; dit zijn de dichtstbijzijnde (goedkoper en duurder).'
+                  : 'Точных вариантов вокруг вашего бюджета мало — вот ближайшие (и дешевле, и дороже).';
     intro = `${warning}\n\n${intro}`;
   }
 
@@ -1077,28 +1080,60 @@ function buildHonestNoCatalogReply(lang, dialog) {
 function buildAskBudgetInsteadOfListingsReply(lang, dialog) {
   const salesLang = normalizeSalesLang(lang);
   const invest = dialog?.isInvestment;
+  const needsGreeting =
+    dialog?.stage === 'FIRST_CONTACT' ||
+    dialog?.userTurns <= 1 ||
+    Boolean(dialog?.needsGreeting);
   const byLang = {
     ru: invest
-      ? 'Спасибо за интерес :) Какой у вас бюджет для инвестиции в €? После этого покажу подходящие варианты.'
-      : 'Спасибо за интерес :) На какой бюджет в € ориентируемся? После этого покажу подходящие варианты.',
+      ? needsGreeting
+        ? 'Приветствую! Максим, House Tenerife. Какой у вас размер инвестиций?'
+        : 'Какой у вас размер инвестиций?'
+      : needsGreeting
+        ? 'Приветствую! Максим, House Tenerife. На какой бюджет в € ориентируемся?'
+        : 'На какой бюджет в € ориентируемся?',
     es: invest
-      ? 'Gracias por el interés :) ¿Cuál es su presupuesto de inversión en €? Con eso le muestro opciones adecuadas.'
-      : 'Gracias por el interés :) ¿En qué rango de presupuesto en € nos orientamos? Después le muestro opciones adecuadas.',
+      ? needsGreeting
+        ? '¡Hola! Soy Maxim, House Tenerife. ¿Cuál es el tamaño de su inversión en €?'
+        : '¿Cuál es el tamaño de su inversión en €?'
+      : needsGreeting
+        ? '¡Hola! Soy Maxim, House Tenerife. ¿En qué rango de presupuesto en € nos orientamos?'
+        : '¿En qué rango de presupuesto en € nos orientamos?',
     en: invest
-      ? 'Thanks for the interest :) What’s your investment budget in €? I’ll then show matching options.'
-      : 'Thanks for the interest :) What budget range in € should we use? I’ll then show matching options.',
+      ? needsGreeting
+        ? 'Hi! I’m Maxim, House Tenerife. What’s your investment size in €?'
+        : 'What’s your investment size in €?'
+      : needsGreeting
+        ? 'Hi! I’m Maxim, House Tenerife. What budget range in € should we use?'
+        : 'What budget range in € should we use?',
     de: invest
-      ? 'Danke für Ihr Interesse :) Welches Investitionsbudget in € haben Sie? Danach zeige ich passende Optionen.'
-      : 'Danke für Ihr Interesse :) An welchem Budgetrahmen in € sollen wir uns orientieren? Danach passende Optionen.',
+      ? needsGreeting
+        ? 'Hallo! Ich bin Maxim, House Tenerife. Welche Investitionshöhe in € haben Sie?'
+        : 'Welche Investitionshöhe in € haben Sie?'
+      : needsGreeting
+        ? 'Hallo! Ich bin Maxim, House Tenerife. An welchem Budgetrahmen in € sollen wir uns orientieren?'
+        : 'An welchem Budgetrahmen in € sollen wir uns orientieren?',
     fr: invest
-      ? 'Merci pour votre intérêt :) Quel est votre budget d’investissement en €? Je vous montrerai ensuite des options adaptées.'
-      : 'Merci pour votre intérêt :) Sur quelle fourchette de budget en € nous orientons-nous? Ensuite je montre des options adaptées.',
+      ? needsGreeting
+        ? 'Bonjour! Je suis Maxim, House Tenerife. Quelle est la taille de votre investissement en €?'
+        : 'Quelle est la taille de votre investissement en €?'
+      : needsGreeting
+        ? 'Bonjour! Je suis Maxim, House Tenerife. Sur quelle fourchette de budget en € nous orientons-nous?'
+        : 'Sur quelle fourchette de budget en € nous orientons-nous?',
     pl: invest
-      ? 'Dziękuję za zainteresowanie :) Jaki jest Państwa budżet inwestycyjny w €? Potem pokażę dopasowane opcje.'
-      : 'Dziękuję za zainteresowanie :) Na jaki budżet w € się orientujemy? Potem pokażę dopasowane opcje.',
+      ? needsGreeting
+        ? 'Dzień dobry! Nazywam się Maxim, House Tenerife. Jaki jest Państwa rozmiar inwestycji w €?'
+        : 'Jaki jest Państwa rozmiar inwestycji w €?'
+      : needsGreeting
+        ? 'Dzień dobry! Nazywam się Maxim, House Tenerife. Na jaki budżet w € się orientujemy?'
+        : 'Na jaki budżet w € się orientujemy?',
     nl: invest
-      ? 'Bedankt voor uw interesse :) Wat is uw investeringsbudget in €? Daarna toon ik passende opties.'
-      : 'Bedankt voor uw interesse :) Welk budgetbereik in € gebruiken we? Daarna toon ik passende opties.',
+      ? needsGreeting
+        ? 'Hallo! Ik ben Maxim, House Tenerife. Wat is uw investeringsomvang in €?'
+        : 'Wat is uw investeringsomvang in €?'
+      : needsGreeting
+        ? 'Hallo! Ik ben Maxim, House Tenerife. Welk budgetbereik in € gebruiken we?'
+        : 'Welk budgetbereik in € gebruiken we?',
   };
   return byLang[salesLang] || byLang.en;
 }
@@ -1199,11 +1234,18 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       );
     }
     const listingStage =
-      dialog.stage === 'SHOW_LISTINGS' ||
-      ((dialog.wantsPropertyLinks ||
-        (dialog.stage === 'REFINE' && dialog.wantsListings)) &&
-        (dialog.hasBudget || dialog.ignoreBudget) &&
-        Boolean(dialog.readyForListings || dialog.financeReadyForListings || dialog.ignoreBudget));
+      !dialog.hasPropertyInterest &&
+      (dialog.stage === 'SHOW_LISTINGS' ||
+        ((dialog.wantsPropertyLinks ||
+          (dialog.stage === 'REFINE' && dialog.wantsListings)) &&
+          (dialog.hasBudget || dialog.ignoreBudget) &&
+          Boolean(dialog.readyForListings || dialog.financeReadyForListings || dialog.ignoreBudget)));
+    const postPickStage = Boolean(
+      dialog.hasPropertyInterest &&
+        /^(PROPERTY_SELECTED|NEED_FUNDS_NOW|NEED_MORTGAGE|FINANCE_DOCUMENTS|FINANCE_DOCUMENTS_CASH|OFFER_MANAGER_CALL|PROPERTY_CLOSING)$/i.test(
+          String(dialog.stage || '')
+        )
+    );
     const recentUrls = collectRecentPropertyUrls(conversationHistory);
     let urlsForRepair = Array.isArray(catalogUrls) ? [...catalogUrls] : [];
     const fallbackMeta = {
@@ -1239,7 +1281,9 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       replyHasWrongRegion;
 
     // Готовый бизнес / коммерция: всегда пересобираем карточки из каталога (анти-галлюцинации)
+    // НО после выбора конкретного объекта — не возвращаемся к новой подборке
     const forceStrictCatalog =
+      !postPickStage &&
       wantsStrictCatalogListings(dialog) &&
       (listingStage || replyHasPropertyLink || dialog.wantsListings || dialog.wantsPropertyLinks);
 
@@ -1429,9 +1473,46 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         if (hadListingLeak) {
           console.warn('⚠️ Ответ с объектами без бюджета — вырезаю ссылки и прошу бюджет');
           reply = stripPropertyLinksKeepText(reply);
-          if (replyLooksLikeInventedListings(reply) || /(?:€|eur)\s*[\d.,]+/i.test(reply)) {
+          const stillLooksLikeListings =
+            replyLooksLikeInventedListings(reply) ||
+            (/(?:€|eur)\s*[\d.,]+/i.test(reply) &&
+              /(?:вилл|апартамент|объект|вариант|listing|villa|apartment)/i.test(reply));
+          const alreadyAsksBudget =
+            /(?:бюджет|размер инвестиций|budget|inversión|investissement)/i.test(reply) &&
+            !/(?:housetenerife\.eu|http)/i.test(reply);
+          if (stillLooksLikeListings && !alreadyAsksBudget) {
+            reply = buildAskBudgetInsteadOfListingsReply(userLanguage, dialog);
+          } else if (!alreadyAsksBudget && !/Максим|Maxim|House Tenerife/i.test(reply)) {
             reply = buildAskBudgetInsteadOfListingsReply(userLanguage, dialog);
           }
+        }
+      }
+    }
+    // После выбора объекта — запрет новой подборки (даже если модель/старый hint снова её выдал)
+    if (postPickStage) {
+      const linkCount = countValidCatalogPropertyLinks(reply);
+      const looksLikeNewShortlist =
+        linkCount >= 2 ||
+        /выше бюджета|сверх бюджета|over budget|superan el presupuesto|Вот варианты|Here are the options|Estas son las opciones/i.test(
+          reply
+        );
+      if (looksLikeNewShortlist) {
+        console.warn('⚠️ После выбора объекта — вырезаю новую подборку, оставляю воронку покупки');
+        reply = stripPropertyLinksKeepText(reply)
+          .replace(
+            /(?:В указанном бюджете|Точных вариантов|Exact matches|Cerca de su presupuesto)[^\n]*\n*/gi,
+            ''
+          )
+          .replace(/(?:Вот варианты|Here are the options|Estas son las opciones)[^\n]*\n*/gi, '')
+          .trim();
+        if (!reply || reply.length < 40) {
+          const confirm =
+            salesLang === 'es'
+              ? 'Perfecto, anoté su elección. ¿Le preparo el checklist de documentos o prefiere una llamada de 10–15 min con el manager para la visita y la solicitud?'
+              : salesLang === 'en'
+                ? 'Great — I’ve noted your pick. Shall I prepare the document checklist, or would you prefer a 10–15 min call with the manager for a viewing and purchase request?'
+                : 'Отлично, зафиксировал ваш выбор. Подготовить чек-лист документов или удобнее созвон 10–15 мин с менеджером для просмотра и заявки на покупку?';
+          reply = confirm;
         }
       }
     }

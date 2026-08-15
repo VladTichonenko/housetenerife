@@ -23,7 +23,8 @@ const INTEREST_EN_RE =
 const INTEREST_ES_RE = /(?:me gusta|interesa|prefiero|este)/i;
 const INTEREST_PL_RE = /(?:podoba|interesuje|wybieram|ten wariant|bliższ|świetn|chcę t[eę]n)/i;
 const INTEREST_NL_RE = /(?:leuk|interesse|deze|past beter|mooi|wil deze)/i;
-const ORDINAL_RE = /(?:перв|1-?й|втор|2-?й|трет|3-?й|четв|4-?й|пят|5-?й|first|second|third|1st|2nd|3rd|pierwsz|drugi|derde|eerste|tweede)/i;
+const ORDINAL_RE =
+  /(?:перв|1-?й|втор|2-?й|трет|3-?й|четв|4-?й|пят|5-?й|first|second|third|1st|2nd|3rd|pierwsz|drugi|derde|eerste|tweede|(?:^|[^\d])[1-5](?:\s*(?:-?й)?\s*(?:вариант|объект|option))?)/i;
 
 const URL_PATTERNS = [
   /https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[^\s<>\])"'}]+/gi,
@@ -258,14 +259,24 @@ function pickByOrdinal(text, recentList) {
   if (!recentList.length) return null;
   const s = String(text || '').toLowerCase();
   const ordinals = [
-    [/перв|1-?й|first|1st/, 0],
-    [/втор|2-?й|second|2nd/, 1],
-    [/трет|3-?й|third|3rd/, 2],
-    [/четв|4-?й|fourth|4th/, 3],
-    [/пят|5-?й|fifth|5th/, 4],
+    [/перв|1-?й|(?:^|[^\d])1(?:\s*(?:вариант|option)|(?!\d))|first|1st/, 0],
+    [/втор|2-?й|(?:^|[^\d])2(?:\s*(?:вариант|option)|(?!\d))|second|2nd/, 1],
+    [/трет|3-?й|(?:^|[^\d])3(?:\s*(?:вариант|option)|(?!\d))|third|3rd/, 2],
+    [/четв|4-?й|(?:^|[^\d])4(?:\s*(?:вариант|option)|(?!\d))|fourth|4th/, 3],
+    [/пят|5-?й|(?:^|[^\d])5(?:\s*(?:вариант|option)|(?!\d))|fifth|5th/, 4],
   ];
   for (const [re, idx] of ordinals) {
     if (re.test(s) && recentList[idx]) return recentList[idx];
+  }
+  const numbered = s.match(/(?:вариант|объект|option|listing)\s*(?:№\s*|number\s*|no\.?\s*)?([1-5])/i);
+  if (numbered) {
+    const idx = parseInt(numbered[1], 10) - 1;
+    if (recentList[idx]) return recentList[idx];
+  }
+  const bare = s.match(/(?:^|[^\d])([1-5])\s*(?:-?й)?\s*(?:вариант|объект|option)?/i);
+  if (bare) {
+    const idx = parseInt(bare[1], 10) - 1;
+    if (recentList[idx]) return recentList[idx];
   }
   return null;
 }

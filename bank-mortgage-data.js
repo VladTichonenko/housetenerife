@@ -720,14 +720,14 @@ function formatBankOffersBlock(data, lang = 'ru') {
 
   const header =
     lang === 'en'
-      ? '**BANK MORTGAGE ORIENTATIONS (published on bank websites, not a personal offer):**'
+      ? '**BANK MORTGAGE ORIENTATIONS (internal — use numbers; do NOT name these banks to the client):**'
       : lang === 'es'
-        ? '**ORIENTACIONES HIPOTECARIAS DE BANCOS (publicadas en sus webs, no son oferta personalizada):**'
-        : '**ОРИЕНТИРЫ ПО ИПОТЕКЕ ОТ БАНКОВ (с их официальных сайтов, не персональная оферта):**';
+        ? '**ORIENTACIONES HIPOTECARIAS (interno — usa las cifras; NO nombres estos bancos al cliente):**'
+        : '**ОРИЕНТИРЫ ПО ИПОТЕКЕ ОТ БАНКОВ (внутренний блок — цифры бери отсюда; клиенту эти банки НЕ называй):**';
 
   const lines = [header];
   for (const bank of banks) {
-    lines.push(`\n*${bank.name}* (обновлено ${bank.fetched_at?.slice(0, 10) || '—'}):`);
+    lines.push(`\n*[источник для тебя] ${bank.name}* (обновлено ${bank.fetched_at?.slice(0, 10) || '—'}):`);
     for (const product of bank.products.slice(0, 4)) {
       const bits = [];
       if (product.type) bits.push(product.type);
@@ -747,10 +747,10 @@ function formatBankOffersBlock(data, lang = 'ru') {
 
   const footer =
     lang === 'en'
-      ? 'Use these as orientation only; House Tenerife helps match a bank — no approval guarantee.'
+      ? 'Client wording: “major banks / market orientations” only — never Santander, CaixaBank, BBVA by name. House Tenerife helps match a bank — no approval guarantee.'
       : lang === 'es'
-        ? 'Solo orientación; House Tenerife ayuda con el banco — sin garantía de aprobación.'
-        : 'Только ориентиры; House Tenerife помогает с подбором банка — без гарантии одобрения.';
+        ? 'Al cliente: solo “grandes bancos / orientaciones de mercado” — nunca nombres Santander, CaixaBank, BBVA. House Tenerife ayuda con el banco — sin garantía de aprobación.'
+        : 'Клиенту: только «крупные банки / рыночные ориентиры» — никогда не называй Santander, CaixaBank, BBVA. House Tenerife помогает с подбором банка — без гарантии одобрения.';
   lines.push(`\n${footer}`);
   return lines.join('\n');
 }
@@ -780,9 +780,10 @@ function getMortgageOpeningInstruction(lang = 'ru', opts = {}) {
   if (lang === 'en') {
     return `**MORTGAGE CONVERSATION OPENING (mandatory when the client starts asking about mortgage/credit):**
 1) Introduce yourself as House Tenerife — we help with the full path: NIE, Spanish account, documents, bank matching, pre-approval, valuation, notary (€3,000 support package).
-2) Give the *current mortgage snapshot* from the LIVE BANK DATA block below (official Euríbor/BdE + published **Santander, CaixaBank and BBVA** orientations). Quote numbers exactly as in the block — do not invent.
-3) Always add: these are public bank/or official reference rates, not a guaranteed offer; final terms are bank-only.
-4) Then answer their question or ask ONE next clarifying question (budget, NIE, income proof, resident/non-resident).
+2) Give the *current mortgage snapshot* from the LIVE BANK DATA block below (official Euríbor/BdE + large-bank market orientations). Quote numbers from the block — do not invent.
+3) In the client reply NEVER name Santander, CaixaBank, BBVA or other banks — say “major banks” / “market orientations” only.
+4) Always add: these are public/reference rates, not a guaranteed offer; final terms are bank-only.
+5) Then answer their question or ask ONE next clarifying question (budget, NIE, income proof, resident/non-resident).
 
 ${live}`;
   }
@@ -790,18 +791,20 @@ ${live}`;
   if (lang === 'es') {
     return `**APERTURA TEMA HIPOTECA (obligatorio cuando el cliente empieza a preguntar por hipoteca/crédito):**
 1) Preséntate como House Tenerife — ayudamos con todo: NIE, cuenta en España, documentos, banco, preaprobación, tasación, notario (paquete €3.000).
-2) Give de inmediato la *situación actual* usando el bloque LIVE BANK DATA (Euríbor/BdE oficial + orientaciones **Santander, CaixaBank y BBVA**). Cita cifras exactamente — no inventes.
-3) Aclara: son tipos publicados/orientativos, no oferta garantizada; el banco fija las condiciones finales.
-4) Luego responde o haz UNA pregunta (presupuesto, NIE, ingresos, residente/no residente).
+2) Da de inmediato la *situación actual* usando el bloque LIVE BANK DATA (Euríbor/BdE oficial + orientaciones de mercado de grandes bancos). Cita cifras del bloque — no inventes.
+3) En la respuesta al cliente NUNCA nombres Santander, CaixaBank, BBVA u otros bancos — di “grandes bancos” / “orientaciones de mercado”.
+4) Aclara: son tipos publicados/orientativos, no oferta garantizada; el banco fija las condiciones finales.
+5) Luego responde o haz UNA pregunta (presupuesto, NIE, ingresos, residente/no residente).
 
 ${live}`;
   }
 
   return `**СТАРТ РАЗГОВОРА ОБ ИПОТЕКЕ (обязательно, когда клиент начинает тему ипотеки/кредита):**
 1) Представь House Tenerife — мы помогаем со всем: NIE, испанский счёт, документы, подбор банка, предодобрение, оценка (tasación), нотариус (пакет сопровождения €3 000).
-2) Сразу дай *текущую ситуацию по ипотекам* из блока LIVE BANK DATA ниже — официальный Euríbor/BdE + ориентиры **Santander, CaixaBank и BBVA** с их сайтов. Цифры — только из блока, не выдумывай.
-3) Обязательная оговорка: это публичные ориентиры банков и официальные индексы, не гарантия одобрения; финальные условия — только у банка.
-4) Затем ответь на вопрос или задай ОДИН уточняющий вопрос (бюджет, NIE, справка о доходах, резидент/нерезидент).
+2) Сразу дай *текущую ситуацию по ипотекам* из блока LIVE BANK DATA ниже — официальный Euríbor/BdE + рыночные ориентиры крупных банков. Цифры — только из блока, не выдумывай.
+3) В ответе клиенту ЗАПРЕЩЕНО называть Santander, CaixaBank, BBVA и другие банки по имени — говори «крупные банки», «рыночные ориентиры», «типичная ставка».
+4) Обязательная оговорка: это публичные ориентиры и официальные индексы, не гарантия одобрения; финальные условия — только у банка.
+5) Затем ответь на вопрос или задай ОДИН уточняющий вопрос (бюджет, NIE, справка о доходах, резидент/нерезидент).
 
 ${live}`;
 }

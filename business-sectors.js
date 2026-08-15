@@ -280,54 +280,55 @@ function getBusinessSectorStageInstruction(lang = 'ru') {
   const optionsRef = getBusinessSectorOptionsReference(code);
 
   if (code === 'ru') {
-    return `Клиент выбрал *готовый бизнес* или *инвестиционный/девелоперский проект* — тип уже известен, регион ещё НЕ спрашивай.
+    return `Клиент выбрал *готовый бизнес* или *инвестиционный/девелоперский проект* — тип уже известен.
 
-Задай ОДИН живой вопрос про *сферу бизнеса*. Сформулируй своими словами — как в WhatsApp, 2–4 короткие строки.
+ОБЯЗАТЕЛЬНО: один вопрос про *сферу бизнеса*. Регион / локации / подборку в ЭТОМ ответе НЕ спрашивай и НЕ предлагай.
 
 ${optionsRef}
 
 Как писать клиенту:
-- Упомяни направления *естественно в предложении* — через «или», запятые, 2–3 примера + «или свой вариант».
-- Можно сгруппировать: «общепит, отель, что-то морское или авто» — не обязательно перечислять все 7.
-- Заканчивай простым вопросом: «что Вам ближе?», «какое направление смотрим?» — без «напишите коротко», «достаточно короткого ответа» и подобного.
-- ЗАПРЕЩЕНО: маркированный список (•), нумерация 1–7, «стена» из пунктов, копипаст шаблона.
+- Упомяни 3–4 направления *естественно* в одном предложении (ресторан/общепит, отель, авто, коммерция…) + «или свой вариант».
+- НЕ выбирай и НЕ навязывай одну сферу от себя (запрещено: «по морскому бизнесу могу подобрать…», «давайте посмотрим яхты» и т.п.).
+- НЕ сужай разговор до одной отрасли, пока клиент сам не ответил.
+- Заканчивай: «что Вам ближе?» / «какое направление смотрим?»
+- ЗАПРЕЩЕНО: маркированный список (•), нумерация 1–7, «стена» из пунктов, регион в этом же сообщении, объекты и ссылки.
 
-Примеры тона (НЕ копировать дословно):
-«Подскажите, что Вам ближе — ресторан, отель, что-то морское вроде яхт или прокат авто? Или другой формат?»
-«Какое направление Вам ближе: общепит, гостиница, водный бизнес, девелоперский проект?»
+Пример тона (НЕ копировать дословно):
+«Отлично, готовый бизнес. Какая сфера Вам ближе — ресторан или кафе, отель, прокат авто, коммерческое помещение — или другой формат?»
 
 Правила:
-- Не показывай объекты и ссылки до ответа про сферу.
 - Не переспрашивай бюджет, срок и тип.
-- Если клиент уже назвал сферу («ресторан», «яхты», «прокат авто») — коротко подтверди и переходи к региону.
+- Если клиент уже назвал сферу («ресторан», «яхты», «прокат авто») — коротко подтверди и только тогда спрашивай регион.
 - Тон WhatsApp, обращение на «Вы».`;
   }
   if (code === 'es') {
-    return `El cliente eligió *negocio en venta* o *proyecto de inversión* — tipo conocido; aún NO preguntes región.
+    return `El cliente eligió *negocio en venta* o *proyecto de inversión* — tipo conocido.
 
-Una pregunta viva sobre *sector*. Redacta con tus palabras — tono WhatsApp, 2–4 líneas cortas.
+OBLIGATORIO: una pregunta sobre *sector*. En ESTA respuesta NO preguntes región ni ofrezcas fichas.
 
 ${optionsRef}
 
-Cómo escribir al cliente:
-- Menciona sectores de forma natural en la frase («restaurante, hotel, náutico o alquiler de coches…»).
-- Cierra con una pregunta simple: «¿qué le encaja más?», «¿qué sector le interesa?» — sin «escríbalo brevemente» ni frases similares.
-- PROHIBIDO: lista con viñetas, numeración 1–7, muro de puntos, copiar plantilla.
+Cómo escribir:
+- Menciona 3–4 sectores de forma natural (restaurante, hotel, auto, local comercial…) + «u otro formato».
+- NO asumas ni empujes un solo sector (prohibido: «en náutico puedo seleccionar…»).
+- Cierra: «¿qué le encaja más?»
+- PROHIBIDO: lista 1–7, región en el mismo mensaje, fichas/enlaces.
 
-Sin fichas hasta tener sector. No repitas presupuesto/plazo/tipo.`;
+Sin repetir presupuesto/plazo/tipo.`;
   }
-  return `Client chose *business for sale* or *investment/development project* — type is known; do NOT ask region yet.
+  return `Client chose *business for sale* or *investment/development project* — type is known.
 
-Ask ONE natural *business sector* question — your own wording, WhatsApp tone, 2–4 short lines.
+MUST: ask ONE *business sector* question. In THIS reply do NOT ask region and do NOT offer listings.
 
 ${optionsRef}
 
-How to write to the client:
-- Mention sectors naturally in prose («restaurant, hotel, marine/yachts, car rental… or your own idea»).
-- End with a simple question: «what fits you best?», «which direction are you leaning toward?» — no «write briefly», «a short reply is enough», etc.
-- FORBIDDEN: bullet lists, numbered 1–7 options, wall of items, copy-paste template.
+How to write:
+- Mention 3–4 sectors naturally (restaurant/F&B, hotel, auto rental, commercial premises…) + “or another format”.
+- Do NOT assume or push one sector (forbidden: “for marine/yachts I can shortlist…”).
+- End with: “what fits you best?”
+- FORBIDDEN: numbered 1–7 list, region in the same message, property links.
 
-No listings until sector is clear. Do not re-ask budget/timeline/type.`;
+Do not re-ask budget/timeline/type.`;
 }
 
 function itemMatchesBusinessSectors(item, sectorIds) {

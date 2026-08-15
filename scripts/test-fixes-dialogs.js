@@ -571,6 +571,19 @@ function runDeterministicTests() {
       businessDialog.needsBusinessSector &&
       !businessDialog.hasBusinessSector
   );
+  const pluralBiz = analyzeConversation(
+    [
+      ...investFunnelHistory,
+      { sender: 'user', text: 'хочу посмотреть готовые бизнесы' },
+    ],
+    'ru'
+  );
+  check(
+    'gate: «готовые бизнесы» (мн.ч.) → NEED_BUSINESS_SECTOR',
+    pluralBiz.propertyTypes.includes('business') &&
+      pluralBiz.stage === 'NEED_BUSINESS_SECTOR' &&
+      !pluralBiz.hasBusinessSector
+  );
   const {
     detectBusinessSectorPreference,
     resolveBusinessSectorPreference,
@@ -578,6 +591,12 @@ function runDeterministicTests() {
     itemMatchesBusinessSectors,
     getBusinessSectorStageInstruction,
   } = require('../business-sectors');
+  check(
+    'sector: инструкция запрещает навязывать одну сферу',
+    /НЕ выбирай|не навязывай|Do NOT assume|NO asumas/i.test(
+      getBusinessSectorStageInstruction('ru')
+    )
+  );
   check(
     'sector: «ресторан» распознаётся',
     detectBusinessSectorPreference('интересует ресторан на Тенерифе', 'ru').sectors.includes(
@@ -1224,7 +1243,7 @@ function runDeterministicTests() {
     )
     .filter(Boolean);
   check('ibiza: каталог возвращает реальные ссылки', ibizaCtx.found && ibizaCtx.urls.length > 0);
-  check('ibiza: включён прозрачный fallback выше бюджета', ibizaCtx.usedBudgetFallback);
+  check('ibiza: включён прозрачный fallback вокруг бюджета', ibizaCtx.usedBudgetFallback);
   check(
     'ibiza: не подмешиваются другие регионы',
     ibizaItems.length === ibizaCtx.urls.length &&
@@ -1410,8 +1429,20 @@ function runDeterministicTests() {
     'ru'
   );
   check(
-    'greet: первое сообщение — инструкция приветствия',
-    /ПРИВЕТСТВИЕ|приветстви|Меня зовут Максим/i.test(greetInvest.stageInstruction)
+    'greet: fallback без AI — Приветствую + Максим + размер инвестиций',
+    buildAskBudgetInsteadOfListingsReply('ru', {
+      isInvestment: true,
+      userTurns: 1,
+      stage: 'NEED_BUDGET',
+    }) === 'Приветствую! Максим, House Tenerife. Какой у вас размер инвестиций?'
+  );
+  check(
+    'greet: fallback mid-chat без нового приветствия — только вопрос',
+    buildAskBudgetInsteadOfListingsReply('ru', {
+      isInvestment: true,
+      userTurns: 4,
+      stage: 'NEED_BUDGET',
+    }) === 'Какой у вас размер инвестиций?'
   );
   const { lastMessageHasGreeting } = require('../keyword-relevance');
   check(
@@ -1428,7 +1459,7 @@ function runDeterministicTests() {
   );
   check(
     'greet: перезапуск с «привет» mid-chat — снова инструкция приветствия',
-    /ПРИВЕТСТВИЕ|Меня зовут Максим|ЗАПРЕЩЕНО начинать с «Отлично»/i.test(
+    /ПРИВЕТСТВИЕ|Приветствую|Максим, House Tenerife|ЗАПРЕЩЕНО/i.test(
       greetRestart.stageInstruction
     )
   );
@@ -1461,6 +1492,12 @@ function runDeterministicTests() {
   check(
     'mortgage: pitch instruction про NIE/нотариус',
     /NIE|нотариус|Eur[ií]bor|8,?7/i.test(getMortgageConfirmedPitchInstruction('ru'))
+  );
+  check(
+    'mortgage: pitch не называет банки клиенту',
+    /ЗАПРЕЩЕНО называть.*Santander|крупные банки/i.test(
+      getMortgageConfirmedPitchInstruction('ru')
+    )
   );
   const mort8020Hist = [
     { sender: 'user', text: 'ищу недвижимость для инвестиций' },
@@ -1570,8 +1607,9 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
     ibizaItems.every((item) => itemMatchesPropertyTypes(item, ['villas']))
   );
   check(
-    'ibiza: prompt предупреждает о превышении бюджета',
-    /superan el presupuesto/i.test(ibizaCtx.text)
+    'ibiza: prompt про ближайшие к бюджету (не «все выше»)',
+    /más cercanas al presupuesto|NO digas que todas superan/i.test(ibizaCtx.text) &&
+      !/Indica claramente que superan el presupuesto/i.test(ibizaCtx.text)
   );
 
   const externalLinks =
@@ -1752,6 +1790,38 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
   const twoMlnBand = derivePriceTarget(twoMln);
   check('show: «2 миллиона» → 1.48–2.52M', twoMlnBand.floor === 1_480_000 && twoMlnBand.ceiling === 2_520_000);
 
+  {
+    const { selectByBudgetCentered, parseItemPriceEur: parseP } = require('../property-catalog');
+    const fake = (price) => ({ item: { price: `€${Number(price).toLocaleString('en-US')}` }, s: 1 });
+    const target = derivePriceTarget({ maxPrice: 350000 });
+    const inBand = selectByBudgetCentered(
+      [fake(280000), fake(350000), fake(400000), fake(59000), fake(900000)],
+      target,
+      { allowBudgetFallback: true, minWanted: 3 }
+    );
+    const prices = inBand.ranked.map((r) => parseP(r.item));
+    check(
+      'budget-center: ±26% вокруг 350k (центр бюджета)',
+      !inBand.usedBudgetFallback &&
+        prices.every((p) => p >= target.floor && p <= target.ceiling) &&
+        prices.includes(350000) &&
+        !prices.includes(59000) &&
+        !prices.includes(900000)
+    );
+    const sparse = selectByBudgetCentered(
+      [fake(59000), fake(80000), fake(230000), fake(495000)],
+      target,
+      { allowBudgetFallback: true, minWanted: 3 }
+    );
+    const sparsePrices = sparse.ranked.map((r) => parseP(r.item));
+    check(
+      'budget-center: мало в коридоре → расширение вокруг якоря',
+      sparse.usedBudgetFallback &&
+        sparsePrices.length >= 2 &&
+        Math.abs(sparsePrices[0] - 350000) <= Math.abs(sparsePrices[sparsePrices.length - 1] - 350000)
+    );
+  }
+
   console.log('\n=== 20. После выбора объекта — воронка и заявка ===\n');
   const { detectPropertyInterest, analyzePurchaseFinance } = require('../purchase-finance');
   const {
@@ -1824,6 +1894,33 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
   check(
     'purchase request: после handoff → handed_off',
     listed.items.some((x) => x.handoffId === 'handoff-test-id')
+  );
+
+  check(
+    'pick: «мне понравился 3 вариант» → не wantsListings, этап покупки',
+    (() => {
+      const listing =
+        '1\nhttps://housetenerife.eu/property/a\n2\nhttps://housetenerife.eu/property/b\n3\nhttps://housetenerife.eu/property/c';
+      const d = analyzeConversation(
+        [
+          {
+            sender: 'user',
+            text: 'инвестиции бюджет 200000 сейчас все своими готовый бизнес ресторан Тенерифе Costa Adeje',
+          },
+          { sender: 'assistant', text: listing },
+          { sender: 'user', text: 'мне понравился 3 вариант' },
+        ],
+        'ru'
+      );
+      return (
+        d.hasPropertyInterest &&
+        !d.wantsListings &&
+        d.stage !== 'SHOW_LISTINGS' &&
+        ['FINANCE_DOCUMENTS_CASH', 'FINANCE_DOCUMENTS', 'OFFER_MANAGER_CALL', 'PROPERTY_SELECTED'].includes(
+          d.stage
+        )
+      );
+    })()
   );
 
   console.log(`\n--- Итого: ${passed} passed, ${failed} failed ---\n`);
@@ -1939,7 +2036,9 @@ const MANUAL_DIALOGS = [
       { who: 'user', text: 'у меня есть вся сумма на руках' },
       { who: 'bot', expect: 'Тип/регион. ❌ НЕ бюджет снова.' },
       { who: 'user', text: 'я ищу готовый бизнес, в каких регионах можете предложить такую недвижимость' },
-      { who: 'bot', expect: 'Регионы с готовым бизнесом (Тенерифе, Дубай…). ❌ НЕ «Привет» снова. ❌ НЕ «какой бюджет?».' },
+      { who: 'bot', expect: 'Сначала сфера бизнеса (ресторан/отель/авто/…). ❌ НЕ сразу регион. ❌ НЕ «Привет» снова. ❌ НЕ «какой бюджет?». ❌ НЕ навязывать только морской бизнес.' },
+      { who: 'user', text: 'ресторан' },
+      { who: 'bot', expect: 'Регионы (Тенерифе, Дубай…). Без объектов до региона.' },
     ],
   },
   {
@@ -2133,7 +2232,7 @@ const MANUAL_DIALOGS = [
     lang: 'es',
     steps: [
       { who: 'user', text: 'Busco una villa en Ibiza para vivir, presupuesto hasta 500.000 euros' },
-      { who: 'bot', expect: 'Если вилл до €500k нет — честно сообщает и показывает ближайшие только на Ibiza; без Idealista/Fotocasa.' },
+      { who: 'bot', expect: 'Если вилл в коридоре ±26% мало — ближайшие к бюджету на Ibiza (дешевле и дороже); без Idealista/Fotocasa. ❌ НЕ «все выше бюджета».' },
     ],
   },
   {

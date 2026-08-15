@@ -144,7 +144,7 @@ function categoriesFromTypeLabel(label) {
     add('commercial');
   }
   if (
-    /бизнес\s+на\s+продаж|business\s+for\s+sale|negocio\s+en\s+venta|ресторан|бар(?:ы|а|ов)?|кафе|\bотел|\bhotel|car\s+rental|аренд[аы]\s+авто|fonds\s+de\s+commerce|geschäft\s+zu\s+verkaufen|biznes\s+na\s+sprzedaż|business\s+te\s+koop/i.test(
+    /бизнес\s+на\s+продаж|business\s+for\s+sale|negocio\s+en\s+venta|готовы[йеяюих]+\s+бизнес|ресторан|бар(?:ы|а|ов)?|кафе|\bотел|\bhotel|car\s+rental|аренд[аы]\s+авто|fonds\s+de\s+commerce|geschäft\s+zu\s+verkaufen|biznes\s+na\s+sprzedaż|business\s+te\s+koop/i.test(
       lower
     )
   ) {
@@ -219,7 +219,7 @@ function getItemPropertyCategories(item) {
       const looksBizUrl =
         /(?:^|\/)(?:business|negocio|ресторан|restoran|бар|bar-|кафе|cafe|отель|otel|hotel|apteka|аптека|паб|pab|jet-sky|arende-avtomobil|компан|lodochn|парк|parking)/i.test(
           urlTitle
-        ) || /бизнес\s+на\s+продаж|готовы[йи]\s+бизнес|negocio\s+en\s+venta|business\s+for\s+sale/i.test(urlTitle);
+        ) || /бизнес\s+на\s+продаж|готовы[йеяюих]+\s+бизнес|negocio\s+en\s+venta|business\s+for\s+sale/i.test(urlTitle);
       const looksResUrl =
         /villa|вилл|apartament|apartamento|квартир|апартамент|dupleks|duplex|piso|chalet|townhouse|таунхаус|penthouse|студи/i.test(
           urlTitle
@@ -293,7 +293,7 @@ function getItemPropertyCategories(item) {
   if (/участ[ое]к|\bземл|\bplot\b|\bland\b|terreno|grundstück/i.test(blob)) add('land');
   // Бизнес — только явные маркеры в title/overview (не «рестораны рядом» в описании жилья)
   if (
-    /бизнес\s+на\s+продаж|готовы[йи]\s+бизнес|negocio\s+en\s+venta|business\s+for\s+sale|(?:^|[^\p{L}])(?:ресторан|бар|кафе|отель|hotel|паб|аптека)(?:[^\p{L}]|$)/iu.test(
+    /бизнес\s+на\s+продаж|готовы[йи]\s+бизнес|готовые\s+бизнесы|negocio\s+en\s+venta|business\s+for\s+sale|(?:^|[^\p{L}])(?:ресторан|бар|кафе|отель|hotel|паб|аптека)(?:[^\p{L}]|$)/iu.test(
       titleOverview
     )
   ) {
@@ -346,7 +346,7 @@ function detectPropertyTypePreference(text, lang = 'ru') {
     types.add('commercial');
   }
   if (
-    /бизнес\s+на\s+продаж|готовый\s+бизнес|ресторан|бар|кафе|\bотель\b|\bhotel\b|car\s+rental|аренд[аы]\s+авто|negocio\s+en\s+venta|business\s+for\s+sale|geschäft\s+zu\s+verkaufen|fonds\s+de\s+commerce|biznes\s+na\s+sprzedaż|business\s+te\s+koop/i.test(
+    /бизнес\s+на\s+продаж|готовы[йеяюих]+\s+бизнес|ресторан|бар|кафе|\bотель\b|\bhotel\b|car\s+rental|аренд[аы]\s+авто|negocio\s+en\s+venta|business\s+for\s+sale|geschäft\s+zu\s+verkaufen|fonds\s+de\s+commerce|biznes\s+na\s+sprzedaż|business\s+te\s+koop/i.test(
       lower
     )
   ) {

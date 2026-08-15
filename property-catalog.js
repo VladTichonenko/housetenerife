@@ -480,6 +480,61 @@ function sortByPriceProximity(ranked, anchor) {
   });
 }
 
+/**
+ * Подбор вокруг бюджета: сначала ±26%, если мало — постепенно расширяем
+ * коридор в обе стороны (дешевле и дороже), сортируя по близости к якорю.
+ * @returns {{ ranked: Array, usedBudgetFallback: boolean, expandedRatio: number|null }}
+ */
+function selectByBudgetCentered(ranked, priceTarget, options = {}) {
+  if (!ranked?.length) {
+    return { ranked: [], usedBudgetFallback: false, expandedRatio: null };
+  }
+  if (!priceTarget?.anchor) {
+    return { ranked, usedBudgetFallback: false, expandedRatio: null };
+  }
+
+  const anchor = priceTarget.anchor;
+  const baseRatio =
+    Number.isFinite(priceTarget.ratio) && priceTarget.ratio > 0
+      ? priceTarget.ratio
+      : 0.26;
+  const minWanted = Math.max(1, options.minWanted || 3);
+  const allowExpand = options.allowBudgetFallback !== false;
+  // 1 = строго ±26%; дальше — выход за коридор в обе стороны
+  const multipliers = allowExpand ? [1, 1.35, 1.7, 2.2, 3] : [1];
+
+  for (const mult of multipliers) {
+    const r = baseRatio * mult;
+    const floor = Math.round(anchor * (1 - r));
+    const ceiling = Math.round(anchor * (1 + r));
+    const filtered = ranked.filter((entry) => {
+      const p = parseItemPriceEur(entry.item);
+      if (p == null) return false;
+      return p >= floor && p <= ceiling;
+    });
+    const enough =
+      filtered.length >= minWanted ||
+      (mult === multipliers[multipliers.length - 1] && filtered.length > 0);
+    if (enough) {
+      return {
+        ranked: sortByPriceProximity(filtered, anchor),
+        usedBudgetFallback: mult > 1,
+        expandedRatio: r,
+      };
+    }
+  }
+
+  if (allowExpand) {
+    return {
+      ranked: sortByPriceProximity(ranked, anchor),
+      usedBudgetFallback: true,
+      expandedRatio: null,
+    };
+  }
+
+  return { ranked: [], usedBudgetFallback: false, expandedRatio: null };
+}
+
 /** Жёсткий отсев по min/max бюджета (после soft priceTarget). */
 function filterByHardBudget(ranked, budget) {
   if (!budget) return ranked;
@@ -663,23 +718,25 @@ function searchForContext(query, limit = 8, options = {}) {
 
   const budgetFallbackPool = ranked.slice();
   if (priceTarget) {
-    const priceFiltered = filterByPriceTarget(ranked, priceTarget);
-    if (priceFiltered.length) ranked = priceFiltered;
-  }
-
-  // Жёсткий потолок бюджета (AI/score не должны протаскивать 890к при «до 400к»)
-  const hardBudget = {
-    minPrice: options.minPrice ?? null,
-    maxPrice: options.maxPrice ?? null
-  };
-  if (hardBudget.minPrice != null || hardBudget.maxPrice != null) {
+    const selected = selectByBudgetCentered(ranked, priceTarget, {
+      allowBudgetFallback: Boolean(options.allowBudgetFallback),
+      minWanted: Math.min(3, limit),
+    });
+    ranked = selected.ranked;
+    usedBudgetFallback = selected.usedBudgetFallback;
+  } else if (options.minPrice != null || options.maxPrice != null) {
+    const hardBudget = {
+      minPrice: options.minPrice ?? null,
+      maxPrice: options.maxPrice ?? null,
+    };
     const withinBudget = filterByHardBudget(ranked, hardBudget);
     if (withinBudget.length) {
       ranked = withinBudget;
     } else if (options.allowBudgetFallback && budgetFallbackPool.length) {
-      // Нет карточек в бюджете: сохраняем регион и тип, показываем ближайшие
-      // реальные варианты и явно сообщаем модели о превышении бюджета.
-      ranked = sortByPriceProximity(budgetFallbackPool, priceTarget?.anchor);
+      ranked = sortByPriceProximity(
+        budgetFallbackPool,
+        options.maxPrice || options.minPrice
+      );
       usedBudgetFallback = true;
     } else {
       ranked = [];
@@ -738,16 +795,26 @@ function searchForContext(query, limit = 8, options = {}) {
       }
     }
     if (priceTarget) {
-      const priceFiltered = filterByPriceTarget(ranked, priceTarget);
-      if (priceFiltered.length) ranked = priceFiltered;
-    }
-    if (hardBudget.minPrice != null || hardBudget.maxPrice != null) {
+      const selected = selectByBudgetCentered(ranked, priceTarget, {
+        allowBudgetFallback: Boolean(options.allowBudgetFallback),
+        minWanted: Math.min(3, limit),
+      });
+      ranked = selected.ranked;
+      usedBudgetFallback = usedBudgetFallback || selected.usedBudgetFallback;
+    } else if (options.minPrice != null || options.maxPrice != null) {
+      const hardBudget = {
+        minPrice: options.minPrice ?? null,
+        maxPrice: options.maxPrice ?? null,
+      };
       const beforeBudget = ranked.slice();
       const withinBudget = filterByHardBudget(ranked, hardBudget);
       if (withinBudget.length) {
         ranked = withinBudget;
       } else if (options.allowBudgetFallback && beforeBudget.length) {
-        ranked = sortByPriceProximity(beforeBudget, priceTarget?.anchor);
+        ranked = sortByPriceProximity(
+          beforeBudget,
+          options.maxPrice || options.minPrice
+        );
         usedBudgetFallback = true;
       } else {
         ranked = [];
@@ -830,13 +897,13 @@ function searchForContext(query, limit = 8, options = {}) {
                                 : '';
 
   const budgetFallbackHints = {
-    ru: ' ВАЖНО: в этом бюджете нет объектов нужного типа и региона; ниже ближайшие доступные. Прямо скажи, что они выше бюджета.',
-    en: ' IMPORTANT: no same-type listings in this region fit the budget; these are the nearest available. Clearly say they are over budget.',
-    es: ' IMPORTANTE: no hay opciones del mismo tipo y región dentro del presupuesto; estas son las más cercanas. Indica claramente que superan el presupuesto.',
-    de: ' WICHTIG: Keine passenden Objekte dieses Typs in der Region liegen im Budget; dies sind die nächstgelegenen. Budgetüberschreitung klar nennen.',
-    fr: ' IMPORTANT : aucun bien de ce type dans cette région ne respecte le budget ; voici les plus proches. Indiquer clairement le dépassement.',
-    pl: ' WAŻNE: brak ofert tego typu w regionie w podanym budżecie; to najbliższe dostępne opcje. Wyraźnie zaznacz przekroczenie budżetu.',
-    nl: ' BELANGRIJK: geen objecten van dit type in deze regio passen binnen het budget; dit zijn de dichtstbijzijnde. Benoem duidelijk de overschrijding.'
+    ru: ' ВАЖНО: в точном коридоре ±26% мало/нет объектов — ниже ближайшие к бюджету клиента (и дешевле, и дороже). НЕ говори, что «все выше бюджета». Бюджет клиента — центральная точка. Не упоминай «±26%» вслух.',
+    en: ' IMPORTANT: few/no listings in the exact ±26% band — below are the closest to the client budget (cheaper and dearer). Do NOT say they are all over budget. Keep their budget as the center. Do not mention “±26%” aloud.',
+    es: ' IMPORTANTE: pocas/ninguna ficha en la banda ±26% — abajo las más cercanas al presupuesto (más baratas y más caras). NO digas que todas superan el presupuesto. El presupuesto es el centro. No menciones «±26%» en voz alta.',
+    de: ' WICHTIG: wenig/keine Objekte im exakten ±26%-Korridor — unten die nächsten zum Budget (günstiger und teurer). NICHT sagen, alles liege darüber. Budget bleibt Zentrum. „±26%“ nicht aussprechen.',
+    fr: ' IMPORTANT : peu/aucune fiche dans la bande ±26% — ci-dessous les plus proches du budget (moins cher et plus cher). NE PAS dire qu’elles dépassent toutes. Le budget reste le centre. Ne pas dire « ±26% ».',
+    pl: ' WAŻNE: mało/brak ofert w pasmie ±26% — poniżej najbliższe budżetowi (tańsze i droższe). NIE mów, że wszystkie są powyżej. Budżet to punkt środkowy. Nie mów o „±26%”.',
+    nl: ' BELANGRIJK: weinig/geen objecten in de ±26%-band — hieronder de dichtstbijzijnde bij het budget (goedkoper en duurder). Zeg NIET dat alles boven budget ligt. Budget blijft het midden. Geen “±26%” hardop.'
   };
   const areaFallbackHints = {
     ru: ' В точной зоне мало предложений; показаны соседние районы только того же региона.',
@@ -970,5 +1037,7 @@ module.exports = {
   getCatalogSiteUrl,
   cleanDescription,
   parseItemPriceEur,
+  selectByBudgetCentered,
+  sortByPriceProximity,
   SUPPORTED_LANGS
 };
