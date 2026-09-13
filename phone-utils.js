@@ -383,8 +383,9 @@ function getCountryFromPhone(phoneNumber) {
  */
 function getLanguageFromPhone(phoneNumber) {
   const raw = String(phoneNumber || '');
+  // @lid — не телефон и не страна; язык только из текста диалога
   if (raw.includes('@lid') || raw.includes('@g.us') || raw.includes('@broadcast')) {
-    return 'en';
+    return null;
   }
 
   const countryCode = getCountryFromPhone(phoneNumber);
@@ -408,7 +409,29 @@ function getTranslation(language, key) {
   const raw = String(language || 'en').toLowerCase().slice(0, 2);
   const mapped = raw === 'uk' || raw === 'be' ? 'ru' : raw;
   const langPack = translations[mapped] || translations.en;
-  return langPack[key] || translations.en[key] || translations.ru[key] || key;
+  const aliases = {
+    manager_handoff: ['handoff'],
+    manager_handoff_image: ['handoff_photo', 'handoff'],
+    manager_handoff_link: ['handoff_link', 'handoff'],
+    handoff_ask_name: ['ask_name'],
+    handoff_name_invalid: ['ask_name_retry'],
+    handoff: ['manager_handoff'],
+    handoff_photo: ['manager_handoff_image', 'manager_handoff'],
+    handoff_link: ['manager_handoff_link', 'manager_handoff'],
+    ask_name: ['handoff_ask_name'],
+    ask_name_retry: ['handoff_name_invalid'],
+  };
+  const keysToTry = [key, ...(aliases[key] || [])];
+  for (const k of keysToTry) {
+    if (langPack[k]) return langPack[k];
+  }
+  for (const k of keysToTry) {
+    if (translations.en[k]) return translations.en[k];
+  }
+  for (const k of keysToTry) {
+    if (translations.ru[k]) return translations.ru[k];
+  }
+  return key;
 }
 
 /**

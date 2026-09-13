@@ -334,10 +334,10 @@ function addRecentSent(chatId, prop) {
  * @param {string} text
  * @param {string} [lang]
  */
-function onConversationMessage(chatId, role, text, lang = 'ru') {
+async function onConversationMessage(chatId, role, text, lang = 'ru') {
   if (!chatId || !text) return;
 
-  const ids = extractPropertyIdsFromText(text);
+  let ids = extractPropertyIdsFromText(text);
 
   if (role === 'assistant' || role === 'manager') {
     for (const pid of ids) {
@@ -349,6 +349,17 @@ function onConversationMessage(chatId, role, text, lang = 'ru') {
   }
 
   if (role !== 'user') return;
+
+  // Ссылка на объект, которого нет в каталоге — подтянуть с сайта
+  if (userMessageHasPropertyLink(text) && !extractPropertyItemsFromText(text).length) {
+    try {
+      const { resolvePropertyItemsFromText } = require('./property-live-fetch');
+      await resolvePropertyItemsFromText(text);
+      ids = extractPropertyIdsFromText(text);
+    } catch (e) {
+      console.warn('⚠️ property live-fetch в onConversationMessage:', e.message);
+    }
+  }
 
   const state = getChatState(chatId);
 

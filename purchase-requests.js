@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { formatCustomerPhone } = require('./manager-handoff');
+const { formatContactDisplay } = require('./manager-handoff');
 const { getLanguageName } = require('./language-detector');
 
 function resolvePurchaseRequestsPath() {
@@ -62,13 +62,18 @@ function saveStore(store) {
   return next;
 }
 
-function formatPhoneDisplay(digits) {
+function formatPhoneDisplay(digits, { isLid = false } = {}) {
+  if (isLid) {
+    const d = String(digits || '').replace(/\D/g, '');
+    return d ? `WhatsApp ID …${d.slice(-6)}` : 'WhatsApp ID';
+  }
   const d = String(digits || '').replace(/\D/g, '');
   if (!d) return '—';
   return `+${d}`;
 }
 
-function waMeLink(digits) {
+function waMeLink(digits, { isLid = false } = {}) {
+  if (isLid) return null;
   const d = String(digits || '').replace(/\D/g, '');
   return d ? `https://wa.me/${d}` : null;
 }
@@ -117,7 +122,8 @@ function upsertPurchaseRequestFromDialog(payload) {
 
   const store = loadStore();
   const now = new Date().toISOString();
-  const phone = formatCustomerPhone(chatId);
+  const contact = formatContactDisplay(chatId);
+  const phone = contact.rawId;
   const financeStage = dialog.financeStage || null;
 
   let item = store.items.find(
@@ -134,6 +140,10 @@ function upsertPurchaseRequestFromDialog(payload) {
   const nextFields = {
     language,
     languageLabel: getLanguageName(language),
+    isLid: contact.isLid,
+    phone,
+    phoneDisplay: contact.display,
+    waLink: contact.waLink,
     properties: props.length ? props : item?.properties || [],
     fundsNowLabel: dialog.fundsNowLabel || item?.fundsNowLabel || '',
     needsMortgage:
@@ -168,8 +178,9 @@ function upsertPurchaseRequestFromDialog(payload) {
     id: crypto.randomUUID(),
     chatId: String(chatId),
     phone,
-    phoneDisplay: formatPhoneDisplay(phone),
-    waLink: waMeLink(phone),
+    isLid: contact.isLid,
+    phoneDisplay: contact.display,
+    waLink: contact.waLink,
     status: deriveStatus(financeStage, ''),
     handoffId: '',
     clientName: '',

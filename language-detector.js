@@ -154,15 +154,40 @@ function tokenize(text) {
     .filter(Boolean);
 }
 
+/** Убирает URL — иначе /es/property/… и slug на испанском ломают детект. */
+function stripUrls(text) {
+  return String(text || '')
+    .replace(/https?:\/\/[^\s<>\])"'{}]+/gi, ' ')
+    .replace(/\b(?:www\.)?housetenerife\.eu\/[^\s<>\])"'{}]*/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isUrlOnlyMessage(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return false;
+  if (!/https?:\/\/|housetenerife\.eu/i.test(trimmed)) return false;
+  const rest = stripUrls(trimmed).replace(/[^\p{L}\p{N}]+/gu, '');
+  return rest.length < 3;
+}
+
 function detectByScript(text) {
   if (/[а-яёіїєґ]/i.test(text)) {
     if (/\b(і|ї|є|ґ|це|як|де|чому|привіт|дякую)\b/i.test(text)) return 'uk';
     return 'ru';
   }
+  // Немецкий ДО испанского: ü в für/würde раньше ошибочно давал ES (ü есть в обоих наборах)
+  if (/[äöüßÄÖÜ]/.test(text)) return 'de';
   if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(text)) return 'pl';
-  if (/[ñáéíóúüÑÁÉÍÓÚÜ]/i.test(text)) return 'es';
-  if (/[äöüßÄÖÜ]/i.test(text)) return 'de';
-  if (/[àâçéèêëîïôùûüœæ]/i.test(text)) return 'fr';
+  // Испанский: ñ / ¿¡ — надёжные маркеры; одних áéíóú мало (есть во FR/PT/IT)
+  if (/[ñÑ]/.test(text) || /[¿¡]/.test(text)) return 'es';
+  if (
+    /[áéíóúÁÉÍÓÚ]/.test(text) &&
+    /\b(qué|quién|cómo|dónde|más|también|está|están|señor|información|sí|aquí|así)\b/i.test(text)
+  ) {
+    return 'es';
+  }
+  if (/[àâçéèêëîïôùûœæ]/i.test(text)) return 'fr';
   return null;
 }
 
@@ -239,12 +264,17 @@ function applyEnglishMarkers(text, words, scores) {
 function applyGermanMarkers(text, scores) {
   const signalText = stripPlaceNames(text);
   if (!signalText || isMostlyPlaceName(text)) return;
-  if (/\b(ich|wir|suche|suchen|möchte|mochte|brauche|kaufen|wohnung|immobilie|bitte|danke|hallo|guten)\b/i.test(signalText)) {
+  if (
+    /\b(ich|wir|suche|suchen|möchte|mochte|brauche|kaufen|wohnung|immobilie|bitte|danke|hallo|guten|gerne|eventuell|würden?|wuerde|schöne|schone|grüße|grusse)\b/i.test(
+      signalText
+    )
+  ) {
     scores.de += 3;
   }
-  if (/\b(der|die|das|und|mit|für|fur|nach|bei|zum|zur)\b/i.test(signalText)) {
+  if (/\b(der|die|das|und|mit|für|fur|nach|bei|zum|zur|auch|wenn|oder|nicht)\b/i.test(signalText)) {
     scores.de += 1.5;
   }
+  if (/[äöüßÄÖÜ]/.test(signalText)) scores.de += 3;
 }
 
 function applyFrenchMarkers(text, scores) {
@@ -264,7 +294,11 @@ function applyRussianMarkers(text, scores) {
 
 function applyPolishMarkers(text, scores) {
   if (/[ąćęłńóśźż]/i.test(text)) scores.pl += 4;
-  if (/\b(chcę|szukam|mieszkanie|apartament|budżet|inwestycja|nieruchomość|proszę|dziękuję|cześć)\b/i.test(text)) {
+  if (
+    /\b(chcę|chce|szukam|szukamy|mieszkanie|apartament|bud[zż]et|inwestycja|nieruchomo[sś][cć]|prosz[eę]|dzi[eę]kuj[eę]|cze[sś][cć]|prosze|dziekuje|czesc|budzet)\b/i.test(
+      text
+    )
+  ) {
     scores.pl += 3;
   }
 }
@@ -346,9 +380,10 @@ function isBudgetAmountReply(text) {
 function isAmbiguousShortReply(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return true;
+  if (isUrlOnlyMessage(trimmed)) return true;
   if (isMostlyPlaceName(trimmed)) return true;
   if (isBudgetAmountReply(trimmed)) return true;
-  const words = tokenize(trimmed);
+  const words = tokenize(stripUrls(trimmed));
   if (words.length === 0) return true;
   if (words.length === 1) {
     const w = words[0];
@@ -400,24 +435,30 @@ function detectLanguageFromText(text) {
   const trimmed = text.trim();
   if (!trimmed) return 'ru';
 
-  const words = tokenize(trimmed);
+  // Ссылки на объекты не задают язык (path /es/… ≠ клиент пишет по-испански)
+  if (isUrlOnlyMessage(trimmed)) {
+    return 'en';
+  }
+
+  const detectBody = stripUrls(trimmed) || trimmed;
+  const words = tokenize(detectBody);
 
   if (words.length === 1) {
-    const short = SHORT_REPLY[words[0]] || SHORT_REPLY[trimmed.toLowerCase()];
+    const short = SHORT_REPLY[words[0]] || SHORT_REPLY[detectBody.toLowerCase()];
     if (short) return short;
   }
 
-  const scriptLang = detectByScript(trimmed);
-  if (scriptLang && /[а-яёіїєґñáéíóúüäöüßàâçéèêëîïôùûœæ]/i.test(trimmed)) {
+  const scriptLang = detectByScript(detectBody);
+  if (scriptLang && /[а-яёіїєґñáéíóúäöüßàâçéèêëîïôùûœæąćęłńóśźż¿¡]/i.test(detectBody)) {
     return scriptLang;
   }
 
   // Топонимы / суммы бюджета — не голосуют стоп-словами
-  if (isMostlyPlaceName(trimmed) || isBudgetAmountReply(trimmed)) {
+  if (isMostlyPlaceName(detectBody) || isBudgetAmountReply(detectBody)) {
     return 'en';
   }
 
-  const signalText = stripPlaceNames(trimmed) || trimmed;
+  const signalText = stripPlaceNames(detectBody) || detectBody;
   const signalWords = tokenize(signalText);
   const scores = scoreStopWords(signalWords.length ? signalWords : words);
   // Обнуляем вклад сверхчастых артиклей без глаголов — иначе ES побеждает на топонимах
@@ -430,13 +471,13 @@ function detectLanguageFromText(text) {
       scores.en = 0;
     }
   }
-  applySpanishMarkers(trimmed, signalWords, scores);
-  applyEnglishMarkers(trimmed, signalWords, scores);
-  applyGermanMarkers(trimmed, scores);
-  applyFrenchMarkers(trimmed, scores);
-  applyRussianMarkers(trimmed, scores);
-  applyPolishMarkers(trimmed, scores);
-  applyDutchMarkers(trimmed, scores);
+  applySpanishMarkers(detectBody, signalWords, scores);
+  applyEnglishMarkers(detectBody, signalWords, scores);
+  applyGermanMarkers(detectBody, scores);
+  applyFrenchMarkers(detectBody, scores);
+  applyRussianMarkers(detectBody, scores);
+  applyPolishMarkers(detectBody, scores);
+  applyDutchMarkers(detectBody, scores);
 
   const heuristicLang = pickTopScore(scores);
   const francLang = signalText.length >= 8 ? detectByFranc(signalText) : null;
@@ -444,16 +485,18 @@ function detectLanguageFromText(text) {
   if (heuristicLang && francLang) {
     if (heuristicLang === francLang) return heuristicLang;
     const topHeuristicScore = scores[heuristicLang] || 0;
-    if (topHeuristicScore >= 4) return heuristicLang;
-    if (trimmed.length >= 16 && francLang) return francLang;
+    // Heuristic надёжнее franc на коротких Romance/Slavic текстах (ES↔PL путаница)
+    if (topHeuristicScore >= 3) return heuristicLang;
+    if ((scores[francLang] || 0) >= 2) return francLang;
     return heuristicLang;
   }
 
   if (heuristicLang) return heuristicLang;
-  if (francLang) return francLang;
+  if (francLang && (scores[francLang] || 0) >= 1) return francLang;
+  if (francLang && signalText.length >= 40) return francLang;
   if (scriptLang) return scriptLang;
 
-  if (words.length && /^[a-z0-9\s.,!?€$%+\-/]+$/i.test(stripAccents(trimmed))) {
+  if (words.length && /^[a-z0-9\s.,!?€$%+\-/]+$/i.test(stripAccents(detectBody))) {
     return 'en';
   }
 
@@ -484,5 +527,7 @@ module.exports = {
   isStrongLanguageSignal,
   isMostlyPlaceName,
   isBudgetAmountReply,
+  isUrlOnlyMessage,
+  stripUrls,
   SUPPORTED_DETECT,
 };

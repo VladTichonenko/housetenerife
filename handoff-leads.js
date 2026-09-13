@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { formatCustomerPhone, REASON_LABELS } = require('./manager-handoff');
+const { formatContactDisplay, REASON_LABELS } = require('./manager-handoff');
 const { generateHandoffSummary } = require('./handoff-summary');
 const { getLanguageName } = require('./language-detector');
 
@@ -55,13 +55,18 @@ function saveStore(store) {
   return next;
 }
 
-function formatPhoneDisplay(digits) {
+function formatPhoneDisplay(digits, { isLid = false } = {}) {
+  if (isLid) {
+    const d = String(digits || '').replace(/\D/g, '');
+    return d ? `WhatsApp ID …${d.slice(-6)}` : 'WhatsApp ID';
+  }
   const d = String(digits || '').replace(/\D/g, '');
   if (!d) return '—';
   return `+${d}`;
 }
 
-function waMeLink(digits) {
+function waMeLink(digits, { isLid = false } = {}) {
+  if (isLid) return null;
   const d = String(digits || '').replace(/\D/g, '');
   return d ? `https://wa.me/${d}` : null;
 }
@@ -83,14 +88,16 @@ async function recordHandoff(payload) {
   if (!chatId) return null;
 
   const id = crypto.randomUUID();
-  const phone = formatCustomerPhone(chatId);
+  const contact = formatContactDisplay(chatId);
+  const phone = contact.rawId;
   const now = new Date().toISOString();
   const item = {
     id,
     chatId,
     phone,
-    phoneDisplay: formatPhoneDisplay(phone),
-    waLink: waMeLink(phone),
+    isLid: contact.isLid,
+    phoneDisplay: contact.display,
+    waLink: contact.waLink,
     language,
     languageLabel: languageLabel || getLanguageName(language),
     clientName: String(clientName || '').trim(),
@@ -355,8 +362,9 @@ function publicLead(item) {
     id: item.id,
     chatId: item.chatId,
     phone: item.phone,
-    phoneDisplay: item.phoneDisplay || formatPhoneDisplay(item.phone),
-    waLink: item.waLink || waMeLink(item.phone),
+    phoneDisplay: item.phoneDisplay || formatPhoneDisplay(item.phone, { isLid: item.isLid }),
+    waLink: item.isLid ? null : item.waLink || waMeLink(item.phone, { isLid: item.isLid }),
+    isLid: Boolean(item.isLid),
     language: item.language,
     languageLabel: item.languageLabel || item.language,
     clientName: item.clientName || '',

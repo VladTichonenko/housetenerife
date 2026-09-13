@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { IconClose } from './Icons';
+import ChatPanel, { formatDate } from './ChatPanel';
 
 const PAGE_SIZE = 50;
 
@@ -19,20 +20,6 @@ const FILTERS = [
   { id: 'handed_off', label: 'У менеджера' },
   { id: 'closed', label: 'Завершённые' },
 ];
-
-function formatDate(iso) {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleString('ru-RU', {
-      day: '2-digit',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return iso;
-  }
-}
 
 function PropertyLinks({ properties }) {
   if (!properties?.length) return <span className="muted">Объект не указан</span>;
@@ -54,7 +41,13 @@ function PropertyLinks({ properties }) {
   );
 }
 
-function DetailModal({ id, onClose, onUpdated }) {
+function contactLabel(item) {
+  if (item.clientName) return item.clientName;
+  if (item.isLid) return item.phoneDisplay || 'WhatsApp ID';
+  return item.phoneDisplay || item.phone || '—';
+}
+
+function DetailModal({ id, onClose, onUpdated, onOpenChat }) {
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -91,7 +84,7 @@ function DetailModal({ id, onClose, onUpdated }) {
   return (
     <div className="modal-overlay" role="presentation" onClick={onClose}>
       <div
-        className="handoff-modal"
+        className="handoff-modal purchase-modal"
         role="dialog"
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
@@ -113,12 +106,20 @@ function DetailModal({ id, onClose, onUpdated }) {
               <span className={`lead-status lead-status--${item.status}`}>
                 {item.statusLabel || STATUS_LABELS[item.status] || item.status}
               </span>
+              {item.languageLabel && (
+                <span className="purchase-modal__lang">{item.languageLabel}</span>
+              )}
               <span>{formatDate(item.updatedAt)}</span>
             </div>
 
             <div className="handoff-modal__block">
               <span className="handoff-modal__label">Контакт</span>
-              <p className="handoff-modal__phone">{item.phoneDisplay}</p>
+              <p className="handoff-modal__phone">{contactLabel(item)}</p>
+              {item.isLid && (
+                <p className="muted purchase-modal__lid-hint">
+                  WhatsApp скрыл номер (Linked Device ID). Пишите клиенту через чат в панели.
+                </p>
+              )}
               {item.waLink && (
                 <a href={item.waLink} target="_blank" rel="noopener noreferrer" className="btn btn--outline btn--sm">
                   WhatsApp
@@ -158,6 +159,15 @@ function DetailModal({ id, onClose, onUpdated }) {
             )}
 
             <div className="handoff-modal__actions">
+              {item.chatId && (
+                <button
+                  type="button"
+                  className="btn btn--primary btn--sm"
+                  onClick={() => onOpenChat?.(item)}
+                >
+                  История чата / ответить
+                </button>
+              )}
               <button type="button" className="btn btn--outline btn--sm" onClick={toggleClose}>
                 {item.status === 'closed' ? 'Вернуть в работу' : 'Завершить'}
               </button>
@@ -180,6 +190,7 @@ export default function PurchaseRequestsSection() {
   const [searchInput, setSearchInput] = useState('');
   const [filter, setFilter] = useState('open');
   const [selectedId, setSelectedId] = useState(null);
+  const [chatTarget, setChatTarget] = useState(null);
 
   const fetchPage = useCallback(
     async (page, { silent = false } = {}) => {
@@ -224,6 +235,16 @@ export default function PurchaseRequestsSection() {
     setSearch(searchInput.trim());
   };
 
+  const openChat = (item) => {
+    if (!item?.chatId) return;
+    setSelectedId(null);
+    setChatTarget({
+      chatId: item.chatId,
+      title: contactLabel(item),
+      subtitle: item.properties?.[0]?.title || item.phoneDisplay || '',
+    });
+  };
+
   return (
     <>
       <div className="inbox-shell">
@@ -231,7 +252,7 @@ export default function PurchaseRequestsSection() {
           <div>
             <h3 className="inbox-shell__title">Запросы на покупку</h3>
             <p className="inbox-shell__user muted">
-              Появляются, когда клиент выбирает объект из подборки
+              Появляются, когда клиент выбирает объект. Откройте заявку, чтобы увидеть чат и ответить.
             </p>
           </div>
         </div>
@@ -275,28 +296,47 @@ export default function PurchaseRequestsSection() {
         ) : (
           <div className="inbox-list">
             {items.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className="inbox-row"
-                onClick={() => setSelectedId(item.id)}
-              >
-                <div className="inbox-row__main">
-                  <span className={`lead-status lead-status--${item.status}`}>
-                    {item.statusLabel || STATUS_LABELS[item.status]}
-                  </span>
-                  <strong>{item.phoneDisplay}</strong>
-                  <span className="inbox-row__preview">
-                    {item.properties?.[0]?.title || item.preview || '—'}
-                  </span>
-                </div>
-                <div className="inbox-row__meta">
-                  <span>{formatDate(item.updatedAt)}</span>
-                  {item.properties?.[0]?.id && (
-                    <span className="property-links__id">{item.properties[0].id}</span>
+              <div key={item.id} className="inbox-row">
+                <button
+                  type="button"
+                  className="inbox-row__main-btn"
+                  onClick={() => setSelectedId(item.id)}
+                >
+                  <div className="inbox-row__main">
+                    <span className={`lead-status lead-status--${item.status}`}>
+                      {item.statusLabel || STATUS_LABELS[item.status]}
+                    </span>
+                    <strong className="inbox-row__contact">{contactLabel(item)}</strong>
+                    <span className="inbox-row__preview">
+                      {item.properties?.[0]?.title || item.preview || '—'}
+                    </span>
+                  </div>
+                  <div className="inbox-row__meta">
+                    <span>{formatDate(item.updatedAt)}</span>
+                    {item.properties?.[0]?.id && (
+                      <span className="property-links__id">{item.properties[0].id}</span>
+                    )}
+                  </div>
+                </button>
+                <div className="inbox-row__actions">
+                  {item.chatId && (
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--sm"
+                      onClick={() => openChat(item)}
+                    >
+                      Чат
+                    </button>
                   )}
+                  <button
+                    type="button"
+                    className="btn btn--outline btn--sm"
+                    onClick={() => setSelectedId(item.id)}
+                  >
+                    Детали
+                  </button>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}
@@ -331,6 +371,16 @@ export default function PurchaseRequestsSection() {
           id={selectedId}
           onClose={() => setSelectedId(null)}
           onUpdated={() => fetchPage(meta.page, { silent: true })}
+          onOpenChat={openChat}
+        />
+      )}
+
+      {chatTarget && (
+        <ChatPanel
+          chatId={chatTarget.chatId}
+          title={chatTarget.title}
+          subtitle={chatTarget.subtitle}
+          onClose={() => setChatTarget(null)}
         />
       )}
     </>

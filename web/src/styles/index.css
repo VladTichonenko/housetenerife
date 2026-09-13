@@ -1414,6 +1414,94 @@ body.chat-fullscreen-open {
   background: var(--color-surface);
 }
 
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.inbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.inbox-row:hover {
+  border-color: rgba(13, 110, 110, 0.35);
+  box-shadow: var(--shadow-sm);
+}
+
+.inbox-row__main-btn {
+  flex: 1;
+  min-width: 200px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inbox-row__main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.inbox-row__contact {
+  font-size: 0.9375rem;
+}
+
+.inbox-row__preview {
+  flex: 1 1 180px;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.inbox-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.purchase-modal__lang {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.purchase-modal__lid-hint {
+  margin: 6px 0 10px;
+  font-size: 0.8125rem;
+  max-width: 36ch;
+}
+
 .lead-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--color-border);
@@ -1530,6 +1618,22 @@ body.chat-fullscreen-open {
 .lead-status--closed {
   background: rgba(107, 114, 128, 0.15);
   color: #4b5563;
+}
+
+.lead-status--draft {
+  background: rgba(107, 114, 128, 0.12);
+  color: #6b7280;
+}
+
+.lead-status--ready,
+.lead-status--call_requested {
+  background: rgba(245, 158, 11, 0.18);
+  color: #b45309;
+}
+
+.lead-status--handed_off {
+  background: rgba(13, 110, 110, 0.14);
+  color: var(--color-primary);
 }
 
 .conv-list {

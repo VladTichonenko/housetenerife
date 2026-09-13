@@ -2286,7 +2286,9 @@ function persistChatMessage(chatId, role, text, extra = {}) {
     persistMessage(chatId, { role, text, ...extra });
     touchHandoffActivity(chatId);
     const { onConversationMessage } = require('./property-interest');
-    onConversationMessage(chatId, role, text, extra.language || 'ru');
+    Promise.resolve(onConversationMessage(chatId, role, text, extra.language || 'ru')).catch((err) => {
+      console.warn('⚠️ onConversationMessage:', err.message);
+    });
   } catch (e) {
     console.warn('⚠️ persistChatMessage:', e.message);
   }
@@ -2356,7 +2358,7 @@ async function sendManagerMessage(chatId, text, { managerId = '', managerName = 
  * Язык ответа: sticky на чат + сильный сигнал из текста.
  * Короткие ok/yes/да не переключают язык; пачка сообщений склеивается.
  */
-function resolveDialogLanguage(chatId, currentMessageText, phoneFallback = 'ru') {
+function resolveDialogLanguage(chatId, currentMessageText, phoneFallback = null) {
   const sticky = getStickyDialogLanguage(chatId);
   const trimmed = String(currentMessageText || '').trim();
 
@@ -2371,7 +2373,7 @@ function resolveDialogLanguage(chatId, currentMessageText, phoneFallback = 'ru')
     return null;
   };
 
-  let resolved = sticky || phoneFallback || 'ru';
+  let resolved = sticky || phoneFallback || null;
 
   if (trimmed.length >= 1) {
     const fromText = detectLanguageFromText(trimmed);
@@ -2385,15 +2387,16 @@ function resolveDialogLanguage(chatId, currentMessageText, phoneFallback = 'ru')
         resolved = sticky;
       }
     } else if (isAmbiguousShortReply(trimmed) || isMostlyPlaceName(trimmed)) {
-      // Топонимы / ok / 300k — не задают язык диалога
-      resolved = detectFromHistory() || phoneFallback || fromText;
+      // Топонимы / ok / 300k / только ссылка — не задают язык диалога
+      resolved = detectFromHistory() || phoneFallback || fromText || 'en';
     } else {
       resolved = fromText;
     }
   } else if (!sticky) {
-    resolved = detectFromHistory() || phoneFallback || 'ru';
+    resolved = detectFromHistory() || phoneFallback || 'en';
   }
 
+  resolved = resolved || 'en';
   setStickyDialogLanguage(chatId, resolved);
   return resolved;
 }
@@ -3480,7 +3483,7 @@ async function handleIncomingMessage(msg, options = {}) {
     msg = resolved.msg;
     const messageText = resolved.text;
 
-    const earlyLang = getLanguageFromPhone(senderId) || 'ru';
+    const earlyLang = getLanguageFromPhone(senderId) || 'en';
 
     if (isVoiceMessage(msg)) {
       const voiceReply = buildVoiceReply(earlyLang);
@@ -3542,7 +3545,7 @@ async function handleIncomingMessage(msg, options = {}) {
       if (isPermanentNonText(msg)) {
         clearEmptyBodyRetry(msgId);
         try {
-          const lang = getLanguageFromPhone(senderId) || 'ru';
+          const lang = getLanguageFromPhone(senderId) || 'en';
           const replyText = getTranslation(lang, 'ciphertext_reply');
           await sendMessageSafely(msg, replyText, client);
           console.log(`📩 [DEBUG] Сообщение без текста (медиа/одноразовое), type=${msg.type}`);
@@ -3569,7 +3572,7 @@ async function handleIncomingMessage(msg, options = {}) {
     // Проверяем, это первое сообщение от пользователя?
     const isFirstMessage = !firstMessageUsers.has(chatId);
     
-    const phoneLanguage = getLanguageFromPhone(senderId) || 'ru';
+    const phoneLanguage = getLanguageFromPhone(senderId);
     const batchLangText = [
       ...prependUserTexts,
       messageText,

@@ -2,7 +2,7 @@
 
 const path = require('path');
 const { getLanguageName } = require('./language-detector');
-const { formatCustomerPhone } = require('./manager-handoff');
+const { formatCustomerPhone, formatContactDisplay } = require('./manager-handoff');
 const { getCountryName } = require('./country-names');
 const { getDb } = require('./db');
 const { parseLanguages } = require('./languages-util');
@@ -20,7 +20,8 @@ function resolveClientsPath() {
 
 const CLIENTS_PATH = resolveClientsPath();
 
-function buildWaLink(phone) {
+function buildWaLink(phone, { isLid = false } = {}) {
+  if (isLid) return null;
   const d = String(phone || '').replace(/\D/g, '');
   return d ? `https://wa.me/${d}` : null;
 }
@@ -36,13 +37,20 @@ function mapUserRow(row) {
     waMeta = {};
   }
 
+  const contact = formatContactDisplay(row.sender_id || row.id || row.phone);
+  const isLid = contact.isLid || Boolean(waMeta.isLid);
+  const phoneDisplay = isLid
+    ? contact.display
+    : row.phone_display || (row.phone ? `+${String(row.phone).replace(/\D/g, '')}` : '—');
+
   return {
     id: row.id,
     chatId: row.id,
     senderId: row.sender_id || row.id,
     phone: row.phone || '',
-    phoneDisplay: row.phone_display || (row.phone ? `+${String(row.phone).replace(/\D/g, '')}` : '—'),
-    waLink: row.wa_link || buildWaLink(row.phone),
+    phoneDisplay,
+    isLid,
+    waLink: isLid ? null : row.wa_link || buildWaLink(row.phone),
     chatName: row.name || '',
     name: row.name || '',
     language: lastLanguage,
@@ -89,7 +97,8 @@ function recordClientMessage(payload = {}) {
   const database = getDb();
   const id = String(chatId);
   const now = new Date().toISOString();
-  const phone = formatCustomerPhone(senderId || chatId);
+  const contact = formatContactDisplay(senderId || chatId);
+  const phone = contact.rawId;
   const existing = database.prepare('SELECT * FROM users WHERE id = ?').get(id);
 
   const languages = parseLanguages(existing?.languages);
@@ -102,6 +111,7 @@ function recordClientMessage(payload = {}) {
   } catch {
     waMeta = {};
   }
+  waMeta.isLid = contact.isLid;
   const lastMessages = Array.isArray(waMeta.lastMessages) ? waMeta.lastMessages : [];
   waMeta.lastMessages = [
     ...lastMessages,
@@ -118,8 +128,8 @@ function recordClientMessage(payload = {}) {
     id,
     sender_id: senderId || chatId,
     phone,
-    phone_display: phone ? `+${String(phone).replace(/\D/g, '')}` : '—',
-    wa_link: buildWaLink(phone),
+    phone_display: contact.display,
+    wa_link: contact.waLink,
     name: chatName || existing?.name || '',
     country: countryCode,
     country_name: getCountryName(countryCode) || existing?.country_name || '',

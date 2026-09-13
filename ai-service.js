@@ -124,9 +124,23 @@ async function buildPromptParts(
   const {
     extractPropertyItemsFromText,
     formatLinkedPropertiesForPrompt,
-    getLinkedPropertyStageInstruction
+    getLinkedPropertyStageInstruction,
+    userMessageHasPropertyLink
   } = require('./property-interest');
-  const linkedItems = extractPropertyItemsFromText(userQuery);
+  let linkedItems = extractPropertyItemsFromText(userQuery);
+  if (!linkedItems.length && userMessageHasPropertyLink(userQuery)) {
+    try {
+      const { resolvePropertyItemsFromText } = require('./property-live-fetch');
+      linkedItems = await resolvePropertyItemsFromText(userQuery);
+      if (linkedItems.length) {
+        console.log(
+          `🔗 Объект по ссылке подгружен live: ${linkedItems.map((x) => x.id).join(', ')}`
+        );
+      }
+    } catch (e) {
+      console.warn('⚠️ resolvePropertyItemsFromText:', e.message);
+    }
+  }
   const hasLinkedProperty = linkedItems.length > 0;
 
   const catalogLimit =

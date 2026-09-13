@@ -356,7 +356,55 @@ function extractClientNameFromHistory(history) {
 
 function formatCustomerPhone(chatId) {
   if (!chatId) return '?';
-  return String(chatId).replace(/@c\.us$/, '').replace(/@lid$/, '');
+  return String(chatId)
+    .replace(/@c\.us$/i, '')
+    .replace(/@s\.whatsapp\.net$/i, '')
+    .replace(/@lid$/i, '')
+    .replace(/@g\.us$/i, '');
+}
+
+/** WhatsApp Linked Device ID — не MSISDN, нельзя показывать как +телефон / wa.me */
+function isWhatsAppLid(chatIdOrPhone) {
+  const raw = String(chatIdOrPhone || '');
+  if (/@lid$/i.test(raw)) return true;
+  const digits = raw.replace(/\D/g, '');
+  // LID обычно ≥14 цифр и не парсится как обычный международный номер
+  if (digits.length >= 14) {
+    try {
+      const { parsePhoneNumberFromString } = require('libphonenumber-js');
+      const parsed = parsePhoneNumberFromString(`+${digits}`);
+      if (!parsed || !parsed.isValid()) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * @returns {{ display: string, phone: string|null, isLid: boolean, waLink: string|null, rawId: string }}
+ */
+function formatContactDisplay(chatId) {
+  const rawId = formatCustomerPhone(chatId);
+  const lid = isWhatsAppLid(chatId) || isWhatsAppLid(rawId);
+  if (lid) {
+    const tail = rawId.slice(-6);
+    return {
+      display: `WhatsApp ID …${tail}`,
+      phone: null,
+      isLid: true,
+      waLink: null,
+      rawId,
+    };
+  }
+  const digits = String(rawId).replace(/\D/g, '');
+  return {
+    display: digits ? `+${digits}` : '—',
+    phone: digits || null,
+    isLid: false,
+    waLink: digits ? `https://wa.me/${digits}` : null,
+    rawId: digits || rawId,
+  };
 }
 
 function buildHandoffReply(userLanguage, translationKey = 'manager_handoff', clientName = '') {
@@ -442,6 +490,8 @@ async function connectWithManager(
 module.exports = {
   REASON_LABELS,
   formatCustomerPhone,
+  formatContactDisplay,
+  isWhatsAppLid,
   getManagerContact,
   isVoiceMessage,
   isImageMessage,
