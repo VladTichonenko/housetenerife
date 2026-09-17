@@ -176,14 +176,25 @@ function detectByScript(text) {
     if (/\b(і|ї|є|ґ|це|як|де|чому|привіт|дякую)\b/i.test(text)) return 'uk';
     return 'ru';
   }
-  // Немецкий ДО испанского: ü в für/würde раньше ошибочно давал ES (ü есть в обоих наборах)
+  // Немецкий ДО испанского: ü в für/würde раньше ошибочно давал ES
   if (/[äöüßÄÖÜ]/.test(text)) return 'de';
-  if (/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(text)) return 'pl';
-  // Испанский: ñ / ¿¡ — надёжные маркеры; одних áéíóú мало (есть во FR/PT/IT)
+  // Испанский ¿¡ñ ДО польского: ó есть и в ES (inversión), и в PL — иначе ES→pl
   if (/[ñÑ]/.test(text) || /[¿¡]/.test(text)) return 'es';
+  // Польские буквы без ó (ó общая с испанским)
+  if (/[ąćęłńśźżĄĆĘŁŃŚŹŻ]/.test(text)) return 'pl';
+  if (
+    /[óÓ]/.test(text) &&
+    /\b(jest|się|moz|moż|że|zeby|żeby|proszę|prosze|dziękuję|dziekuje|mieszkanie|szukam|chcę|chce|budżet|budzet)\b/i.test(
+      text
+    )
+  ) {
+    return 'pl';
+  }
   if (
     /[áéíóúÁÉÍÓÚ]/.test(text) &&
-    /\b(qué|quién|cómo|dónde|más|también|está|están|señor|información|sí|aquí|así)\b/i.test(text)
+    /\b(qué|quién|cómo|dónde|más|también|está|están|señor|información|inversi[oó]n|sí|aquí|así|buscas|quieres|para\s+vivir)\b/i.test(
+      text
+    )
   ) {
     return 'es';
   }
@@ -235,12 +246,18 @@ function applySpanishMarkers(text, words, scores) {
   const signalText = stripPlaceNames(text);
   if (!signalText || isMostlyPlaceName(text)) return;
   // Не считаем топонимы (Tenerife/Dubai…) — они есть во всех языках и ломают детекцию EN↔ES
-  if (/\b(quiero|busco|necesito|quisiera|gustaria|gustaría|apartamento|piso|invertir|inversión|inversion|presupuesto|hola|gracias|españa|espana)\b/i.test(signalText)) {
+  if (
+    /\b(quiero|quieres|busco|buscas|necesito|quisiera|gustaria|gustaría|apartamento|piso|invertir|inversión|inversion|presupuesto|hola|gracias|españa|espana|vivir|trabajar|alquilar|vender|comprar|bar)\b/i.test(
+      signalText
+    )
+  ) {
     scores.es += 3;
   }
   // Артикли el/la/de только вместе с другими ES-сигналами — иначе «Puerto de la Cruz» → es
   if (
-    /\b(estoy|tenemos|tengo|encaja|encajan|quisiera|busco|quiero|para\s+vivir|para\s+invertir)\b/i.test(signalText) &&
+    /\b(estoy|tenemos|tengo|encaja|encajan|quisiera|busco|buscas|quiero|quieres|para\s+vivir|para\s+invertir|para\s+trabajar)\b/i.test(
+      signalText
+    ) &&
     /\b(el|la|los|las|un|una|del|al|para|por|con)\b/i.test(signalText)
   ) {
     scores.es += 1.5;
@@ -248,6 +265,7 @@ function applySpanishMarkers(text, words, scores) {
   if (/\b\w+(ción|cion|sión|sion|mente)\b/i.test(signalText)) {
     scores.es += 2;
   }
+  if (/[¿¡]/.test(signalText)) scores.es += 3;
 }
 
 function applyEnglishMarkers(text, words, scores) {

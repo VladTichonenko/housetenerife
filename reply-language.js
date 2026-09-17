@@ -190,11 +190,19 @@ function hasPhoneticGarbage(text) {
 }
 
 const EN_MARKER_RE =
-  /\b(got it|looking for|what budget|cash available|mortgage|shortlist|which option|great!|here are|investment size)\b/i;
+  /\b(hi!?|hello|hey|i'?m\b|i am\b|got it|looking for|what budget|cash available|mortgage|shortlist|which option|great!|here are|investment size|for you to live|are you looking)\b/i;
 const ES_MARKER_RE =
   /\b(ya\s+s[eé]|buscas|presupuesto|cu[aá]nto|efectivo|hipoteca|contado|encaja|villas?\s+en|perfecto)\b/i;
 const RU_MARKER_RE =
   /отлично|понял|бюджет|ипотек|апартамент|вилл|подборк|здравствуйте|размер инвестиций/i;
+const NL_MARKER_RE =
+  /\b(ik|je|u|wij|een|het|van|voor|naar|appartement|woning|vastgoed|investering|goedemorgen|hallo|budget|zoek|zoeken|wonen)\b/i;
+const DE_MARKER_RE =
+  /\b(ich|wir|sie|und|für|fur|bitte|danke|wohnung|immobilie|suche|budget|hallo)\b/i;
+const FR_MARKER_RE =
+  /\b(je|nous|vous|bonjour|merci|appartement|budget|chercher|investir|habiter)\b/i;
+const PL_MARKER_RE =
+  /\b(szukam|mieszkanie|bud[zż]et|inwestycja|cze[sś][cć]|prosz[eę]|apartament|nieruchomo)\b/i;
 
 /**
  * Ответ явно не на языке диалога (кириллица vs латиница), с иероглифами или фонетическим мусором.
@@ -236,9 +244,50 @@ function replyMismatchesLanguage(text, lang) {
     return false;
   }
 
-  if (salesLang === 'de' || salesLang === 'fr' || salesLang === 'pl' || salesLang === 'nl') {
-    // Английский/испанский «чужой» слой в DE/FR/PL/NL
+  if (salesLang === 'nl') {
     if (EN_MARKER_RE.test(body) || ES_MARKER_RE.test(body) || /¿/.test(body)) return true;
+    // Чистый английский без нидерландских маркеров
+    if (
+      !NL_MARKER_RE.test(body) &&
+      /\b(the|you|your|looking|investment|apartment|budget|live in|or are)\b/i.test(body)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  if (salesLang === 'de') {
+    if (EN_MARKER_RE.test(body) || ES_MARKER_RE.test(body) || /¿/.test(body)) return true;
+    if (
+      !DE_MARKER_RE.test(body) &&
+      !/[äöüß]/i.test(body) &&
+      /\b(the|you|your|looking|investment|apartment|budget)\b/i.test(body)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  if (salesLang === 'fr') {
+    if (EN_MARKER_RE.test(body) || ES_MARKER_RE.test(body) || /¿/.test(body)) return true;
+    if (
+      !FR_MARKER_RE.test(body) &&
+      /\b(the|you|your|looking|investment|apartment|budget)\b/i.test(body)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  if (salesLang === 'pl') {
+    if (EN_MARKER_RE.test(body) || ES_MARKER_RE.test(body) || /¿/.test(body)) return true;
+    if (
+      !PL_MARKER_RE.test(body) &&
+      !/[ąćęłńśźż]/i.test(body) &&
+      /\b(the|you|your|looking|investment|apartment|budget)\b/i.test(body)
+    ) {
+      return true;
+    }
     return false;
   }
 
@@ -286,8 +335,10 @@ function languageRewriteInstruction(lang) {
   if (code === 'nl') {
     return (
       'Herschrijf het laatste antwoord STRENG in natuurlijk Nederlands. ' +
+      'Begin met iets als «Hallo!» / «Goedemorgen!» — NOOIT «Hi!» of «Hello!» of Engelse zinnen. ' +
       'Geen Russisch, Engels of Chinese/Japanse tekens. Plaatsnamen Latijns precies zoals in de catalogus ' +
-      '(Los Cristianos, Costa Adeje, Sant Antoni). WhatsApp-stijl, menselijke toon.'
+      '(Los Cristianos, Costa Adeje, Sant Antoni). WhatsApp-stijl, menselijke toon. ' +
+      'Voorbeeldtoon: «Hallo! Ik ben Maxim van House Tenerife. Zoeken jullie om te wonen of om te investeren?»'
     );
   }
   return (

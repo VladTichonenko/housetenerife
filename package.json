@@ -15,8 +15,11 @@
     "enrich-i18n": "node scripts/enrich-properties-i18n.js",
     "validate-urls": "node scripts/validate-catalog-urls.js",
     "test-ai-key": "node scripts/test-ai-key.js",
-    "ingest-file-doc": "node scripts/ingest-file-doc.js",
     "test:fixes": "node scripts/test-fixes-dialogs.js",
+    "test:stress": "node scripts/stress-test-bot.js",
+    "test:stress:quick": "node scripts/stress-test-bot.js --quick",
+    "test:stress:offline": "node scripts/stress-test-offline.js",
+    "ingest-file-doc": "node scripts/ingest-file-doc.js",
     "postinstall": "patch-package"
   },
   "license": "ISC",

@@ -540,7 +540,9 @@ function buildReplyLanguageRule(targetLang) {
     return `**JĘZYK ODPOWIEDZI (krytyczne):** Odpowiadaj ŚCIŚLE po polsku. Cała odpowiedź w jednym języku — bez mieszania rosyjskiego ani angielskiego. Selekcja, wstęp i pytanie końcowe też po polsku. Nigdy etykieta „Dlaczego dla Państwa:“ / „Why for you:“. Nie zmieniaj języka przez krótkie ok/yes ani język numeru telefonu. Toponimy łacińsko dokładnie jak w katalogu.`;
   }
   if (code === 'nl') {
-    return `**ANTWOORDTAAL (kritisch):** Antwoord STRENG in het Nederlands. Het hele antwoord in één taal — geen Russisch of Engels erdoorheen. Selectie, intro en slotvraag ook in het Nederlands. Nooit het label „Waarom voor u:“ / „Why for you:“. Niet wisselen door kort ok/yes of de telefoontaal. Plaatsnamen Latijns precies zoals in de catalogus.`;
+    return `**ANTWOORDTAAL (kritisch):** Antwoord STRENG in het Nederlands. Het hele antwoord in één taal — geen Russisch of Engels erdoorheen.
+NOOIT beginnen met «Hi!» / «Hello!» / «I'm Maxim…» — schrijf «Hallo!» / «Goedemorgen!» en Nederlands.
+Selectie, intro en slotvraag ook in het Nederlands. Nooit het label „Waarom voor u:“ / „Why for you:“. Niet wisselen door kort ok/yes of de telefoontaal. Plaatsnamen Latijns precies zoals in de catalogus.`;
   }
   return `**REPLY LANGUAGE (critical):** Reply STRICTLY in English. Entire reply in one language only — no Russian or Spanish mixed in. Listing intros and the closing question must also be English. Never write the label "Why for you:" / "Why it fits:". Do not switch because of short ok/sí/да or the phone number's language.`;
 }

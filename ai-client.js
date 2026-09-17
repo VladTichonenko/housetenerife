@@ -2,7 +2,7 @@
 
 const axios = require('axios');
 
-const DEFAULT_GPT_MODEL = 'openai/gpt-4.1-mini';
+const DEFAULT_GPT_MODEL = 'openai/gpt-4.1';
 const DEFAULT_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 const AI_API_URL = process.env.AI_API_URL || DEFAULT_API_URL;
