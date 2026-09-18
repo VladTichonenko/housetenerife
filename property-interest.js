@@ -209,45 +209,103 @@ function userMessageHasPropertyLink(text) {
 function getLinkedPropertyStageInstruction(lang = 'ru') {
   const code = String(lang || 'ru').slice(0, 2).toLowerCase();
   if (code === 'es') {
-    return `El cliente envió un enlace a un inmueble. En el bloque «OBJETO POR ENLACE» están los datos del catálogo.
-OBLIGATORIO: describe el inmueble en 3–6 líneas (título, precio, tipo, zona, 2–3 puntos fuertes del texto). No digas que no lo ves si el bloque no está vacío. No inventes datos.
-Luego UNA pregunta: si aún no sabes el objetivo — ¿vivir o invertir?; si ya está claro — ¿cuánto tiene disponible ahora o quiere una llamada/visita?
-Estilo WhatsApp, idioma del diálogo.`;
+    return `El cliente envió un enlace / ID de un inmueble. El bloque «OBJETO POR ENLACE» tiene los datos del catálogo.
+OBLIGATORIO: quédate EN ESTE objeto. No envíes otra selección ni llames parking «apartamento» (respeta el tipo del bloque).
+Si el cliente YA preguntó (parking, mascotas, visita, fotos, precio, comparación, pago a plazos) — responde ESO primero. No sustituyas por «¿efectivo o hipoteca?».
+Cifras (mesas, community, rentabilidad, m² extra) SOLO si están en el bloque. Si no están: «no figura en la ficha, lo consulto» — no inventes.
+Fotos: di que se envían ahora las de ESTE objeto; no mandes otros listings.
+Si no hay pregunta concreta: 3–6 líneas (título, precio, tipo, zona) + UNA pregunta útil sobre ESTE inmueble.
+Idioma del diálogo, estilo WhatsApp.`;
   }
   if (code === 'en') {
-    return `The client sent a property link. The «PROPERTY FROM CLIENT LINK» block has catalog data.
-MUST: briefly describe the property in 3–6 lines (title, price, type, area, 2–3 strengths from the text). Never say you cannot see it if the block is present. Do not invent facts.
-Then ONE question: if goal unknown — live or invest?; if goal known — cash available now, or a call/viewing?
-WhatsApp style, dialog language.`;
+    return `The client sent a property link / ID. The «PROPERTY FROM CLIENT LINK» block has catalog data.
+MUST: stay on THIS property. Do not dump other listings. Do not call a parking a flat (use the type in the block).
+If they ALREADY asked (parking, pets, viewing, photos, price, compare, instalments) — answer THAT first. Do not replace it with cash vs mortgage.
+Numbers (tables, community fees, yield, extra m²) ONLY if they are in the block. If missing: “not in the listing, I’ll check” — never invent.
+Photos: say THIS object’s photos are being sent now; no other listings.
+If no specific question: 3–6 lines (title, price, type, area) + ONE useful question about THIS object.
+Dialog language, WhatsApp style.`;
   }
   if (code === 'de') {
-    return `Der Kunde hat einen Objekt-Link gesendet. Im Block «OBJEKT AUS KUNDEN-LINK» stehen Katalogdaten.
-PFLICHT: Objekt in 3–6 Zeilen beschreiben (Titel, Preis, Typ, Lage, 2–3 Stärken). Nicht sagen, du siehst es nicht, wenn der Block da ist. Nichts erfinden.
-Dann EINE Frage: Ziel unklar — Wohnen oder Investition?; sonst — verfügbares Eigenkapital jetzt oder Anruf/Besichtigung?
-WhatsApp-Stil, Dialogsprache.`;
+    return `Der Kunde hat einen Objekt-Link / eine ID gesendet. Im Block «OBJEKT AUS KUNDEN-LINK» stehen Katalogdaten.
+PFLICHT: bei DIESEM Objekt bleiben. Keine andere Auswahl. Parking nicht als Wohnung bezeichnen (Typ aus dem Block).
+Wenn der Kunde SCHON gefragt hat (Parkplatz, Haustiere, Besichtigung, Fotos, Preis, Vergleich, Ratenzahlung) — ZUERST das beantworten. Nicht durch Eigenkapital/Hypothek ersetzen.
+Zahlen (Tische, Community, Rendite, Extra-m²) NUR aus dem Block. Fehlt es: «steht nicht in der Anzeige, ich prüfe» — nichts erfinden.
+Fotos: sag, dass die Fotos DIESES Objekts jetzt kommen; keine anderen Listings.
+Ohne konkrete Frage: 3–6 Zeilen + EINE sinnvolle Frage zu DIESEM Objekt.
+Dialogsprache, WhatsApp-Stil.`;
   }
   if (code === 'fr') {
-    return `Le client a envoyé un lien vers un bien. Le bloc « BIEN VIA LIEN CLIENT » contient les données catalogue.
-OBLIGATOIRE: décrire le bien en 3–6 lignes (titre, prix, type, zone, 2–3 atouts). Ne dis pas que tu ne le vois pas si le bloc est présent. N’invente pas.
-Puis UNE question: objectif inconnu — habiter ou investir ?; sinon — liquidités disponibles maintenant, ou appel/visite ?
-Style WhatsApp, langue du dialogue.`;
+    return `Le client a envoyé un lien / un ID. Le bloc « BIEN VIA LIEN CLIENT » contient le catalogue.
+OBLIGATOIRE: rester sur CE bien. Pas d’autre sélection. Ne pas appeler un parking un appartement (type du bloc).
+S’il a DÉJÀ posé une question (parking, animaux, visite, photos, prix, comparaison, paiement) — répondre À CELA d’abord. Ne pas remplacer par cash/hypothèque.
+Chiffres (tables, charges, rendement, m² extra) UNIQUEMENT s’ils sont dans le bloc. Sinon: « pas dans l’annonce, je vérifie » — n’invente pas.
+Photos: dis que les photos de CE bien partent maintenant; pas d’autres listings.
+Sans question précise: 3–6 lignes + UNE question utile sur CE bien.
+Langue du dialogue, style WhatsApp.`;
   }
   if (code === 'pl') {
-    return `Klient wysłał link do oferty. W bloku «OFERTA Z LINKA KLIENTA» są dane z katalogu.
-OBOWIĄZKOWO: opisz obiekt w 3–6 liniach (tytuł, cena, typ, strefa, 2–3 mocne strony). Nie mów, że nie widzisz, jeśli blok jest. Nie wymyślaj.
-Potem JEDNO pytanie: cel niejasny — życie czy inwestycja?; inaczej — gotówka dostępna teraz lub rozmowa/oględziny?
-Styl WhatsApp, język dialogu.`;
+    return `Klient wysłał link / ID oferty. Blok «OFERTA Z LINKA KLIENTA» ma dane z katalogu.
+OBOWIĄZKOWO: zostań przy TYM obiekcie. Bez innej selekcji. Parkingu nie nazywaj mieszkaniem (typ z bloku).
+Jeśli JUŻ zadał pytanie (parking, pies, oględziny, zdjęcia, cena, porównanie, raty) — odpowiedz NA TO najpierw. Nie zastępuj pytaniem o gotówkę/hipotekę.
+Liczby (stoliki, czynsz, rentowność, extra m²) TYLKO z bloku. Brak: «nie ma w ofercie, sprawdzę» — nie wymyślaj.
+Zdjęcia: powiedz, że wysyłasz zdjęcia TEGO obiektu; bez innych ofert.
+Bez konkretnego pytania: 3–6 linii + JEDNO pytanie o TEN obiekt.
+Język dialogu, styl WhatsApp.`;
   }
   if (code === 'nl') {
-    return `De klant stuurde een objectlink. Het blok «OBJECT VIA KLANTLINK» bevat catalogusgegevens.
-VERPLICHT: beschrijf het object in 3–6 regels (titel, prijs, type, zone, 2–3 sterke punten). Zeg niet dat je het niet ziet als het blok er is. Niets verzinnen.
-Dan ÉÉN vraag: doel onbekend — wonen of investeren?; anders — contant nu beschikbaar, of belletje/bezichtiging?
-WhatsApp-stijl, dialoogtaal.`;
+    return `De klant stuurde een objectlink / ID. Het blok «OBJECT VIA KLANTLINK» heeft catalogusdata.
+VERPLICHT: blijf bij DIT object. Geen andere selectie. Noem parking geen appartement (type uit het blok).
+Als hij AL een vraag stelde (parkeren, huisdier, bezichtiging, foto’s, prijs, vergelijking, termijn) — beantwoord DÁT eerst. Niet vervangen door cash/hypotheek.
+Cijfers (tafels, servicekosten, yield, extra m²) ALLEEN uit het blok. Ontbreekt: «staat niet in de listing, ik check het» — niets verzinnen.
+Foto’s: zeg dat de foto’s van DIT object nu komen; geen andere listings.
+Zonder specifieke vraag: 3–6 regels + ÉÉN nuttige vraag over DIT object.
+Dialoogtaal, WhatsApp-stijl.`;
   }
-  return `Клиент прислал ссылку на объект. В блоке «ОБЪЕКТ ПО ССЫЛКЕ КЛИЕНТА» — данные из каталога.
-ОБЯЗАТЕЛЬНО: коротко расскажи про объект (3–6 строк): название, цена, тип, район/локация, 2–3 сильные стороны из описания. Не говори «не вижу объект», если блок не пустой. Не выдумывай факты вне блока.
-Затем ОДИН вопрос: если цель ещё не ясна — для жизни или инвестиция?; если цель ясна — сколько денег сейчас на руках, или созвон/просмотр?
-WhatsApp-стиль, язык диалога.`;
+  return `Клиент прислал ссылку / ID объекта. В блоке «ОБЪЕКТ ПО ССЫЛКЕ КЛИЕНТА» — данные каталога.
+ОБЯЗАТЕЛЬНО: оставайся на ЭТОМ объекте. Не скидывай другую подборку. Не называй паркинг квартирой (тип бери из блока).
+Если клиент УЖЕ задал вопрос (парковка, собака, просмотр, фото, цена, сравнение, рассрочка) — сначала ответь НА НЕГО. Не подменяй вопросом «нал или ипотека».
+Цифры (столики, коммуналка, доходность, лишние м²) ТОЛЬКО если они есть в блоке. Если нет: «в карточке этого нет, уточню» — не выдумывай.
+Фото: напиши, что сейчас уходят фото ИМЕННО этого объекта; другие объявления не предлагай.
+Если отдельного вопроса нет: 3–6 строк (название, цена, тип, район) + ОДИН полезный вопрос про ЭТОТ объект.
+Язык диалога, стиль WhatsApp.`;
+}
+
+function clientTalksAboutLinkedProperty(text) {
+  const raw = String(text || '');
+  if (!userMessageHasPropertyLink(raw)) return false;
+  const withoutUrls = raw
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/\bHZ\d{2,6}\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (withoutUrls.length < 8) return false;
+  return /[?¿]|как|есть|можно|сколько|парков|собак|коммунал|аренд|ипотек|смотр|фото|сравн|лучш|торг|рассроч|цена|что\s+лучше|what|how|can|parking|pet|fee|rent|visit|photo|compar|mejor|cu[aá]nt|hay|puedo|wann|gibt|appel|visite/i.test(
+    withoutUrls
+  );
+}
+
+function resolveMentionedPropertyItems(text, history = []) {
+  const fromText = extractPropertyItemsFromText(text);
+  if (fromText.length) return fromText.slice(0, 3);
+
+  const hist = Array.isArray(history) ? history : [];
+  const blob = String(text || '');
+  for (let i = hist.length - 1; i >= 0 && i >= hist.length - 12; i--) {
+    const items = extractPropertyItemsFromText(hist[i]?.text || '');
+    if (!items.length) continue;
+    const picked = pickByOrdinal(blob, items);
+    if (picked) return [picked];
+    if (
+      /(?:этот|этого|данного|этой|this\s+(?:one|property|listing|object)|este(?:\s+objeto)?|dieses|ce bien|dit object)/i.test(
+        blob
+      )
+    ) {
+      return items.slice(0, 1);
+    }
+    return items.slice(0, 1);
+  }
+  return [];
 }
 
 function hasInterestSignal(text) {
@@ -416,5 +474,8 @@ module.exports = {
   formatLinkedPropertiesForPrompt,
   getLinkedPropertyStageInstruction,
   userMessageHasPropertyLink,
+  clientTalksAboutLinkedProperty,
+  resolveMentionedPropertyItems,
+  pickByOrdinal,
   STORE_PATH
 };

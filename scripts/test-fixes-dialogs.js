@@ -1918,10 +1918,10 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
   });
   check('purchase request: создаётся заявка', pr && ['draft', 'ready'].includes(pr.status));
   linkHandoffToPurchaseRequest(testChatId, 'handoff-test-id');
-  const listed = listPurchaseRequests({ filter: 'handed_off', q: testChatId.replace('@test.c.us', '') });
+  const listed = listPurchaseRequests({ filter: 'handed_off', q: 'Villa A' });
   check(
     'purchase request: после handoff → handed_off',
-    listed.items.some((x) => x.handoffId === 'handoff-test-id')
+    listed.items.some((x) => x.handoffId === 'handoff-test-id' && x.chatId === testChatId)
   );
 
   check(
@@ -1950,6 +1950,83 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
       );
     })()
   );
+
+  console.log('\n=== 21. Ссылка + разговор / handoff имя / фото объекта ===\n');
+  const {
+    getLinkedPropertyStageInstruction,
+    clientTalksAboutLinkedProperty,
+    resolveMentionedPropertyItems,
+  } = require('../property-interest');
+  const { extractClientName } = require('../handoff-pending');
+  const { detectNegativeResponse } = require('../manager-handoff');
+  const { wantsPropertyPhotos } = require('../property-images');
+  const {
+    clearStickyDialogLanguage,
+    getStickyDialogLanguage,
+    setStickyDialogLanguage,
+  } = require('../chat-settings');
+
+  const linkTalkRu = getLinkedPropertyStageInstruction('ru');
+  check(
+    'link-talk: RU инструкция — не подменять нал/ипотекой и не выдумывать цифры',
+    /нал или ипотека/i.test(linkTalkRu) &&
+      /не выдумывай/i.test(linkTalkRu) &&
+      /фото ИМЕННО этого/i.test(linkTalkRu)
+  );
+  check(
+    'link-talk: ES инструкция — не подменять hipoteca',
+    /hipoteca/i.test(getLinkedPropertyStageInstruction('es')) &&
+      /no inventes/i.test(getLinkedPropertyStageInstruction('es'))
+  );
+
+  const aptUrl =
+    (load().items || []).find((x) => /apartamenty-v-adehe-741/i.test(String(x.url || '')))?.url ||
+    'https://housetenerife.eu/ru/property/apartamenty-v-adehe-741/';
+  check(
+    'link-talk: ссылка + вопрос про парковку → talks about object',
+    clientTalksAboutLinkedProperty(`смотрю ${aptUrl} там есть парковка? можно с собакой?`)
+  );
+  check(
+    'link-talk: голый URL без вопроса → не talks',
+    !clientTalksAboutLinkedProperty(aptUrl)
+  );
+
+  const histListings = [
+    {
+      sender: 'assistant',
+      text: `1 ${aptUrl}\n2 https://housetenerife.eu/ru/property/attention-one-bedroom-apartments-in-el-duque-adeje-707/`,
+    },
+  ];
+  const firstFromHist = resolveMentionedPropertyItems('Покажи фото первого варианта', histListings);
+  check(
+    'photos: «первого варианта» берёт первый объект из истории',
+    firstFromHist.length === 1 && /741|adehe/i.test(String(firstFromHist[0].id || firstFromHist[0].url || ''))
+  );
+  check(
+    'photos: wantsPropertyPhotos на «скинь фото именно этого»',
+    wantsPropertyPhotos('Скинь фото именно этого объекта')
+  );
+
+  check(
+    'handoff: отказ «No quiero llamada…» не имя',
+    extractClientName('No quiero llamada. No doy mi nombre. Solo quiero ver el apartamento.') === null
+  );
+  check(
+    'handoff: detectNegative «Ahora no, gracias»',
+    detectNegativeResponse('Ahora no, gracias. Mira este otro objeto')
+  );
+  check(
+    'handoff: detectNegative «No quiero llamada»',
+    detectNegativeResponse('No quiero llamada. No doy mi nombre. Solo quiero ver el apartamento.')
+  );
+  check('handoff: нормальное имя проходит', extractClientName('Андрей') === 'Андрей');
+  check('handoff: «меня зовут Мария» → Мария', extractClientName('меня зовут Мария') === 'Мария');
+
+  const stickyChat = 'test-start-reset@c.us';
+  setStickyDialogLanguage(stickyChat, 'fr');
+  check('start: sticky fr выставлен', getStickyDialogLanguage(stickyChat) === 'fr');
+  clearStickyDialogLanguage(stickyChat);
+  check('start: clearSticky сбрасывает язык', getStickyDialogLanguage(stickyChat) == null);
 
   console.log(`\n--- Итого: ${passed} passed, ${failed} failed ---\n`);
   return failed === 0;
@@ -2264,14 +2341,21 @@ const MANUAL_DIALOGS = [
     ],
   },
   {
-    id: '11-fast-batch',
-    title: 'R11. Быстрый ответ на серию сообщений',
+    id: '12-link-talk',
+    title: 'R12. Ссылка + сразу разговор по объекту',
     lang: 'ru',
+    note: 'Не подменять вопрос воронкой; не выдумывать столики/коммуналку',
     steps: [
-      { who: 'user', text: 'Хочу купить виллу' },
-      { who: 'user', text: 'На Ibiza, для жизни' },
-      { who: 'user', text: 'Бюджет до 2 млн евро' },
-      { who: 'bot', expect: 'Один объединённый ответ ~через 6 с после первого сообщения, без 20–30 с ожидания.' },
+      {
+        who: 'user',
+        text: 'Привет, смотрю эту квартиру: https://housetenerife.eu/ru/property/apartamenty-v-adehe-741/ Подскажи, там есть парковка? Можно с собакой?',
+      },
+      {
+        who: 'bot',
+        expect: 'Описывает Adeje 741. По парковке/собаке: нет в карточке → уточнит, без «обычно разрешают». ❌ НЕ «нал или ипотека» первым. ❌ НЕ чужие объекты.',
+      },
+      { who: 'user', text: 'Скинь фото именно этого объекта' },
+      { who: 'bot', expect: 'Фото 741 в WhatsApp (или явное «отправляю фото»). ❌ НЕ новая подборка других квартир.' },
     ],
   },
 ];

@@ -93,6 +93,20 @@ function setStickyDialogLanguage(chatId, language) {
   return getChatSettings(id);
 }
 
+function clearStickyDialogLanguage(chatId) {
+  const store = loadStore();
+  const id = String(chatId);
+  const existing = store.chats[id];
+  if (!existing) return getChatSettings(id);
+  store.chats[id] = {
+    ...existing,
+    dialogLanguage: null,
+    updatedAt: new Date().toISOString(),
+  };
+  saveStore(store);
+  return getChatSettings(id);
+}
+
 function isAiDisabled(chatId) {
   return getChatSettings(chatId).aiDisabled;
 }
@@ -104,4 +118,5 @@ module.exports = {
   isAiDisabled,
   getStickyDialogLanguage,
   setStickyDialogLanguage,
+  clearStickyDialogLanguage,
 };

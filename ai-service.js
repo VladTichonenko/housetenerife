@@ -125,9 +125,13 @@ async function buildPromptParts(
     extractPropertyItemsFromText,
     formatLinkedPropertiesForPrompt,
     getLinkedPropertyStageInstruction,
-    userMessageHasPropertyLink
+    userMessageHasPropertyLink,
+    resolveMentionedPropertyItems,
   } = require('./property-interest');
   let linkedItems = extractPropertyItemsFromText(userQuery);
+  if (!linkedItems.length) {
+    linkedItems = resolveMentionedPropertyItems(userQuery, analysisHistory);
+  }
   if (!linkedItems.length && userMessageHasPropertyLink(userQuery)) {
     try {
       const { resolvePropertyItemsFromText } = require('./property-live-fetch');
@@ -153,7 +157,7 @@ async function buildPromptParts(
           : 8;
 
   let catalog = { found: false, text: '', totalInDb: 0, urls: [] };
-  if (maySearchCatalog && !hasLinkedProperty) {
+  if (maySearchCatalog && !hasLinkedProperty && !dialog.wantsPhotos) {
     catalog = searchForContext(catalogQuery, catalogLimit, {
       minPrice: budget.minPrice,
       maxPrice: budget.maxPrice,

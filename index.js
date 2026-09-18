@@ -107,6 +107,7 @@ const {
   setAiDisabled,
   getStickyDialogLanguage,
   setStickyDialogLanguage,
+  clearStickyDialogLanguage,
 } = require('./chat-settings');
 const { offerSoftCallViaAi } = require('./index-handoff');
 const { localizeUrlsInText } = require('./property-share');
@@ -2485,6 +2486,10 @@ function resolveDialogLanguage(chatId, currentMessageText, phoneFallback = null)
   const sticky = getStickyDialogLanguage(chatId);
   const trimmed = String(currentMessageText || '').trim();
 
+  if (/^\/(?:start|help|status|time|site|ping)\b/i.test(trimmed)) {
+    return sticky || phoneFallback || 'en';
+  }
+
   const detectFromHistory = () => {
     const userMsgs = getHistory(chatId).filter((m) => m.sender === 'user');
     for (let i = userMsgs.length - 1; i >= 0; i--) {
@@ -2526,8 +2531,15 @@ function resolveDialogLanguage(chatId, currentMessageText, phoneFallback = null)
 
 // Хранилище для обработки команд (теперь с поддержкой языков)
 const commandHandlers = {
-  '/start': async (msg, language, client) => {
-    const text = getTranslation(language, 'start');
+  '/start': async (msg, _language, client) => {
+    const chatId = msg.from;
+    clearPendingHandoff(chatId);
+    clearPendingCallOffer(chatId);
+    clearStickyDialogLanguage(chatId);
+    conversationHistory.set(String(chatId), []);
+    const phoneLang = getLanguageFromPhone(msg.from) || 'en';
+    setStickyDialogLanguage(chatId, phoneLang);
+    const text = getTranslation(phoneLang, 'start');
     await sendMessageSafely(msg, text, client);
   },
   
@@ -3783,6 +3795,8 @@ async function handleIncomingMessage(msg, options = {}) {
         addToHistory(chatId, 'assistant', outgoing);
         await maybeSendPropertyPhotos(msg, outgoing, dialogLanguage, {
           force: wantsPropertyPhotos(messageText),
+          userText: messageText,
+          historyMessages: history,
           historyText: history.map((h) => h.text).join('\n'),
         });
         const dialog = analyzeConversation(getHistory(chatId), dialogLanguage);
@@ -3872,8 +3886,17 @@ async function handleIncomingMessage(msg, options = {}) {
 
     const pendingHandoff = getPendingHandoff(chatId);
     if (pendingHandoff) {
+      const { userMessageHasPropertyLink } = require('./property-interest');
       if (commandHandlers[trimmedMessage]) {
         clearPendingHandoff(chatId);
+      } else if (
+        detectNegativeResponse(messageText) ||
+        userMessageHasPropertyLink(messageText)
+      ) {
+        clearPendingHandoff(chatId);
+        console.log(
+          `👤 Сбор имени отменён (отказ или ссылка на объект): ${chatId}`
+        );
       } else {
         const clientName = extractClientName(messageText);
         if (!clientName) {
@@ -4036,9 +4059,15 @@ async function handleIncomingMessage(msg, options = {}) {
       try {
         const history = getHistory(chatId).slice();
         const preDialog = analyzeConversation(history, dialogLanguage);
+        const { userMessageHasPropertyLink } = require('./property-interest');
+        const skipListingBridge =
+          wantsPropertyPhotos(messageText) ||
+          userMessageHasPropertyLink(messageText) ||
+          preDialog.hasPropertyInterest;
         const willShowListings =
-          preDialog.stage === 'SHOW_LISTINGS' ||
-          (preDialog.stage === 'REFINE' && Boolean(preDialog.readyForListings));
+          !skipListingBridge &&
+          (preDialog.stage === 'SHOW_LISTINGS' ||
+            (preDialog.stage === 'REFINE' && Boolean(preDialog.readyForListings)));
 
         if (willShowListings) {
           const bridge = getSearchingListingsMessage(dialogLanguage);
@@ -4092,6 +4121,8 @@ async function handleIncomingMessage(msg, options = {}) {
         ) {
           await maybeSendPropertyPhotos(msg, outgoing, dialogLanguage, {
             force: dialog.wantsPhotos || wantsPropertyPhotos(messageText),
+            userText: messageText,
+            historyMessages: getHistory(chatId),
             historyText: getHistory(chatId)
               .map((h) => h.text)
               .join('\n'),

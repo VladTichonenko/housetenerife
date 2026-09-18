@@ -181,12 +181,24 @@ function buildPhotoCaption(item, lang = 'ru') {
  * @returns {Promise<Array<{ id: string, imageUrl: string, caption: string }>>}
  */
 async function preparePropertyPhotosForSend(replyText, lang = 'ru', opts = {}) {
-  let items = extractPropertyItemsFromReplyText(replyText);
+  const { resolveMentionedPropertyItems } = require('./property-interest');
+  let items = [];
+  if (opts.userText) {
+    items = resolveMentionedPropertyItems(opts.userText, opts.historyMessages || []);
+  }
+  if (!items.length) {
+    items = extractPropertyItemsFromReplyText(replyText);
+  }
   if (!items.length && opts.historyText) {
     items = extractPropertyItemsFromReplyText(opts.historyText);
+    if (items.length > 1 && opts.userText) {
+      const { pickByOrdinal } = require('./property-interest');
+      const picked = pickByOrdinal(opts.userText, items);
+      if (picked) items = [picked];
+      else items = items.slice(0, 1);
+    }
   }
   if (!items.length && opts.force) {
-    // последний шанс — заинтересованные объекты в runtime подтянет вызывающий код
     return [];
   }
 

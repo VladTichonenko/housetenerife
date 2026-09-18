@@ -181,7 +181,7 @@ function detectNegativeResponse(text) {
     /^(?:нет|no|nope|nah|не\s+надо|не\s+нужно|not\s+now|later|maybe\s+later|позже|потом|спасибо\s+нет|no\s+gracias|not\s+yet|ещё\s+нет|пока\s+нет)$/i.test(
       t
     ) ||
-    /(?:не\s+(?:хочу|надо|нужен|сейчас)|don't\s+want|not\s+interested|sin\s+interés|ahora\s+no)/i.test(
+    /(?:не\s+(?:хочу|надо|нужен|сейчас)|don't\s+want|not\s+interested|sin\s+interés|ahora\s+no|no\s+quiero\s+(?:llamada|hablar|nombre)|не\s+хочу\s+(?:звон|созвон|звонка)|no\s+doy\s+mi\s+nombre|не\s+даю\s+(?:имя|своё имя)|solo\s+quiero\s+ver)/i.test(
       t
     )
   );

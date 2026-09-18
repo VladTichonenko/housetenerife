@@ -59,7 +59,15 @@ function extractClientName(text) {
   if (looksLikeLink(text)) return null;
   const trimmed = text.trim();
   if (/^\[фото\]/i.test(trimmed)) return null;
+  if (/[?¿]/.test(trimmed)) return null;
   const lowered = trimmed.toLowerCase().replace(/\s+/g, ' ');
+  if (
+    /(?:^|\b)(?:нет|no|nope|nah|не\s+хочу|не\s+надо|не\s+нужно|ahora\s+no|not\s+now|no\s+quiero|don't\s+want|не\s+даю|no\s+doy|solo\s+quiero)(?:\b|$)/i.test(
+      lowered
+    )
+  ) {
+    return null;
+  }
   if (
     /^(?:да|нет|ок|okay|ok|yes|no|ага|угу|конечно|давай|для\s+(?:инвестиц|себя|жизни|семьи|личной\s+жизни)|инвестиц(?:ия|ии|ий)|апартамент(?:ы|ов)?|вилл(?:а|у|ы)?|дом|земл(?:я|ю)|бизнес|тенерифе|дубай|ибица|марбелья|малага|барселона)$/i.test(
       lowered
@@ -75,8 +83,18 @@ function extractClientName(text) {
     ''
   );
   name = name.replace(/^[-–—•*]+|[-–—•*]+$/g, '').trim();
-  if (name.length < 2 || name.length > 80) return null;
+  if (name.length < 2 || name.length > 40) return null;
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length > 4) return null;
   if (/^[\d\s+()@-]+$/.test(name)) return null;
+  if (/[0-9€$%@/]/.test(name)) return null;
+  if (
+    /(?:llamada|созвон|звонк|менеджер|manager|apartament|квартир|вилл|бюджет|budget|парков|parking|объект|nombre|фото)/i.test(
+      name
+    )
+  ) {
+    return null;
+  }
   return name;
 }
 
