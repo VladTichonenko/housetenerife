@@ -168,7 +168,13 @@ function upsertPurchaseRequestFromDialog(payload) {
       item.status === 'handed_off' || item.status === 'call_requested'
         ? item.status
         : deriveStatus(financeStage, item.handoffId);
-    store.items[idx] = { ...item, ...nextFields, status };
+    const keepSummary = item.summaryStatus === 'ready' && item.summary;
+    store.items[idx] = {
+      ...item,
+      ...nextFields,
+      status,
+      summaryStatus: keepSummary ? item.summaryStatus : item.summaryStatus || 'pending',
+    };
     saveStore(store);
     console.log(`📝 Заявка на покупку обновлена: ${phone} (${status})`);
     return publicItem(store.items[idx]);
@@ -184,6 +190,10 @@ function upsertPurchaseRequestFromDialog(payload) {
     status: deriveStatus(financeStage, ''),
     handoffId: '',
     clientName: '',
+    summary: '',
+    summaryStatus: 'pending',
+    summaryReadyAt: null,
+    reportTrigger: '',
     createdAt: now,
     ...nextFields,
   };
@@ -234,6 +244,94 @@ function linkHandoffToPurchaseRequest(chatId, handoffId) {
   return publicItem(store.items[idx]);
 }
 
+/**
+ * Сохранить AI-отчёт по диалогу в заявку (для панели админки).
+ * Если открытой заявки нет — создаёт черновик с отчётом.
+ */
+function attachDialogSummaryToPurchaseRequest(chatId, summary, meta = {}) {
+  if (!chatId || !summary) return null;
+
+  const store = loadStore();
+  const now = new Date().toISOString();
+  const contact = formatContactDisplay(chatId);
+  const {
+    language = 'ru',
+    preview = '',
+    properties = [],
+    trigger = 'property_interest',
+    clientName = '',
+  } = meta;
+
+  const props = (properties || []).slice(0, 5).map((p) => ({
+    id: p.id,
+    title: p.title || p.id,
+    price: p.price || null,
+    siteUrl: p.siteUrl || p.url || '',
+  }));
+
+  let idx = store.items.findIndex(
+    (x) => x.chatId === String(chatId) && x.status !== 'closed'
+  );
+
+  if (idx === -1) {
+    const item = {
+      id: crypto.randomUUID(),
+      chatId: String(chatId),
+      phone: contact.rawId,
+      isLid: contact.isLid,
+      phoneDisplay: contact.display,
+      waLink: contact.waLink,
+      status: 'draft',
+      handoffId: '',
+      clientName: String(clientName || '').trim(),
+      language,
+      languageLabel: getLanguageName(language),
+      properties: props,
+      fundsNowLabel: '',
+      needsMortgage: null,
+      financeStage: null,
+      budget: null,
+      region: '',
+      propertyType: '',
+      businessSector: '',
+      preview: String(preview || '').slice(0, 500),
+      summary: String(summary).slice(0, 8000),
+      summaryStatus: 'ready',
+      summaryReadyAt: now,
+      reportTrigger: trigger,
+      createdAt: now,
+      lastActivityAt: now,
+      updatedAt: now,
+    };
+    store.items.unshift(item);
+    if (store.items.length > MAX_ITEMS) {
+      store.items = store.items.slice(0, MAX_ITEMS);
+    }
+    saveStore(store);
+    console.log(`📝 Отчёт по диалогу сохранён в новую заявку: ${contact.display}`);
+    return publicItem(item);
+  }
+
+  const existing = store.items[idx];
+  store.items[idx] = {
+    ...existing,
+    clientName: String(clientName || existing.clientName || '').trim(),
+    language: language || existing.language,
+    languageLabel: getLanguageName(language || existing.language),
+    properties: props.length ? props : existing.properties || [],
+    preview: String(preview || existing.preview || '').slice(0, 500),
+    summary: String(summary).slice(0, 8000),
+    summaryStatus: 'ready',
+    summaryReadyAt: now,
+    reportTrigger: trigger,
+    lastActivityAt: now,
+    updatedAt: now,
+  };
+  saveStore(store);
+  console.log(`📝 Отчёт по диалогу сохранён в заявку: ${existing.phoneDisplay || existing.phone}`);
+  return publicItem(store.items[idx]);
+}
+
 function closePurchaseRequest(id, manager = {}) {
   const store = loadStore();
   const idx = store.items.findIndex((x) => x.id === id);
@@ -281,6 +379,7 @@ function listPurchaseRequests({ page = 1, limit = 24, q = '', filter = 'open' } 
         item.phone,
         item.phoneDisplay,
         item.preview,
+        item.summary,
         item.region,
         item.propertyType,
         item.businessSector,
@@ -327,6 +426,7 @@ module.exports = {
   upsertPurchaseRequestFromDialog,
   markPurchaseRequestCallRequested,
   linkHandoffToPurchaseRequest,
+  attachDialogSummaryToPurchaseRequest,
   closePurchaseRequest,
   getPurchaseRequest,
   listPurchaseRequests,

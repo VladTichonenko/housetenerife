@@ -36,7 +36,8 @@ node scripts/test-fixes-dialogs.js --manual
 | Переменная | Зачем |
 |---|---|
 | `AI_API_KEY` / `AI_MODEL` | Ответы и выжимки (`openai/gpt-4.1`) |
-| `MANAGER_WHATSAPP` | Куда слать отчёт по диалогу |
+| `MANAGER_WHATSAPP` | Контакт менеджера для клиента |
+| `MANAGER_REPORT_WHATSAPP` | Куда слать отчёт по диалогу |
 | `MANAGER_DIALOG_REPORTS` | `1` вкл / `0` выкл отчёты |
 | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | Алерты / копии отчётов |
 | `CONVERSATION_RUNTIME_LIMIT` | Сколько реплик поднимать из SQLite после деплоя (по умолчанию 80) |
@@ -181,9 +182,9 @@ Yo ya te dije mi propuesta
 
 Куда:
 
-- WhatsApp на `MANAGER_WHATSAPP` (Максим);
+- WhatsApp на `MANAGER_REPORT_WHATSAPP` (отчёты);
 - копия в Telegram-алерты;
-- запись в панели handoff / purchase-requests.
+- запись в панели: **Заявки на покупку** (блок «Отчёт по диалогу») и выжимка в handoff.
 
 Содержание отчёта:
 
@@ -259,7 +260,7 @@ Yo ya te dije mi propuesta
 | Telegram | Входящие WA, handoff, отчёт по диалогу, язык в алерте совпадает с реальным |
 | `/admin` purchase-requests | Объекты, критерии, чат, ответ менеджера |
 | `/admin` handoffs | Выжимка, контакт, assign/close |
-| Знание / контакты | `MANAGER_WHATSAPP` совпадает с номером Максима |
+| Знание / контакты | `MANAGER_REPORT_WHATSAPP` — куда уходят отчёты |
 
 ---
 
@@ -314,7 +315,7 @@ Yo ya te dije mi propuesta
 
 1. Все три автосьюта зелёные.
 2. ES-тред с `pasé` / `à vendre` не уходит в FR.
-3. Отчёт менеджеру уходит на `MANAGER_WHATSAPP` при интересе к объекту.
+3. Отчёт менеджеру уходит на `MANAGER_REPORT_WHATSAPP` при интересе к объекту.
 4. После рестарта бот поднимает историю из SQLite.
 5. Ссылки только с каталога, без дублей и чужих доменов.
 6. Нет регрессии DE↔ES и PL↔ES на канонических фразах.

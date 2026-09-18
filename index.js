@@ -143,7 +143,7 @@ if (reportsEnabled()) {
   console.log(
     mgrWa
       ? `📋 Отчёты главному менеджеру: WhatsApp ${mgrWa}`
-      : '📋 Отчёты менеджеру: задайте MANAGER_WHATSAPP в .env'
+      : '📋 Отчёты менеджеру: задайте MANAGER_REPORT_WHATSAPP в .env'
   );
 } else {
   console.log('📋 Отчёты главному менеджеру выключены (MANAGER_DIALOG_REPORTS=0)');

@@ -422,6 +422,32 @@ function publicLead(item) {
   };
 }
 
+/**
+ * Обновить выжимку у открытого handoff по chatId (если уже есть в панели).
+ */
+function updateOpenHandoffSummary(chatId, summary, meta = {}) {
+  if (!chatId || !summary) return null;
+  const store = loadStore();
+  const idx = store.items.findIndex(
+    (x) => x.chatId === String(chatId) && x.status !== 'closed'
+  );
+  if (idx === -1) return null;
+
+  const now = new Date().toISOString();
+  store.items[idx] = {
+    ...store.items[idx],
+    summary: String(summary).slice(0, 8000),
+    summaryStatus: 'ready',
+    summaryReadyAt: now,
+    lastActivityAt: now,
+    preview: meta.preview
+      ? String(meta.preview).slice(0, 500)
+      : store.items[idx].preview,
+  };
+  saveStore(store);
+  return store.items[idx];
+}
+
 module.exports = {
   recordHandoff,
   listHandoffs,
@@ -429,6 +455,7 @@ module.exports = {
   assignHandoff,
   closeHandoff,
   updateHandoffProperties,
+  updateOpenHandoffSummary,
   touchHandoffActivity,
   HANDOFF_PATH,
   resolveHandoffPath,

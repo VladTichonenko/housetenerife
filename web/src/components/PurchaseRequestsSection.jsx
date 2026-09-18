@@ -158,6 +158,23 @@ function DetailModal({ id, onClose, onUpdated, onOpenChat }) {
               </div>
             )}
 
+            <div className="handoff-modal__block">
+              <span className="handoff-modal__label">Отчёт по диалогу</span>
+              {item.summaryStatus === 'pending' && !item.summary ? (
+                <p className="handoff-modal__pending">Формируется…</p>
+              ) : item.summary ? (
+                <div className="handoff-modal__summary">{item.summary}</div>
+              ) : (
+                <p className="muted">Отчёт ещё не сформирован</p>
+              )}
+              {item.summaryReadyAt && (
+                <p className="muted" style={{ marginTop: '0.5rem' }}>
+                  Обновлён: {formatDate(item.summaryReadyAt)}
+                  {item.reportTrigger ? ` · ${item.reportTrigger}` : ''}
+                </p>
+              )}
+            </div>
+
             <div className="handoff-modal__actions">
               {item.chatId && (
                 <button
@@ -308,7 +325,9 @@ export default function PurchaseRequestsSection() {
                     </span>
                     <strong className="inbox-row__contact">{contactLabel(item)}</strong>
                     <span className="inbox-row__preview">
-                      {item.properties?.[0]?.title || item.preview || '—'}
+                      {item.summary
+                        ? item.summary.slice(0, 100) + (item.summary.length > 100 ? '…' : '')
+                        : item.properties?.[0]?.title || item.preview || '—'}
                     </span>
                   </div>
                   <div className="inbox-row__meta">

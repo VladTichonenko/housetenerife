@@ -38,8 +38,12 @@ function reportsEnabled() {
 }
 
 function managerWhatsAppChatId() {
-  const { phone } = getManagerContact();
-  const digits = String(phone || '').replace(/\D/g, '');
+  // Отдельный номер для отчётов (не путать с контактом, который показываем клиенту)
+  const reportPhone =
+    process.env.MANAGER_REPORT_WHATSAPP ||
+    process.env.MANAGER_WHATSAPP ||
+    getManagerContact().phone;
+  const digits = String(reportPhone || '').replace(/\D/g, '');
   return digits ? `${digits}@c.us` : null;
 }
 
@@ -257,7 +261,7 @@ async function queueManagerDialogReport(payload = {}) {
       console.warn('⚠️ Не удалось отправить отчёт в WhatsApp менеджеру:', e.message);
     }
   } else if (!target) {
-    console.warn('⚠️ MANAGER_WHATSAPP не задан — отчёт только в Telegram/панель');
+    console.warn('⚠️ MANAGER_REPORT_WHATSAPP / MANAGER_WHATSAPP не задан — отчёт только в Telegram/панель');
   } else if (!sendWhatsAppFn) {
     console.warn('⚠️ WhatsApp sender для отчёта ещё не готов');
   }
@@ -276,6 +280,29 @@ async function queueManagerDialogReport(payload = {}) {
     });
   } catch (e) {
     console.warn('⚠️ telegram dialog report:', e.message);
+  }
+
+  // Панель админки: заявка на покупку + открытый handoff
+  try {
+    const { attachDialogSummaryToPurchaseRequest } = require('./purchase-requests');
+    attachDialogSummaryToPurchaseRequest(chatId, summary, {
+      language,
+      preview,
+      properties,
+      trigger,
+      clientName,
+    });
+  } catch (e) {
+    console.warn('⚠️ attachDialogSummaryToPurchaseRequest:', e.message);
+  }
+
+  try {
+    const { updateOpenHandoffSummary } = require('./handoff-leads');
+    if (typeof updateOpenHandoffSummary === 'function') {
+      updateOpenHandoffSummary(chatId, summary, { trigger, preview });
+    }
+  } catch {
+    /* optional */
   }
 
   markReportSent(chatId, trigger, properties, { summaryPreview: summary });
