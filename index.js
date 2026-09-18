@@ -81,6 +81,7 @@ const { recordClientMessage, CLIENTS_PATH } = require('./clients-store');
 const {
   recordMessage: persistMessage,
   getMessages: getPersistedMessages,
+  clearMessages: clearPersistedMessages,
 } = require('./conversation-store');
 const { hydrateConversationHistory } = require('./conversation-history');
 const { getDb, DB_PATH } = require('./db');
@@ -814,7 +815,8 @@ function rememberInboundMessage(msg) {
   }
 }
 
-function outboundKey(chatId, text) {
+function outboundKey(chatId, text, mediaUrl = '') {
+  if (mediaUrl) return `${chatId}::media::${String(mediaUrl).slice(0, 180)}`;
   return `${chatId}::${String(text || '').slice(0, 200)}`;
 }
 
@@ -893,9 +895,9 @@ function scheduleOutboundFlushSoon(delayMs = 2000) {
   }
 }
 
-function enqueueOutboundRetry(chatId, text, { delayMs = 3000 } = {}) {
-  if (!chatId || !text) return;
-  const key = outboundKey(chatId, text);
+function enqueueOutboundRetry(chatId, text, { delayMs = 3000, mediaUrl = '', caption = '' } = {}) {
+  if (!chatId || (!text && !mediaUrl)) return;
+  const key = outboundKey(chatId, text, mediaUrl);
   const existing = pendingOutbound.get(key);
   if (existing) {
     existing.nextAt = Math.min(existing.nextAt, Date.now() + delayMs);
@@ -910,15 +912,16 @@ function enqueueOutboundRetry(chatId, text, { delayMs = 3000 } = {}) {
   }
   pendingOutbound.set(key, {
     chatId: String(chatId),
-    text: String(text),
+    text: String(text || ''),
+    mediaUrl: String(mediaUrl || ''),
+    caption: String(caption || ''),
     attempts: 0,
     nextAt: Date.now() + delayMs,
     enqueuedAt: Date.now(),
   });
   console.warn(
-    `📬 Исходящее в очередь retry (${chatId}), повтор через ~${Math.round(delayMs / 1000)}с; в очереди: ${pendingOutbound.size}`
+    `📬 Исходящее в очередь retry (${chatId}${mediaUrl ? ', фото' : ''}), повтор через ~${Math.round(delayMs / 1000)}с; в очереди: ${pendingOutbound.size}`
   );
-  // Не ждать интервал 5–10 с — пробуем сразу после короткой паузы
   scheduleOutboundFlushSoon(Math.min(delayMs, 2000));
 }
 
@@ -965,6 +968,20 @@ async function flushPendingOutbound() {
     }
     pendingOutbound.delete(key);
     try {
+      if (item.mediaUrl) {
+        const inbound = lastInboundMsgByChat.get(String(item.chatId)) || null;
+        const fakeMsg = inbound || { from: item.chatId };
+        const sent = await sendMediaSafely(fakeMsg, item.mediaUrl, item.caption || '', client, {
+          skipQueue: true,
+        });
+        if (sent?.skipped || sent?.error) {
+          throw new Error(sent.error || 'CDP busy for media');
+        }
+        touchWhatsAppActivity();
+        sendSoftTimeoutStreak = 0;
+        console.log(`✅ Фото из очереди доставлено: ${item.chatId}`);
+        continue;
+      }
       const via = await sendViaBestEffort(
         item.chatId,
         item.text,
@@ -1127,7 +1144,33 @@ async function sendMessageSafely(msg, text, clientRef = client) {
  * @param {string} [caption]
  * @param {object} [clientRef]
  */
-async function sendMediaSafely(msg, imageUrl, caption = '', clientRef = client) {
+async function mediaFromImageUrl(imageUrl) {
+  try {
+    return await MessageMedia.fromUrl(String(imageUrl), {
+      unsafeMime: true,
+      filename: 'property.jpg',
+    });
+  } catch (e) {
+    console.warn(`🖼️ MessageMedia.fromUrl: ${e.message}`);
+  }
+  try {
+    const res = await axios.get(String(imageUrl), {
+      responseType: 'arraybuffer',
+      timeout: 15000,
+      headers: { 'User-Agent': 'HouseTenerifeBot/1.0 (property image fetch)', Accept: 'image/*' },
+      maxRedirects: 5,
+      validateStatus: (s) => s >= 200 && s < 400,
+    });
+    const mime = String(res.headers['content-type'] || 'image/jpeg').split(';')[0];
+    const b64 = Buffer.from(res.data).toString('base64');
+    return new MessageMedia(mime || 'image/jpeg', b64, 'property.jpg');
+  } catch (e) {
+    console.warn(`🖼️ axios image: ${e.message}`);
+    return null;
+  }
+}
+
+async function sendMediaSafely(msg, imageUrl, caption = '', clientRef = client, opts = {}) {
   if (!imageUrl) return { queued: false, skipped: true };
   const chatId = msg.from;
   const lid = isLidChatId(chatId);
@@ -1135,30 +1178,34 @@ async function sendMediaSafely(msg, imageUrl, caption = '', clientRef = client) 
   pauseMessagePolling(25000);
 
   if (isCdpBusy() || hasAbandonedCdpWork() || softReloadInFlight) {
-    console.warn(`⏳ CDP busy — фото ${chatId} пропущено (текст уже ушёл)`);
-    return { queued: false, skipped: true };
+    if (!opts.skipQueue) {
+      enqueueOutboundRetry(chatId, '', {
+        delayMs: 4000,
+        mediaUrl: imageUrl,
+        caption,
+      });
+    }
+    console.warn(`⏳ CDP busy — фото ${chatId} в очередь`);
+    return { queued: true, skipped: true };
   }
 
-  let media;
-  try {
-    media = await MessageMedia.fromUrl(String(imageUrl), {
-      unsafeMime: true,
-      filename: 'property.jpg',
-    });
-  } catch (e) {
-    console.warn(`🖼️ MessageMedia.fromUrl: ${e.message}`);
-    return { queued: false, error: e.message };
+  const media = await mediaFromImageUrl(imageUrl);
+  if (!media) {
+    if (!opts.skipQueue) {
+      enqueueOutboundRetry(chatId, '', { delayMs: 8000, mediaUrl: imageUrl, caption });
+    }
+    return { queued: !opts.skipQueue, error: 'no media' };
   }
 
   const softMs = lid ? SEND_SOFT_TIMEOUT_LID_MS : Math.max(SEND_SOFT_TIMEOUT_MS, 35000);
-  const opts = { caption: String(caption || '').slice(0, 900), sendSeen: false };
+  const sendOpts = { caption: String(caption || '').slice(0, 900), sendSeen: false };
 
   try {
     if (lid) {
-      await withSendSoftTimeout(msg.reply(media, undefined, opts), softMs);
+      await withSendSoftTimeout(msg.reply(media, undefined, sendOpts), softMs);
     } else {
       await withSendSoftTimeout(
-        clientRef.sendMessage(chatId, media, opts),
+        clientRef.sendMessage(chatId, media, sendOpts),
         softMs
       );
     }
@@ -1171,7 +1218,10 @@ async function sendMediaSafely(msg, imageUrl, caption = '', clientRef = client) 
     }
     console.warn(`🖼️ sendMedia ${chatId}:`, err.message || err);
     markChromiumSlow(12000);
-    return { queued: false, error: err.message };
+    if (!opts.skipQueue) {
+      enqueueOutboundRetry(chatId, '', { delayMs: 5000, mediaUrl: imageUrl, caption });
+    }
+    return { queued: !opts.skipQueue, error: err.message };
   }
 }
 
@@ -1181,8 +1231,14 @@ async function sendMediaSafely(msg, imageUrl, caption = '', clientRef = client) 
 async function maybeSendPropertyPhotos(msg, replyText, lang, opts = {}) {
   if (process.env.DISABLE_PROPERTY_PHOTOS === '1') return;
   try {
-    const photos = await preparePropertyPhotosForSend(replyText, lang, opts);
-    if (!photos.length) return;
+    const photos = await preparePropertyPhotosForSend(replyText, lang, {
+      ...opts,
+      chatId: opts.chatId || msg.from,
+    });
+    if (!photos.length) {
+      if (opts.force) console.warn(`🖼️ Нет фото для отправки (${msg.from})`);
+      return;
+    }
     console.log(`🖼️ Отправка ${photos.length} фото объектов…`);
     for (const photo of photos) {
       await sendMediaSafely(msg, photo.imageUrl, photo.caption);
@@ -2537,6 +2593,26 @@ const commandHandlers = {
     clearPendingCallOffer(chatId);
     clearStickyDialogLanguage(chatId);
     conversationHistory.set(String(chatId), []);
+    try {
+      clearPersistedMessages(chatId);
+    } catch (e) {
+      console.warn('⚠️ /start clear messages:', e.message);
+    }
+    try {
+      require('./property-interest').clearChatPropertyInterest(chatId);
+    } catch (e) {
+      console.warn('⚠️ /start clear property interest:', e.message);
+    }
+    try {
+      require('./topic-memory').clearChatTopicMemory(chatId);
+    } catch (e) {
+      console.warn('⚠️ /start clear topic memory:', e.message);
+    }
+    try {
+      require('./user-profile').clearUserProfile(chatId);
+    } catch (e) {
+      console.warn('⚠️ /start clear profile:', e.message);
+    }
     const phoneLang = getLanguageFromPhone(msg.from) || 'en';
     setStickyDialogLanguage(chatId, phoneLang);
     const text = getTranslation(phoneLang, 'start');
@@ -3803,6 +3879,7 @@ async function handleIncomingMessage(msg, options = {}) {
         await maybeSendPropertyPhotos(msg, outgoing, dialogLanguage, {
           force: wantsPropertyPhotos(messageText),
           userText: messageText,
+          chatId,
           historyMessages: history,
           historyText: history.map((h) => h.text).join('\n'),
         });
@@ -4070,7 +4147,8 @@ async function handleIncomingMessage(msg, options = {}) {
         const skipListingBridge =
           wantsPropertyPhotos(messageText) ||
           userMessageHasPropertyLink(messageText) ||
-          preDialog.hasPropertyInterest;
+          preDialog.hasPropertyInterest ||
+          preDialog.wantsPhotos;
         const willShowListings =
           !skipListingBridge &&
           (preDialog.stage === 'SHOW_LISTINGS' ||
@@ -4129,6 +4207,7 @@ async function handleIncomingMessage(msg, options = {}) {
           await maybeSendPropertyPhotos(msg, outgoing, dialogLanguage, {
             force: dialog.wantsPhotos || wantsPropertyPhotos(messageText),
             userText: messageText,
+            chatId,
             historyMessages: getHistory(chatId),
             historyText: getHistory(chatId)
               .map((h) => h.text)

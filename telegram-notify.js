@@ -580,23 +580,11 @@ function notifyHandoffLead(item) {
  */
 function notifyDialogReport(item) {
   if (!item) return;
-  const props = (item.properties || [])
-    .slice(0, 3)
-    .map((p) => escapeHtml(p.title || p.id || ''))
-    .filter(Boolean)
-    .join('; ');
-  const summary = String(item.summary || '')
-    .slice(0, 1200)
-    .trim();
+  const summary = String(item.summary || '').trim();
   const lines = [
-    '📋 <b>Отчёт по диалогу с клиентом</b>',
-    item.clientName ? `Клиент: ${escapeHtml(item.clientName)}` : null,
-    item.phoneDisplay ? `📞 ${escapeHtml(item.phoneDisplay)}` : null,
-    item.languageLabel ? `🌍 ${escapeHtml(item.languageLabel)}` : null,
-    item.trigger ? `Триггер: ${escapeHtml(String(item.trigger))}` : null,
-    props ? `🏠 ${props}` : null,
-    item.waSent ? '✅ Отправлено главному менеджеру в WhatsApp' : '⚠️ WhatsApp менеджеру: не отправлено',
-    summary ? `\n${escapeHtml(summary)}` : null,
+    '📋 <b>Отчёт по диалогу</b>',
+    summary ? escapeHtml(summary) : null,
+    item.waSent ? '✅ WhatsApp' : '⚠️ WhatsApp: не отправлено',
     item.waLink ? `🔗 ${item.waLink}` : null,
   ].filter(Boolean);
   sendAlert(lines.join('\n')).catch((err) => {

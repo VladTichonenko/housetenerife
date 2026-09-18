@@ -193,6 +193,15 @@ function getUserProfile(chatId) {
   return loadProfilesStore().profiles[String(chatId)] || null;
 }
 
+function clearUserProfile(chatId) {
+  if (!chatId) return;
+  const store = loadProfilesStore();
+  const id = String(chatId);
+  if (!store.profiles[id]) return;
+  delete store.profiles[id];
+  saveProfilesStore(store);
+}
+
 function updateUserProfileFromConversation(
   chatId,
   conversationHistory,
@@ -252,6 +261,7 @@ module.exports = {
   resolveProfilesPath,
   loadProfilesStore,
   getUserProfile,
+  clearUserProfile,
   detectPurposePreference,
   buildUpdatedProfile,
   updateUserProfileFromConversation,

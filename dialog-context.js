@@ -186,9 +186,20 @@ function analyzeConversation(history, lang = 'ru') {
     financeReady &&
     (!isInvestment || hasTimeline || ignoreBudget);
 
+  const continuingObject =
+    wantsPhotos ||
+    /housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\//i.test(lastUser) ||
+    /\/p\/HZ?\d+/i.test(lastUser) ||
+    /\bHZ\d{2,6}\b/i.test(lastUser) ||
+    /seguimos con|continue with|volv[ií]|wróci|this\s+(?:one|property|listing|apartment)|este\s+(?:piso|apartamento|objeto)|fotos de este|island\s*village/i.test(
+      lastUser
+    );
+
   let stage = 'FIRST_CONTACT';
 
-  if (userTurns <= 1 && !hasPurpose && !hasBudget && !hasLocation && !hasType && !hasRegion) {
+  if (continuingObject && !hasPurpose) {
+    stage = 'REFINE';
+  } else if (userTurns <= 1 && !hasPurpose && !hasBudget && !hasLocation && !hasType && !hasRegion) {
     stage = 'FIRST_CONTACT';
   } else if (!hasPurpose) {
     stage = 'NEED_PURPOSE';
@@ -289,7 +300,8 @@ function analyzeConversation(history, lang = 'ru') {
   const askedForListingsWithoutBudget =
     (wantsListings || wantsPropertyLinks || wantsMoreLikeThese) &&
     !hasBudget &&
-    !ignoreBudget;
+    !ignoreBudget &&
+    !wantsPhotos;
   if (askedForListingsWithoutBudget) {
     stage = hasPurpose ? 'NEED_BUDGET' : 'NEED_PURPOSE';
   }

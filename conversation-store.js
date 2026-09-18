@@ -191,11 +191,19 @@ function listConversationChats({ page = 1, limit = 24, q = '' } = {}) {
   };
 }
 
+function clearMessages(chatId) {
+  if (!chatId) return 0;
+  const id = String(chatId);
+  const info = getDb().prepare(`DELETE FROM messages WHERE user_id = ?`).run(id);
+  return info.changes || 0;
+}
+
 module.exports = {
   CONVERSATIONS_PATH,
   recordMessage,
   getMessages,
   getLastActivityAt,
   listConversationChats,
+  clearMessages,
   resolveConversationPath,
 };

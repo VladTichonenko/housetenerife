@@ -130,6 +130,14 @@ function main() {
   check('DE карточка без кириллицы', deCard.title && !containsCyrillic(deCard.title + deCard.description));
   check('DE factsLine', Boolean(deCard.factsLine));
 
+  const itCard = getLocalizedItem(hz, 'it');
+  check('IT карточка без кириллицы', itCard.title && !containsCyrillic(itCard.title + (itCard.description || '')));
+  const parking = (catalog.items || []).find((i) => /parking/i.test(String(i.url || '') + String(i.title || '')));
+  if (parking) {
+    const { getItemPropertyCategories } = require('../property-types');
+    check('parking категория', getItemPropertyCategories(parking).includes('parking'));
+  }
+
   console.log('\n5) Модель');
   check('gpt-4.1 резолвится', resolveModel('openai/gpt-4.1') === 'openai/gpt-4.1');
   const prev = process.env.AI_ALLOW_ANY_MODEL;

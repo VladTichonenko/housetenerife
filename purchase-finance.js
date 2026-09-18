@@ -180,7 +180,7 @@ function detectMortgagePreference(text) {
   const s = String(text || '').toLowerCase();
 
   const noMortgage =
-    /без\s+(?:ипотек|кредит)|наличными|своими\s+средств|не\s+нужен\s+(?:кредит|ипотек)|cash\s+only|полная\s+оплата|100\s*%|только\s+сво|все\s+(?:своими|наличн|деньг)|полностью\s+(?:своими|наличн)|all\s+cash|sin\s+hipoteca|ohne\s+hypothek|sans\s+cr[eé]dit/i.test(
+    /без\s+(?:ипотек|кредит)|наличными|своими\s+средств|не\s+нужн[а-яё]*\s+(?:кредит|ипотек)|(?:ипотек[а-яё]*|кредит[а-яё]*|mortgage|hipoteca)\s+не\s+нужн|cash\s+only|полная\s+оплата|100\s*%|только\s+сво|все\s+(?:своими|наличн|деньг)|полностью\s+(?:своими|наличн)|all\s+cash|sin\s+hipoteca|ohne\s+hypothek|sans\s+cr[eé]dit|no\s+(?:necesito\s+)?(?:hipoteca|mortgage)|don'?t\s+need\s+(?:a\s+)?mortgage/i.test(
       s
     );
   const yesMortgage =
@@ -199,9 +199,9 @@ function detectMortgagePreference(text) {
     ) ||
     /(?:ипотек|кредит|mortgage|hipoteca|hypothek|hypotheek)/i.test(s);
 
-  if (noMortgage && !yesMortgage) return { answered: true, needsMortgage: false };
-  if (yesMortgage && !noMortgage) return { answered: true, needsMortgage: true };
-  if (noMortgage && yesMortgage) return { answered: true, needsMortgage: null };
+  // «ипотека не нужна» иначе ловится как «ипотека … нужн»
+  if (noMortgage) return { answered: true, needsMortgage: false };
+  if (yesMortgage) return { answered: true, needsMortgage: true };
   return { answered: false, needsMortgage: null };
 }
 

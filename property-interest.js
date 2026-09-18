@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { findItemByUrl, findItemByPropertyId } = require('./property-share');
+const { findItemByUrl, findItemByPropertyId, cleanHtPropertyUrl } = require('./property-share');
 const { getLocalizedItem, normalizeLang } = require('./property-catalog');
 
 function resolveStorePath() {
@@ -97,7 +97,7 @@ function extractPropertyItemsFromText(text) {
     /https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[^\s<>\])"'}]+/gi;
   let m;
   while ((m = propRe.exec(s))) {
-    const item = findItemByUrl(m[0].replace(/[.,;:!?)]+$/, ''));
+    const item = findItemByUrl(cleanHtPropertyUrl(m[0]));
     if (!item) continue;
     const key = String(item.id || item.url || m[0]).toUpperCase();
     if (seen.has(key)) continue;
@@ -160,7 +160,13 @@ function formatLinkedPropertiesForPrompt(items, lang = 'ru') {
               ? '**OFERTA Z LINKA KLIENTA (dane z katalogu — opisz, nie wymyślaj):**'
               : l === 'nl'
                 ? '**OBJECT VIA KLANTLINK (catalogusgegevens — beschrijf, niet verzinnen):**'
-                : '**ОБЪЕКТ ПО ССЫЛКЕ КЛИЕНТА (данные из каталога — расскажи по ним, не выдумывай):**';
+                : l === 'it'
+                  ? '**IMMOBILE DAL LINK DEL CLIENTE (dati catalogo — descrivilo, non inventare):**'
+                  : l === 'pt'
+                    ? '**IMÓVEL DO LINK DO CLIENTE (dados do catálogo — descreve, não inventes):**'
+                    : l === 'ru'
+                      ? '**ОБЪЕКТ ПО ССЫЛКЕ КЛИЕНТА (данные из каталога — расскажи по ним, не выдумывай):**'
+                      : '**PROPERTY FROM CLIENT LINK (catalog data — describe it, do not invent):**';
 
   const fieldLabels = {
     ru: { price: 'Цена', type: 'Тип', region: 'Регион', area: 'Район', overview: 'Обзор', desc: 'Описание' },
@@ -169,7 +175,10 @@ function formatLinkedPropertiesForPrompt(items, lang = 'ru') {
     de: { price: 'Preis', type: 'Typ', region: 'Region', area: 'Zone', overview: 'Überblick', desc: 'Beschreibung' },
     fr: { price: 'Prix', type: 'Type', region: 'Région', area: 'Zone', overview: 'Aperçu', desc: 'Description' },
     pl: { price: 'Cena', type: 'Typ', region: 'Region', area: 'Strefa', overview: 'Przegląd', desc: 'Opis' },
-    nl: { price: 'Prijs', type: 'Type', region: 'Regio', area: 'Zone', overview: 'Overzicht', desc: 'Beschrijving' },
+    it: { price: 'Prezzo', type: 'Tipo', region: 'Regione', area: 'Zona', overview: 'Panoramica', desc: 'Descrizione' },
+    pt: { price: 'Preço', type: 'Tipo', region: 'Região', area: 'Zona', overview: 'Resumo', desc: 'Descrição' },
+    tr: { price: 'Fiyat', type: 'Tip', region: 'Bölge', area: 'Alan', overview: 'Özet', desc: 'Açıklama' },
+    uk: { price: 'Ціна', type: 'Тип', region: 'Регіон', area: 'Район', overview: 'Огляд', desc: 'Опис' },
   };
   const F = fieldLabels[l] || fieldLabels.en;
 
@@ -221,6 +230,9 @@ function userMessageHasPropertyLink(text) {
 
 function getLinkedPropertyStageInstruction(lang = 'ru') {
   const code = String(lang || 'ru').slice(0, 2).toLowerCase();
+  if (!['ru', 'es', 'en', 'de', 'fr', 'pl', 'nl'].includes(code)) {
+    return getLinkedPropertyStageInstruction('en');
+  }
   if (code === 'es') {
     return `El cliente envió un enlace / ID de un inmueble. El bloque «OBJETO POR ENLACE» tiene los datos del catálogo.
 OBLIGATORIO: quédate EN ESTE objeto. No envíes otra selección ni llames parking «apartamento» (respeta el tipo del bloque).
@@ -284,6 +296,114 @@ Dialoogtaal, WhatsApp-stijl.`;
 Язык диалога, стиль WhatsApp.`;
 }
 
+function refersToCurrentProperty(text) {
+  const raw = String(text || '');
+  if (/(?:фото|fotos?|photos?|bilder|zdj[eę]c|immagin|imagens?)/i.test(raw)) return true;
+  return /(?:этот|этого|этой|данного|этим|this\s+(?:one|property|listing|object|apartment|flat|piso)|este(?:\s+(?:piso|apartamento|objeto|inmueble))?|diese[smn]?(?:\s+\w+)?|ce bien|cet appartement|dit object|tego obiektu|ten apartament|dieze|seguimos con|continue with|volv[ií]|wróci[łl]?|torna|yesterday|ayer|wczoraj|gestern)/i.test(
+    raw
+  );
+}
+
+function userStartsFreshSearch(text) {
+  const raw = String(text || '');
+  if (userMessageHasPropertyLink(raw)) return false;
+  if (refersToCurrentProperty(raw)) return false;
+  const looksNew =
+    /(?:szukam|zoek|cherche|suche|cerco|procuro|busco|looking for|ищу|шукаю|zmieńmy język|passons au|passiamo all|agora em|now in )/i.test(
+      raw
+    ) ||
+    /(?:na życie|para vivir|om te wonen|zum wohnen|per viverci|para viver|to live|zum leben)/i.test(raw);
+  const hasPlaceOrType =
+    /(?:adeje|cristianos|tenerife|ibiza|marbella|dubai|mieszkan|apart|wohnung|appartement|villa|costa)/i.test(
+      raw
+    );
+  return looksNew && hasPlaceOrType;
+}
+
+function distinctiveNameTokens(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[^a-zа-яё0-9]+/gi, ' ')
+    .split(/\s+/)
+    .filter(
+      (w) =>
+        w.length >= 5 &&
+        !/apart|villa|house|casa|adeje|tenerife|property|listing|object|venta|vendre|sale/.test(w)
+    );
+}
+
+function itemMatchesNameMention(item, compactText) {
+  if (!item || !compactText) return false;
+  const titles = [
+    item.title,
+    item.titles?.en,
+    item.titles?.es,
+    item.titles?.ru,
+    item.titles?.de,
+    item.titles?.fr,
+  ];
+  const slugs = [...Object.values(item.urls || {}), item.url || ''].map((u) => {
+    try {
+      const slug = decodeURIComponent(String(u).split('/property/')[1] || '');
+      return slug.replace(/-/g, ' ');
+    } catch {
+      return '';
+    }
+  });
+  for (const name of [...titles, ...slugs]) {
+    const tokens = distinctiveNameTokens(name);
+    if (tokens.length && tokens.every((t) => compactText.includes(t))) return true;
+    if (tokens.some((t) => t.length >= 6 && compactText.includes(t))) return true;
+  }
+  return false;
+}
+
+function findItemsByNameMention(text, extraItems = []) {
+  const compact = String(text || '')
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[^a-zа-яё0-9]+/gi, ' ');
+  if (compact.trim().length < 8) return [];
+  const seen = new Set();
+  const hits = [];
+  const push = (item) => {
+    if (!item) return;
+    const key = String(item.id || item.url || '').toUpperCase();
+    if (!key || seen.has(key)) return;
+    if (!itemMatchesNameMention(item, compact)) return;
+    seen.add(key);
+    hits.push(item);
+  };
+  for (const item of extraItems) push(item);
+  if (hits.length) return hits.slice(0, 3);
+  try {
+    const { load } = require('./property-catalog');
+    for (const item of load().items || []) {
+      push(item);
+      if (hits.length >= 3) break;
+    }
+  } catch {
+    /* ignore */
+  }
+  return hits.slice(0, 3);
+}
+
+function catalogItemsFromStore(chatId) {
+  if (!chatId) return [];
+  const state = getChatState(chatId);
+  const out = [];
+  const seen = new Set();
+  for (const p of [...(state.interested || []), ...(state.recentSent || [])]) {
+    const item = findItemByPropertyId(p.id);
+    const key = String((item && item.id) || p.id || '').toUpperCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (item) out.push(item);
+  }
+  return out;
+}
+
 function clientTalksAboutLinkedProperty(text) {
   const raw = String(text || '');
   if (!userMessageHasPropertyLink(raw)) return false;
@@ -293,32 +413,44 @@ function clientTalksAboutLinkedProperty(text) {
     .replace(/\s+/g, ' ')
     .trim();
   if (withoutUrls.length < 8) return false;
-  return /[?¿]|как|есть|можно|сколько|парков|собак|коммунал|аренд|ипотек|смотр|фото|сравн|лучш|торг|рассроч|цена|что\s+лучше|what|how|can|parking|pet|fee|rent|visit|photo|compar|mejor|cu[aá]nt|hay|puedo|wann|gibt|appel|visite/i.test(
+  return /[?¿]|как|есть|можно|сколько|парков|собак|коммунал|аренд|ипотек|смотр|фото|сравн|лучш|торг|рассроч|цена|что\s+лучше|what|how|can|parking|pet|fee|rent|visit|photo|compar|mejor|cu[aá]nt|hay|puedo|wann|gibt|appel|visite|precio|terraza|fotos/i.test(
     withoutUrls
   );
 }
 
-function resolveMentionedPropertyItems(text, history = []) {
+function resolveMentionedPropertyItems(text, history = [], opts = {}) {
   const fromText = extractPropertyItemsFromText(text);
   if (fromText.length) return fromText.slice(0, 3);
 
-  const hist = Array.isArray(history) ? history : [];
   const blob = String(text || '');
-  for (let i = hist.length - 1; i >= 0 && i >= hist.length - 12; i--) {
+  if (userStartsFreshSearch(blob)) return [];
+
+  const storeItems = catalogItemsFromStore(opts.chatId);
+  const named = findItemsByNameMention(blob, storeItems);
+  if (named.length) return named.slice(0, 3);
+
+  const stay = refersToCurrentProperty(blob);
+  const hist = Array.isArray(history) ? history : [];
+  const histWindow = stay ? 24 : 8;
+  for (let i = hist.length - 1; i >= 0 && i >= hist.length - histWindow; i--) {
     const items = extractPropertyItemsFromText(hist[i]?.text || '');
     if (!items.length) continue;
     const picked = pickByOrdinal(blob, items);
     if (picked) return [picked];
-    if (
-      /(?:этот|этого|данного|этой|this\s+(?:one|property|listing|object)|este(?:\s+objeto)?|dieses|ce bien|dit object)/i.test(
-        blob
-      )
-    ) {
-      return items.slice(0, 1);
-    }
-    return items.slice(0, 1);
+    if (stay) return items.slice(0, 1);
+    if (opts.forceLast) return items.slice(0, 1);
   }
+  if (stay && storeItems.length) return storeItems.slice(0, 1);
   return [];
+}
+
+function clearChatPropertyInterest(chatId) {
+  if (!chatId) return;
+  const store = loadStore();
+  const id = String(chatId);
+  if (!store.chats[id]) return;
+  delete store.chats[id];
+  saveStore(store);
 }
 
 function hasInterestSignal(text) {
@@ -490,5 +622,9 @@ module.exports = {
   clientTalksAboutLinkedProperty,
   resolveMentionedPropertyItems,
   pickByOrdinal,
+  userStartsFreshSearch,
+  refersToCurrentProperty,
+  findItemsByNameMention,
+  clearChatPropertyInterest,
   STORE_PATH
 };

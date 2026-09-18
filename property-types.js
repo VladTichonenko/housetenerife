@@ -10,7 +10,8 @@ const TYPE_LABELS = {
     land: 'земля / участки',
     commercial: 'коммерческая недвижимость',
     business: 'бизнес на продажу',
-    investment: 'инвестиционные / девелоперские проекты'
+    investment: 'инвестиционные / девелоперские проекты',
+    parking: 'паркинг / машиноместо'
   },
   en: {
     apartments: 'apartments',
@@ -19,7 +20,8 @@ const TYPE_LABELS = {
     land: 'land / plots',
     commercial: 'commercial property',
     business: 'business for sale',
-    investment: 'investment / development projects'
+    investment: 'investment / development projects',
+    parking: 'parking space'
   },
   es: {
     apartments: 'apartamentos',
@@ -28,7 +30,8 @@ const TYPE_LABELS = {
     land: 'terrenos',
     commercial: 'inmuebles comerciales',
     business: 'negocio en venta',
-    investment: 'proyectos de inversión'
+    investment: 'proyectos de inversión',
+    parking: 'parking / plaza de garaje'
   },
   de: {
     apartments: 'Apartments / Wohnungen',
@@ -37,7 +40,8 @@ const TYPE_LABELS = {
     land: 'Grundstücke',
     commercial: 'Gewerbeimmobilien',
     business: 'Business zum Verkauf',
-    investment: 'Investment- / Entwicklungsprojekte'
+    investment: 'Investment- / Entwicklungsprojekte',
+    parking: 'Parkplatz'
   },
   fr: {
     apartments: 'appartements',
@@ -46,7 +50,8 @@ const TYPE_LABELS = {
     land: 'terrains',
     commercial: 'immobilier commercial',
     business: 'business à vendre',
-    investment: 'projets d’investissement'
+    investment: 'projets d’investissement',
+    parking: 'parking / place de parking'
   },
   pl: {
     apartments: 'apartamenty / mieszkania',
@@ -55,7 +60,8 @@ const TYPE_LABELS = {
     land: 'działki / grunty',
     commercial: 'nieruchomości komercyjne',
     business: 'biznes na sprzedaż',
-    investment: 'projekty inwestycyjne / deweloperskie'
+    investment: 'projekty inwestycyjne / deweloperskie',
+    parking: 'parking / miejsce postojowe'
   },
   nl: {
     apartments: 'appartementen',
@@ -64,7 +70,28 @@ const TYPE_LABELS = {
     land: 'grond / kavels',
     commercial: 'commercieel vastgoed',
     business: 'business te koop',
-    investment: 'investerings- / ontwikkelingsprojecten'
+    investment: 'investerings- / ontwikkelingsprojecten',
+    parking: 'parkeerplaats'
+  },
+  it: {
+    apartments: 'appartamenti',
+    villas: 'ville',
+    houses: 'case / townhouse',
+    land: 'terreni',
+    commercial: 'immobili commerciali',
+    business: 'attività in vendita',
+    investment: 'progetti di investimento',
+    parking: 'posto auto'
+  },
+  pt: {
+    apartments: 'apartamentos',
+    villas: 'villas',
+    houses: 'casas / townhouses',
+    land: 'terrenos',
+    commercial: 'imóveis comerciais',
+    business: 'negócio à venda',
+    investment: 'projetos de investimento',
+    parking: 'estacionamento / lugar de garagem'
   }
 };
 
@@ -88,7 +115,8 @@ const SOFT_TYPE_FALLBACK = {
   land: [],
   commercial: ['business'],
   business: ['commercial'],
-  investment: []
+  investment: [],
+  parking: []
 };
 
 /**
@@ -103,7 +131,8 @@ const LAST_RESORT_TYPE_FALLBACK = {
   land: [],
   commercial: ['business'],
   business: ['commercial'],
-  investment: []
+  investment: [],
+  parking: []
 };
 
 function extractPropertyTypeFromOverview(overview) {
@@ -115,6 +144,12 @@ function extractPropertyTypeFromOverview(overview) {
  * Разбор одной метки «Property type | …» → категории.
  * Порядок важен: первая метка = primary.
  */
+function looksParkingLabel(text) {
+  return /parking|parkplatz|stellplatz|parkeerplaats|puesto\s+de\s+aparcamiento|plaza\s+de\s+garaje|машиномест|паркинг|car[\s-]*park|garage\s+(?:for\s+sale|à\s+vendre|te\s+koop)|posto\s+auto|estacionamiento/i.test(
+    String(text || '')
+  );
+}
+
 function categoriesFromTypeLabel(label) {
   const lower = String(label || '').toLowerCase();
   if (!lower.trim()) return [];
@@ -122,6 +157,11 @@ function categoriesFromTypeLabel(label) {
   const add = (id) => {
     if (!cats.includes(id)) cats.push(id);
   };
+
+  if (looksParkingLabel(lower)) {
+    add('parking');
+    return cats;
+  }
 
   // Явные составные / каталожные формулировки
   if (/апартамент|apartments?|apartamentos?|appartement|wohnung|pisos?|flats?|mieszkan|apartament|пентхаус|penthouse|студи|studio/i.test(lower)) {
@@ -171,6 +211,24 @@ function collectOverviews(item) {
  * @returns {string[]}
  */
 function getItemPropertyCategories(item) {
+  const urlTitleEarly = [
+    item?.url,
+    item?.urls?.ru,
+    item?.urls?.en,
+    item?.urls?.es,
+    item?.urls?.de,
+    item?.urls?.fr,
+    item?.titles?.en,
+    item?.titles?.es,
+    item?.title
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (looksParkingLabel(urlTitleEarly)) {
+    return ['parking'];
+  }
+
   const labelsByLang = {};
   for (const lang of ['ru', 'en', 'es', 'de', 'fr', 'pl', 'nl']) {
     const ov =
@@ -217,9 +275,13 @@ function getItemPropertyCategories(item) {
     const hasResLabel = fromLabels.some((c) => residential.includes(c));
     if (hasBizLabel && hasResLabel) {
       const looksBizUrl =
-        /(?:^|\/)(?:business|negocio|ресторан|restoran|бар|bar-|кафе|cafe|отель|otel|hotel|apteka|аптека|паб|pab|jet-sky|arende-avtomobil|компан|lodochn|парк|parking)/i.test(
+        !looksParkingLabel(urlTitle) &&
+        (/(?:^|\/)(?:business|negocio|ресторан|restoran|бар|bar-|кафе|cafe|отель|otel|hotel|apteka|аптека|паб|pab|jet-sky|arende-avtomobil|компан|lodochn)(?:-|\b)/i.test(
           urlTitle
-        ) || /бизнес\s+на\s+продаж|готовы[йеяюих]+\s+бизнес|negocio\s+en\s+venta|business\s+for\s+sale/i.test(urlTitle);
+        ) ||
+          /бизнес\s+на\s+продаж|готовы[йеяюих]+\s+бизнес|negocio\s+en\s+venta|business\s+for\s+sale/i.test(
+            urlTitle
+          ));
       const looksResUrl =
         /villa|вилл|apartament|apartamento|квартир|апартамент|dupleks|duplex|piso|chalet|townhouse|таунхаус|penthouse|студи/i.test(
           urlTitle
@@ -319,12 +381,19 @@ function getItemPropertyCategories(item) {
   return cats;
 }
 
+function stripNegatedTypePhrases(text) {
+  return String(text || '').replace(
+    /\b(?:pas\s+(?:un|une)|not\s+an?|kein(?:e[ns]?)?|nie\s+(?:jest\s+)?|no\s+(?:es\s+)?(?:un|una)|não\s+(?:é\s+)?um|non\s+(?:è\s+)?(?:un|una)|geen|не\s+(?:это\s+)?)\s+[^\s,.!?]{3,24}/gi,
+    ' '
+  );
+}
+
 /**
  * @param {string} text — реплики клиента
  * @returns {{ types: string[], hasType: boolean, label: string }}
  */
 function detectPropertyTypePreference(text, lang = 'ru') {
-  const lower = String(text || '').toLowerCase();
+  const lower = stripNegatedTypePhrases(text).toLowerCase();
   const types = new Set();
 
   const lifePurposeOnly =
@@ -337,6 +406,9 @@ function detectPropertyTypePreference(text, lang = 'ru') {
 
   if (/земл|участок|terreno|\bplot\b|\bland\b|grundstück|grundstuck|terrain|działk|dzialk|kavel|\bgrond\b/i.test(lower)) {
     types.add('land');
+  }
+  if (looksParkingLabel(lower)) {
+    types.add('parking');
   }
   if (
     /коммерческ|commercial\s+property|офис|магазин|склад|торгов|помещени|local\s+comercial|gewerbeimmobil|komerc|commercieel/i.test(
@@ -380,11 +452,18 @@ function detectPropertyTypePreference(text, lang = 'ru') {
     types.add('houses');
   }
 
-  // Не смешивать жильё и бизнес в одном запросе без явного «и»
+  // Не смешивать жильё и бизнес/паркинг в одном запросе без явного «и»
+  if (types.has('parking')) {
+    types.delete('apartments');
+    types.delete('villas');
+    types.delete('houses');
+    types.delete('business');
+  }
   if (types.has('apartments') || types.has('villas') || types.has('houses')) {
     if (!/и\s+(бизнес|ресторан)|plus\s+business|and\s+business|und\s+business/i.test(lower)) {
       types.delete('business');
       types.delete('commercial');
+      types.delete('parking');
     }
   }
 
@@ -466,8 +545,8 @@ function formatPropertyTypeOptions(lang = 'ru') {
 }
 
 function formatDetectedTypes(types, lang = 'ru') {
-  const chain = TYPE_LABELS[lang] ? lang : 'ru';
-  return types.map((t) => TYPE_LABELS[chain][t] || t).join(', ');
+  const chain = TYPE_LABELS[lang] ? lang : 'en';
+  return types.map((t) => TYPE_LABELS[chain][t] || TYPE_LABELS.en[t] || t).join(', ');
 }
 
 module.exports = {

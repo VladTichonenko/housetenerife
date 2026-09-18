@@ -98,7 +98,7 @@ async function buildPromptParts(
   const lastUserMessage = limitedHistory.filter((msg) => msg.sender === 'user').pop();
   const userQuery = lastUserMessage ? lastUserMessage.text : '';
 
-  const dialog = analyzeConversation(analysisHistory, salesLang);
+  const dialog = analyzeConversation(analysisHistory, userLanguage);
   const catalogQuery = buildCatalogSearchQuery(analysisHistory) || userQuery;
   const budget = dialog.ignoreBudget
     ? { minPrice: null, maxPrice: null }
@@ -106,6 +106,7 @@ async function buildPromptParts(
   const priceTarget = dialog.ignoreBudget ? null : derivePriceTarget(budget);
   const showingListings =
     !dialog.hasPropertyInterest &&
+    !dialog.wantsPhotos &&
     (dialog.stage === 'SHOW_LISTINGS' ||
       (dialog.stage === 'REFINE' &&
         (dialog.hasBudget || dialog.ignoreBudget) &&
@@ -127,10 +128,15 @@ async function buildPromptParts(
     getLinkedPropertyStageInstruction,
     userMessageHasPropertyLink,
     resolveMentionedPropertyItems,
+    userStartsFreshSearch,
+    refersToCurrentProperty,
+    clientTalksAboutLinkedProperty,
   } = require('./property-interest');
   let linkedItems = extractPropertyItemsFromText(userQuery);
-  if (!linkedItems.length) {
-    linkedItems = resolveMentionedPropertyItems(userQuery, analysisHistory);
+  if (!linkedItems.length && !userStartsFreshSearch(userQuery)) {
+    linkedItems = resolveMentionedPropertyItems(userQuery, analysisHistory, {
+      chatId: runtimeContext.chatId,
+    });
   }
   if (!linkedItems.length && userMessageHasPropertyLink(userQuery)) {
     try {
@@ -516,6 +522,7 @@ ${blocks.managerHandoff}`;
       : '';
 
   const lastUserText = lastUserMessage?.text || '';
+  const lastRaw = String(lastUserText);
   const userEmoji = pickUserEmoji(lastUserText);
   const emojiReactByLang = {
     ru: `\n**СМАЙЛИК КЛИЕНТА:** Клиент прислал «${userEmoji}». Обязательно дублируй ЭТОТ же смайлик в ответе. Если сообщение только из смайлика — ответь им же + одна короткая фраза и следующий вопрос по этапу диалога.\n`,
@@ -530,8 +537,14 @@ ${blocks.managerHandoff}`;
     ? emojiReactByLang[salesLang] || emojiReactByLang.en
     : '';
 
+  const stayOnObject =
+    hasLinkedProperty &&
+    (clientTalksAboutLinkedProperty(lastRaw) ||
+      refersToCurrentProperty(lastRaw) ||
+      userMessageHasPropertyLink(lastRaw) ||
+      dialog.wantsPhotos);
   const linkedStageBlock = hasLinkedProperty
-    ? getLinkedPropertyStageInstruction(salesLang)
+    ? getLinkedPropertyStageInstruction(userLanguage)
     : '';
   const funnelGlueByLang = {
     ru: `(Дальше по воронке, после описания объекта: ${dialog.stageInstruction})`,
@@ -541,12 +554,36 @@ ${blocks.managerHandoff}`;
     fr: `(Ensuite poursuivre l’entonnoir après la description: ${dialog.stageInstruction})`,
     pl: `(Następnie kontynuuj lejek po opisie obiektu: ${dialog.stageInstruction})`,
     nl: `(Daarna trechter voortzetten na objectbeschrijving: ${dialog.stageInstruction})`,
+    it: `(Poi continua il funnel dopo la descrizione: ${dialog.stageInstruction})`,
+    pt: `(Depois continua o funil após a descrição: ${dialog.stageInstruction})`,
   };
-  const stageBlock = linkedStageBlock
-    ? `${linkedStageBlock}\n\n${funnelGlueByLang[salesLang] || funnelGlueByLang.en}`
-    : dialog.stageInstruction;
+  const photoAskBlock = dialog.wantsPhotos
+    ? userLanguage === 'es'
+      ? '\n**FOTOS AHORA:** El cliente pide fotos de ESTE inmueble. No preguntes presupuesto ni hipoteca. En el texto: título, precio, enlace; el sistema envía las fotos por WhatsApp ahora.\n'
+      : userLanguage === 'de'
+        ? '\n**FOTOS JETZT:** Der Kunde will Fotos DIESES Objekts. Kein Budget-/Hypothekenfrage. Im Text: Titel, Preis, Link; das System sendet die Fotos jetzt per WhatsApp.\n'
+        : userLanguage === 'it'
+          ? '\n**FOTO ORA:** Il cliente chiede le foto di QUESTO immobile. Non chiedere budget o mutuo. Nel testo: titolo, prezzo, link; il sistema invia le foto su WhatsApp ora.\n'
+          : userLanguage === 'pt'
+            ? '\n**FOTOS AGORA:** O cliente pede fotos DESTE imóvel. Não perguntes orçamento nem hipoteca. No texto: título, preço, link; o sistema envia as fotos no WhatsApp agora.\n'
+            : userLanguage === 'fr'
+              ? '\n**PHOTOS MAINTENANT:** Le client veut les photos de CE bien. Pas de question budget/hypothèque. Dans le texte: titre, prix, lien; le système envoie les photos sur WhatsApp maintenant.\n'
+              : userLanguage === 'pl'
+                ? '\n**ZDJECIA TERAZ:** Klient chce zdjęcia TEGO obiektu. Bez pytania o budżet/hipotekę. W tekście: tytuł, cena, link; system wysyła zdjęcia na WhatsApp teraz.\n'
+                : userLanguage === 'nl'
+                  ? '\n**FOTO’S NU:** De klant wil foto’s van DIT object. Geen budget-/hypotheekvraag. In de tekst: titel, prijs, link; het systeem stuurt de foto’s nu via WhatsApp.\n'
+                  : userLanguage === 'ru'
+                    ? '\n**ФОТО СЕЙЧАС:** Клиент просит фото ЭТОГО объекта. Не спрашивай бюджет и ипотеку. В тексте: название, цена, ссылка; система отправит фото в WhatsApp сейчас.\n'
+                    : '\n**PHOTOS NOW:** The client wants photos of THIS listing. Do not ask budget or mortgage. In text: title, price, link; the system sends the photos on WhatsApp now.\n'
+    : '';
+  const stageBlock = dialog.wantsPhotos
+    ? `${linkedStageBlock}\n${photoAskBlock}`.trim()
+    : stayOnObject && linkedStageBlock
+      ? linkedStageBlock
+      : linkedStageBlock
+        ? `${linkedStageBlock}\n\n${funnelGlueByLang[salesLang] || funnelGlueByLang.en}`
+        : dialog.stageInstruction;
 
-  const lastRaw = String(lastUserMessage?.text || '');
   const hasVisionNote = /\[описание фото\]|\[foto\]|\[photo description\]/i.test(lastRaw) ||
     /\[фото/i.test(lastRaw);
   const photoVisionBlock = hasVisionNote
@@ -852,9 +889,59 @@ async function callAI(messages, tierLabel) {
   return text;
 }
 
+function listingCopyLang(lang) {
+  const l = String(lang || 'en').toLowerCase().slice(0, 2);
+  if (['ru', 'en', 'es', 'de', 'fr', 'pl', 'nl', 'it', 'pt', 'tr', 'uk'].includes(l)) return l;
+  return 'en';
+}
+
+function listingIntroForLang(lang, typeLabel, area, budgetNote) {
+  const typeBit = typeLabel ? (
+    lang === 'es' ? ` de ${typeLabel}` :
+    lang === 'fr' ? ` (${typeLabel})` :
+    lang === 'ru' || lang === 'uk' ? ` (${typeLabel})` :
+    ` (${typeLabel})`
+  ) : '';
+  const areaBit = area ? (
+    lang === 'es' ? ` en ${area}` :
+    lang === 'fr' ? ` à ${area}` :
+    lang === 'pl' ? ` w ${area}` :
+    lang === 'pt' ? ` em ${area}` :
+    lang === 'it' ? ` a ${area}` :
+    lang === 'ru' || lang === 'uk' ? ` в ${area}` :
+    ` in ${area}`
+  ) : '';
+  if (lang === 'es') return `Aquí tienes opciones${typeBit}${areaBit}${budgetNote}:`;
+  if (lang === 'de') return `Hier sind passende Optionen${typeBit}${areaBit}${budgetNote}:`;
+  if (lang === 'fr') return `Voici des options${typeBit}${areaBit}${budgetNote}:`;
+  if (lang === 'pl') return `Oto opcje${typeBit}${areaBit}${budgetNote}:`;
+  if (lang === 'nl') return `Hier zijn passende opties${typeBit}${areaBit}${budgetNote}:`;
+  if (lang === 'it') return `Ecco alcune opzioni${typeBit}${areaBit}${budgetNote}:`;
+  if (lang === 'pt') return `Aqui estão algumas opções${typeBit}${areaBit}${budgetNote}:`;
+  if (lang === 'tr') return `İşte bazı seçenekler${typeBit}${areaBit}${budgetNote}:`;
+  if (lang === 'uk') return `Ось варіанти${typeBit}${areaBit}${budgetNote}:`;
+  if (lang === 'ru') return `Вот варианты${typeBit}${areaBit}${budgetNote}:`;
+  return `Here are some options${typeBit}${areaBit}${budgetNote}:`;
+}
+
+function listingCloserForLang(lang) {
+  if (lang === 'es') return '¿Cuál te encaja más o qué ajustamos?';
+  if (lang === 'de') return 'Welcher passt besser, oder was sollen wir anpassen?';
+  if (lang === 'fr') return 'Lequel vous convient le mieux, ou que faut-il ajuster ?';
+  if (lang === 'pl') return 'Która bliższa, albo co skorygujemy?';
+  if (lang === 'nl') return 'Welke past beter, of wat passen we aan?';
+  if (lang === 'it') return 'Quale ti sta meglio, o cosa sistemiamo?';
+  if (lang === 'pt') return 'Qual fica mais perto, ou o que ajustamos?';
+  if (lang === 'tr') return 'Hangisi daha uygun, yoksa neyi değiştirelim?';
+  if (lang === 'uk') return 'Який ближчий, або що підкоригуємо?';
+  if (lang === 'ru') return 'Какой ближе, или что скорректируем?';
+  return 'Which feels closest, or what should we adjust?';
+}
+
 /** Подборка строго из каталога, если модель снова путает тип или дублирует ссылки. */
 function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fallbackMeta = {}) {
-  const salesLang = normalizeSalesLang(lang);
+  const copyLang = listingCopyLang(lang);
+  const salesLang = copyLang;
   const wanted = dialog.propertyTypes || [];
   const avoidKeys = new Set(
     (avoidUrls || []).map((u) =>
@@ -923,40 +1010,41 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fal
 
   if (!lines.length) return '';
 
-  const typeLabel = dialog.propertyTypeLabel || '';
+  const { formatDetectedTypes, getItemPropertyCategories } = require('./property-types');
+  const resultCats = [];
+  for (const raw of urls || []) {
+    const item = findItemByUrl(raw);
+    if (!item) continue;
+    for (const c of getItemPropertyCategories(item)) {
+      if (!resultCats.includes(c)) resultCats.push(c);
+    }
+    if (resultCats.length >= 4) break;
+  }
+  const typeLabel = resultCats.length
+    ? formatDetectedTypes(resultCats, copyLang)
+    : dialog.propertyTypeLabel || '';
   const area = dialog.microAreaLabel || dialog.regionLabel || '';
   const budgetNote = dialog.ignoreBudget
-    ? salesLang === 'es'
+    ? copyLang === 'es'
       ? ' (sin límite de precio)'
-      : salesLang === 'en'
-        ? ' (any price)'
-        : salesLang === 'de'
-          ? ' (ohne Preislimit)'
-          : salesLang === 'fr'
-            ? ' (sans limite de prix)'
-            : salesLang === 'pl'
-              ? ' (bez limitu ceny)'
-              : salesLang === 'nl'
-                ? ' (geen prijslimiet)'
-                : ' (без ограничения цены)'
+      : copyLang === 'de'
+        ? ' (ohne Preislimit)'
+        : copyLang === 'fr'
+          ? ' (sans limite de prix)'
+          : copyLang === 'pl'
+            ? ' (bez limitu ceny)'
+            : copyLang === 'nl'
+              ? ' (geen prijslimiet)'
+              : copyLang === 'it'
+                ? ' (senza limite di prezzo)'
+                : copyLang === 'pt'
+                  ? ' (sem limite de preço)'
+                  : copyLang === 'ru' || copyLang === 'uk'
+                    ? ' (без ограничения цены)'
+                    : ' (any price)'
     : '';
 
-  let intro;
-  if (salesLang === 'es') {
-    intro = `Aquí tienes opciones${typeLabel ? ` de ${typeLabel}` : ''}${area ? ` en ${area}` : ''}${budgetNote}:`;
-  } else if (salesLang === 'en') {
-    intro = `Here are some options${typeLabel ? ` (${typeLabel})` : ''}${area ? ` in ${area}` : ''}${budgetNote}:`;
-  } else if (salesLang === 'de') {
-    intro = `Hier sind passende Optionen${typeLabel ? ` (${typeLabel})` : ''}${area ? ` in ${area}` : ''}${budgetNote}:`;
-  } else if (salesLang === 'fr') {
-    intro = `Voici des options${typeLabel ? ` (${typeLabel})` : ''}${area ? ` à ${area}` : ''}${budgetNote}:`;
-  } else if (salesLang === 'pl') {
-    intro = `Oto opcje${typeLabel ? ` (${typeLabel})` : ''}${area ? ` w ${area}` : ''}${budgetNote}:`;
-  } else if (salesLang === 'nl') {
-    intro = `Hier zijn passende opties${typeLabel ? ` (${typeLabel})` : ''}${area ? ` in ${area}` : ''}${budgetNote}:`;
-  } else {
-    intro = `Вот варианты${typeLabel ? ` (${typeLabel})` : ''}${area ? ` в ${area}` : ''}${budgetNote}:`;
-  }
+  let intro = listingIntroForLang(copyLang, typeLabel, area, budgetNote);
 
   if (usedTypeFamilyFallback) {
     const typeWarn =
@@ -994,20 +1082,7 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fal
     intro = `${warning}\n\n${intro}`;
   }
 
-  const closer =
-    salesLang === 'es'
-      ? '¿Cuál te encaja más o qué ajustamos?'
-      : salesLang === 'en'
-        ? 'Which feels closest, or what should we adjust?'
-        : salesLang === 'de'
-          ? 'Welcher passt besser, oder was sollen wir anpassen?'
-          : salesLang === 'fr'
-            ? 'Lequel vous convient le mieux, ou que faut-il ajuster ?'
-            : salesLang === 'pl'
-              ? 'Która bliższa, albo co skorygujemy?'
-              : salesLang === 'nl'
-                ? 'Welke past beter, of wat passen we aan?'
-                : 'Какой ближе, или что скорректируем?';
+  const closer = listingCloserForLang(copyLang);
 
   return `${intro}\n\n${lines.join('\n\n')}\n\n${closer}`;
 }
@@ -1261,7 +1336,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       conversationHistory,
       userLanguage,
       'full',
-      { userProfile, intentGate, topicSummary, analysisHistory }
+      { userProfile, intentGate, topicSummary, analysisHistory, chatId: options.chatId }
     );
     let reply = await callAI(messages, 'chat');
     if (dialog.stage === 'NEED_BUSINESS_SECTOR') {
@@ -1291,6 +1366,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
     }
     const listingStage =
       !dialog.hasPropertyInterest &&
+      !dialog.wantsPhotos &&
       (dialog.stage === 'SHOW_LISTINGS' ||
         ((dialog.wantsPropertyLinks ||
           (dialog.stage === 'REFINE' && dialog.wantsListings)) &&
@@ -1693,7 +1769,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
           conversationHistory,
           userLanguage,
           'compact',
-          { userProfile, intentGate, topicSummary, analysisHistory }
+          { userProfile, intentGate, topicSummary, analysisHistory, chatId: options.chatId }
         );
         const retryReply = await callAI(messages, 'chat-retry');
         const salesLangRetry = normalizeSalesLang(userLanguage);

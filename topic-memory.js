@@ -384,6 +384,15 @@ function prepareAndSaveTopicContext(chatId, fullHistory, gate) {
   return result;
 }
 
+function clearChatTopicMemory(chatId) {
+  if (!chatId) return;
+  const store = loadTopicMemoryStore();
+  const id = String(chatId);
+  if (!store.chats[id]) return;
+  delete store.chats[id];
+  saveTopicMemoryStore(store);
+}
+
 function recordTopicAssistantReply(chatId, text) {
   if (!chatId || !text || String(chatId).endsWith('@g.us')) return null;
   const store = loadTopicMemoryStore();
@@ -419,4 +428,5 @@ module.exports = {
   prepareTopicContext,
   prepareAndSaveTopicContext,
   recordTopicAssistantReply,
+  clearChatTopicMemory,
 };

@@ -63,12 +63,54 @@ function ensureIndex() {
   if (!urlIndex) rebuildUrlIndex();
 }
 
+function listingIdFromSlug(slug) {
+  const m = String(slug || '').match(/-(\d{2,5})(?:-\d+)?$/);
+  return m ? m[1] : null;
+}
+
+function cleanHtPropertyUrl(raw) {
+  const s = String(raw || '').trim();
+  const m = s.match(
+    /https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[a-z0-9]+(?:-[a-z0-9]+)*/i
+  );
+  if (m) return m[0].replace(/\/+$/, '');
+  return s.replace(/[.,;:!?)]+$/, '');
+}
+
 function findItemByUrl(url) {
   ensureIndex();
-  const key = normalizePropertyPath(url);
+  const cleaned = cleanHtPropertyUrl(splitGluedUrlTail(url).url);
+  const key = normalizePropertyPath(cleaned);
   if (key && urlIndex.has(key)) return urlIndex.get(key);
   const slug = propertySlugFromPath(key);
-  return slug ? slugIndex.get(slug) || null : null;
+  if (slug && slugIndex.has(slug)) return slugIndex.get(slug);
+
+  const listingId = listingIdFromSlug(slug);
+  if (!listingId || !slugIndex) return null;
+  const tokens = new Set(
+    String(slug)
+      .split('-')
+      .filter((t) => t.length > 2 && !/^\d+$/.test(t))
+  );
+  let best = null;
+  let bestN = 0;
+  let unique = null;
+  let uniqueCount = 0;
+  for (const [s, item] of slugIndex.entries()) {
+    if (listingIdFromSlug(s) !== listingId) continue;
+    unique = item;
+    uniqueCount += 1;
+    const n = String(s)
+      .split('-')
+      .filter((t) => tokens.has(t)).length;
+    if (n > bestN) {
+      bestN = n;
+      best = item;
+    }
+  }
+  if (best && bestN >= 1) return best;
+  if (uniqueCount === 1) return unique;
+  return null;
 }
 
 /** Убирает несуществующий префикс /en/ (404 на сайте). */
@@ -136,8 +178,9 @@ function splitGluedUrlTail(rawUrl) {
   }
 
   // …/property/some-slug + ExtraWord (только если хвост с заглавной — иначе ломает villa-391)
+  // …/property/some-slug)GluedWord  or …/slugWhichone
   const prop = url.match(
-    /^(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[a-z0-9-]+\/?)([A-ZА-ЯЁ][A-Za-zА-Яа-яЁё].*)$/
+    /^(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[a-z0-9-]+\/?)\)?([A-ZА-ЯЁ][A-Za-zА-Яа-яЁё].*)$/
   );
   if (prop) {
     return { url: prop[1], tail: prop[2] };
@@ -507,6 +550,8 @@ module.exports = {
   collectRecentPropertyUrls,
   findItemByUrl,
   findItemByPropertyId,
+  cleanHtPropertyUrl,
+  splitGluedUrlTail,
   rebuildUrlIndex,
   invalidateUrlIndex,
   hasEnglishCatalogCopy

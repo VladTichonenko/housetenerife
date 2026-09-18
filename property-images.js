@@ -30,7 +30,7 @@ function resolveCatalogPath() {
 function wantsPropertyPhotos(text) {
   const t = String(text || '').toLowerCase();
   if (!t.trim()) return false;
-  return /(?:фото|фотк|снимк|картинк|изображен|gallery|галере)|(?:show|send|give|want|need|see).{0,24}(?:photo|photos|pics?|pictures?|images?)|(?:photo|photos|pics?|pictures?|images?).{0,20}(?:please|of|the)|(?:foto|fotos|im[aá]genes?).{0,20}(?:por\s+favor|del|de)|(?:muestra|env[ií]a|manda|quiero|dame).{0,24}(?:foto|fotos|im[aá]gen)|(?:zeig|schicken|sende|schick).{0,24}(?:foto|bilder|bild)|(?:montre|envoie|voir).{0,24}(?:photo|photos|images?)|(?:poka[zż]|prze[sś]lij|zdj[eę]c)|(?:stuur|laat\s+zien|foto'?s?)/i.test(
+  return /(?:фото|фотк|снимк|картинк|изображен|gallery|галере)|(?:show|send|give|want|need|see|mand[aá]|env[ií]a|muestra|dame|quiero|schick|sende|zeig|montre|envoie|poka[zż]|prze[sś]lij|stuur|invia|mostra|g[oö]nder|goster).{0,40}(?:photo|photos|pics?|pictures?|images?|foto|fotos|bilder|bild|im[aá]genes?|zdj[eę]c|immagin|imagens?)|(?:photo|photos|pics?|pictures?|images?|foto|fotos|bilder|zdj[eę]cia).{0,24}(?:please|of|the|por\s+favor|bitte|s'?il|aqui|here|hier|ici|tutaj|aqui|whatsapp)/i.test(
     t
   );
 }
@@ -184,7 +184,10 @@ async function preparePropertyPhotosForSend(replyText, lang = 'ru', opts = {}) {
   const { resolveMentionedPropertyItems } = require('./property-interest');
   let items = [];
   if (opts.userText) {
-    items = resolveMentionedPropertyItems(opts.userText, opts.historyMessages || []);
+    items = resolveMentionedPropertyItems(opts.userText, opts.historyMessages || [], {
+      chatId: opts.chatId,
+      forceLast: Boolean(opts.force),
+    });
   }
   if (!items.length) {
     items = extractPropertyItemsFromReplyText(replyText);
@@ -198,7 +201,13 @@ async function preparePropertyPhotosForSend(replyText, lang = 'ru', opts = {}) {
       else items = items.slice(0, 1);
     }
   }
-  if (!items.length && opts.force) {
+  if (!items.length && opts.chatId) {
+    items = resolveMentionedPropertyItems(opts.userText || 'this property photos', opts.historyMessages || [], {
+      chatId: opts.chatId,
+      forceLast: true,
+    });
+  }
+  if (!items.length) {
     return [];
   }
 

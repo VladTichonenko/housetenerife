@@ -2,10 +2,14 @@
 
 const fs = require('fs');
 const path = require('path');
-const { formatContactDisplay, getManagerContact, REASON_LABELS } = require('./manager-handoff');
-const { generateHandoffSummary } = require('./handoff-summary');
+const { formatContactDisplay } = require('./manager-handoff');
+const { analyzeConversation } = require('./dialog-context');
+const { extractPurchaseTimelineLabel } = require('./bot-core-rules');
 const { getLanguageName } = require('./language-detector');
 const { buildRuntimeHistory } = require('./conversation-history');
+
+/** WhatsApp, куда уходят все отчёты по диалогу (можно переопределить MANAGER_REPORT_WHATSAPP). */
+const DEFAULT_REPORT_WHATSAPP = '+375336867911';
 
 function resolveReportStatePath() {
   if (process.env.MANAGER_REPORT_STATE_PATH) {
@@ -39,10 +43,7 @@ function reportsEnabled() {
 
 function managerWhatsAppChatId() {
   // Отдельный номер для отчётов (не путать с контактом, который показываем клиенту)
-  const reportPhone =
-    process.env.MANAGER_REPORT_WHATSAPP ||
-    process.env.MANAGER_WHATSAPP ||
-    getManagerContact().phone;
+  const reportPhone = process.env.MANAGER_REPORT_WHATSAPP || DEFAULT_REPORT_WHATSAPP;
   const digits = String(reportPhone || '').replace(/\D/g, '');
   return digits ? `${digits}@c.us` : null;
 }
@@ -134,59 +135,79 @@ function loadFullHistory(chatId) {
   return [];
 }
 
-function formatPropertiesBlock(properties) {
-  const list = (properties || []).slice(0, 5);
-  if (!list.length) return 'Объект: ещё не зафиксирован явно';
-  return list
-    .map((p, i) => {
-      const title = p.title || p.id || 'объект';
-      const price = p.price ? ` — ${p.price}` : '';
-      const url = p.siteUrl || p.url || '';
-      return `${i + 1}. ${title}${price}${url ? `\n   ${url}` : ''}`;
-    })
-    .join('\n');
+function formatObjectLine(properties, dialog) {
+  const list = (properties || []).filter(Boolean);
+  if (list.length) {
+    const main = list[0];
+    const title = String(main.title || main.id || 'объект').trim();
+    const price = main.price ? ` — ${main.price}` : '';
+    const extra = list.length > 1 ? ` (+ ещё ${list.length - 1})` : '';
+    return `${title}${price}${extra}`;
+  }
+  const type = dialog?.propertyTypeLabel ? String(dialog.propertyTypeLabel).trim() : '';
+  const region = dialog?.regionLabel || dialog?.microAreaLabel || '';
+  const hint = [type, region].filter(Boolean).join(', ');
+  return hint || 'ещё не выбран';
 }
 
-function buildWhatsAppReportText({
-  contact,
-  language,
-  trigger,
-  properties,
-  summary,
-  clientName,
-}) {
-  const { name: managerName } = getManagerContact();
-  const reason =
-    REASON_LABELS[trigger] ||
-    (trigger === 'property_interest'
-      ? 'клиент указал интерес к объекту'
-      : trigger === 'call_requested'
-        ? 'клиент согласился на созвон'
-        : trigger);
+function formatMortgageLine(dialog) {
+  if (dialog?.hasMortgageAnswered) {
+    if (dialog.needsMortgage === true) return 'нужна';
+    if (dialog.needsMortgage === false) return 'не нужна';
+  }
+  return 'не уточнено';
+}
 
+function collectDialogReportFacts({
+  history = [],
+  properties = [],
+  language = 'ru',
+  clientName = '',
+  contact = null,
+} = {}) {
+  const dialog = analyzeConversation(history || [], language || 'ru');
+  const userText = (history || [])
+    .filter((m) => m.sender === 'user')
+    .map((m) => m.text || '')
+    .join('\n');
+
+  const timeline =
+    extractPurchaseTimelineLabel(userText) ||
+    (dialog.hasTimeline ? 'указан в диалоге' : 'не указан');
+
+  const budget =
+    dialog.ignoreBudget
+      ? 'без ограничения'
+      : String(dialog.budgetLabel || '').trim() || 'не указан';
+
+  const name = String(clientName || '').trim() || 'не назвал';
+  const languageLabel = getLanguageName(language) || language || 'не определён';
+
+  return {
+    name,
+    languageLabel,
+    objectLine: formatObjectLine(properties, dialog),
+    budget,
+    timeline,
+    mortgage: formatMortgageLine(dialog),
+    phone: contact?.display || '',
+    waLink: contact?.waLink || '',
+  };
+}
+
+function buildWhatsAppReportText(facts = {}) {
   const lines = [
-    '📋 Отчёт по диалогу с клиентом',
-    '',
-    managerName ? `Для: ${managerName}` : null,
-    clientName ? `Клиент: ${clientName}` : null,
-    contact?.display ? `📞 ${contact.display}` : null,
-    language ? `🌍 ${getLanguageName(language) || language}` : null,
-    `Причина отчёта: ${reason}`,
-    '',
-    '🏠 Интерес к объекту(ам):',
-    formatPropertiesBlock(properties),
-    '',
-    '📝 Что обсуждали и к чему пришли:',
-    String(summary || 'Выжимка недоступна').trim(),
+    `Имя: ${facts.name || 'не назвал'}`,
+    `Язык: ${facts.languageLabel || 'не определён'}`,
+    `Объект: ${facts.objectLine || 'ещё не выбран'}`,
+    `Бюджет: ${facts.budget || 'не указан'}`,
+    `Срок: ${facts.timeline || 'не указан'}`,
+    `Ипотека: ${facts.mortgage || 'не уточнено'}`,
+    facts.phone ? `Тел: ${facts.phone}` : null,
   ].filter((x) => x != null);
 
-  if (contact?.waLink) {
-    lines.push('', `Открыть чат: ${contact.waLink}`);
-  }
-
   const text = lines.join('\n');
-  // WhatsApp комфортный лимит
-  return text.length > 3800 ? `${text.slice(0, 3780)}…` : text;
+  return text.length > 1500 ? `${text.slice(0, 1480)}…` : text;
 }
 
 /**
@@ -226,29 +247,15 @@ async function queueManagerDialogReport(payload = {}) {
       ? conversationHistory.slice(-200)
       : loadFullHistory(chatId);
 
-  let summary = payload.summary;
-  if (!summary) {
-    try {
-      summary = await generateHandoffSummary(history, {
-        reasonKey: trigger === 'property_interest' ? 'purchase' : trigger,
-        preview,
-        language,
-        clientName,
-        mode: 'manager_report',
-      });
-    } catch (e) {
-      summary = `Не удалось сформировать выжимку: ${e.message}`;
-    }
-  }
-
-  const waText = buildWhatsAppReportText({
-    contact,
-    language,
-    trigger,
+  const facts = collectDialogReportFacts({
+    history,
     properties,
-    summary,
+    language,
     clientName,
+    contact,
   });
+  const waText = buildWhatsAppReportText(facts);
+  const summary = waText;
 
   let waSent = false;
   const target = managerWhatsAppChatId();
@@ -261,7 +268,7 @@ async function queueManagerDialogReport(payload = {}) {
       console.warn('⚠️ Не удалось отправить отчёт в WhatsApp менеджеру:', e.message);
     }
   } else if (!target) {
-    console.warn('⚠️ MANAGER_REPORT_WHATSAPP / MANAGER_WHATSAPP не задан — отчёт только в Telegram/панель');
+    console.warn('⚠️ Не задан номер для отчёта менеджеру');
   } else if (!sendWhatsAppFn) {
     console.warn('⚠️ WhatsApp sender для отчёта ещё не готов');
   }
@@ -271,11 +278,11 @@ async function queueManagerDialogReport(payload = {}) {
     notifyDialogReport({
       phoneDisplay: contact.display,
       waLink: contact.waLink,
-      languageLabel: getLanguageName(language),
+      languageLabel: facts.languageLabel,
       trigger,
-      clientName,
+      clientName: facts.name,
       properties,
-      summary,
+      summary: waText,
       waSent,
     });
   } catch (e) {
@@ -298,7 +305,9 @@ async function queueManagerDialogReport(payload = {}) {
 
   try {
     const { updateOpenHandoffSummary } = require('./handoff-leads');
-    if (typeof updateOpenHandoffSummary === 'function') {
+    // Не затираем уже готовую выжимку handoff длинным/коротким дублем,
+    // если отчёт пришёл после generateHandoffSummary.
+    if (typeof updateOpenHandoffSummary === 'function' && !payload.summary) {
       updateOpenHandoffSummary(chatId, summary, { trigger, preview });
     }
   } catch {
@@ -311,10 +320,13 @@ async function queueManagerDialogReport(payload = {}) {
 
 module.exports = {
   STATE_PATH,
+  DEFAULT_REPORT_WHATSAPP,
   setManagerWhatsAppSender,
   managerWhatsAppChatId,
   shouldSendDialogReport,
   queueManagerDialogReport,
+  collectDialogReportFacts,
+  buildWhatsAppReportText,
   loadFullHistory,
   reportsEnabled,
 };

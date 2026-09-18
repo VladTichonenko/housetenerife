@@ -32,7 +32,7 @@ function resolveCatalogPath() {
 }
 
 const DATA = resolveCatalogPath();
-const SUPPORTED_LANGS = ['ru', 'en', 'es', 'de', 'fr', 'pl', 'nl'];
+const SUPPORTED_LANGS = ['ru', 'en', 'es', 'de', 'fr', 'pl', 'nl', 'it', 'pt', 'tr', 'uk'];
 
 let cache = null;
 let cacheMtimeMs = 0;
@@ -90,7 +90,8 @@ function normalizeItem(item) {
 
 function normalizeLang(lang) {
   const l = String(lang || 'ru').toLowerCase().slice(0, 2);
-  return SUPPORTED_LANGS.includes(l) ? l : 'ru';
+  if (l === 'be') return 'ru';
+  return SUPPORTED_LANGS.includes(l) ? l : 'en';
 }
 
 const FALLBACK_CHAIN = {
@@ -102,16 +103,28 @@ const FALLBACK_CHAIN = {
   de: ['de', 'en', 'es', 'ru'],
   fr: ['fr', 'en', 'es', 'ru'],
   pl: ['pl', 'en', 'es', 'ru'],
-  nl: ['nl', 'en', 'es', 'ru']
+  nl: ['nl', 'en', 'es', 'ru'],
+  it: ['it', 'en', 'es', 'ru'],
+  pt: ['pt', 'en', 'es', 'ru'],
+  tr: ['tr', 'en', 'es', 'ru'],
+  uk: ['uk', 'en', 'ru']
 };
 
-function pickLocalized(map, langChain) {
+function pickLocalized(map, langChain, { allowCyrillic = true, strict = false } = {}) {
   if (!map || typeof map !== 'object') return '';
   for (const code of langChain) {
     const v = map[code];
-    if (v != null && String(v).trim()) return String(v);
+    if (v == null || !String(v).trim()) continue;
+    if (!allowCyrillic && containsCyrillic(v)) continue;
+    return String(v);
   }
-  return Object.values(map).find((v) => v != null && String(v).trim()) || '';
+  if (strict) return '';
+  const rest = Object.values(map).find((v) => {
+    if (v == null || !String(v).trim()) return false;
+    if (!allowCyrillic && containsCyrillic(v)) return false;
+    return true;
+  });
+  return rest ? String(rest) : '';
 }
 
 /** Заголовок из EN/ES slug, если в JSON нет локализованного titles.* */
@@ -263,6 +276,86 @@ const SLUG_TYPE_WORDS = {
     bar: 'Bar',
     restaurant: 'Restaurant',
   },
+  it: {
+    apartments: 'Appartamento',
+    apartment: 'Appartamento',
+    apartamentos: 'Appartamento',
+    apartamenty: 'Appartamento',
+    villas: 'Villa',
+    villa: 'Villa',
+    parking: 'Posto auto',
+    house: 'Casa',
+    houses: 'Casa',
+    casa: 'Casa',
+    land: 'Terreno',
+    plot: 'Terreno',
+    commercial: 'Commerciale',
+    penthouse: 'Attico',
+    studio: 'Monolocale',
+    duplex: 'Duplex',
+    bar: 'Bar',
+    restaurant: 'Ristorante',
+  },
+  pt: {
+    apartments: 'Apartamento',
+    apartment: 'Apartamento',
+    apartamentos: 'Apartamento',
+    apartamenty: 'Apartamento',
+    villas: 'Villa',
+    villa: 'Villa',
+    parking: 'Estacionamento',
+    house: 'Casa',
+    houses: 'Casa',
+    casa: 'Casa',
+    land: 'Terreno',
+    plot: 'Terreno',
+    commercial: 'Comercial',
+    penthouse: 'Penthouse',
+    studio: 'Estúdio',
+    duplex: 'Duplex',
+    bar: 'Bar',
+    restaurant: 'Restaurante',
+  },
+  tr: {
+    apartments: 'Daire',
+    apartment: 'Daire',
+    apartamentos: 'Daire',
+    apartamenty: 'Daire',
+    villas: 'Villa',
+    villa: 'Villa',
+    parking: 'Otopark',
+    house: 'Ev',
+    houses: 'Ev',
+    casa: 'Ev',
+    land: 'Arsa',
+    plot: 'Arsa',
+    commercial: 'Ticari',
+    penthouse: 'Penthouse',
+    studio: 'Stüdyo',
+    duplex: 'Dubleks',
+    bar: 'Bar',
+    restaurant: 'Restoran',
+  },
+  uk: {
+    apartments: 'Апартаменти',
+    apartment: 'Апартаменти',
+    apartamentos: 'Апартаменти',
+    apartamenty: 'Апартаменти',
+    villas: 'Вілла',
+    villa: 'Вілла',
+    parking: 'Паркінг',
+    house: 'Будинок',
+    houses: 'Будинок',
+    casa: 'Будинок',
+    land: 'Ділянка',
+    plot: 'Ділянка',
+    commercial: 'Комерція',
+    penthouse: 'Пентхаус',
+    studio: 'Студія',
+    duplex: 'Дуплекс',
+    bar: 'Бар',
+    restaurant: 'Ресторан',
+  },
 };
 
 const FACT_LABELS = {
@@ -336,6 +429,46 @@ const FACT_LABELS = {
     garage: 'garage',
     terrace: 'terras',
   },
+  it: {
+    bed: 'camera',
+    beds: 'camere',
+    bath: 'bagno',
+    baths: 'bagni',
+    area: 'm²',
+    land: 'terreno',
+    garage: 'garage',
+    terrace: 'terrazza',
+  },
+  pt: {
+    bed: 'quarto',
+    beds: 'quartos',
+    bath: 'casa de banho',
+    baths: 'casas de banho',
+    area: 'm²',
+    land: 'terreno',
+    garage: 'garagem',
+    terrace: 'terraço',
+  },
+  tr: {
+    bed: 'yatak odası',
+    beds: 'yatak odası',
+    bath: 'banyo',
+    baths: 'banyo',
+    area: 'm²',
+    land: 'arsa',
+    garage: 'garaj',
+    terrace: 'teras',
+  },
+  uk: {
+    bed: 'спальня',
+    beds: 'спальні',
+    bath: 'ванна',
+    baths: 'ванні',
+    area: 'м²',
+    land: 'ділянка',
+    garage: 'гараж',
+    terrace: 'тераса',
+  },
 };
 
 function parseIntLoose(raw) {
@@ -407,8 +540,9 @@ function formatFactsLine(item, lang) {
   const labels = FACT_LABELS[l];
   const facts = parseListingFacts(item);
   const cats = getItemPropertyCategories(item);
+  const typeCats = cats.includes('parking') ? ['parking'] : cats;
   const parts = [];
-  if (cats.length) parts.push(formatDetectedTypes(cats, l));
+  if (typeCats.length) parts.push(formatDetectedTypes(typeCats, l));
   if (facts.beds) {
     const n = parseInt(String(facts.beds).replace(/[^\d].*/, ''), 10);
     const word = n === 1 ? labels.bed : labels.beds;
@@ -431,7 +565,7 @@ function localizeSlugTitle(slugTitle, lang) {
   if (!raw) return '';
   const l = SLUG_TYPE_WORDS[lang] ? lang : 'en';
   const dict = SLUG_TYPE_WORDS[l];
-  const inPrep = { de: 'in', fr: 'à', pl: 'w', nl: 'in', es: 'en', en: 'in' }[l] || 'in';
+  const inPrep = { de: 'in', fr: 'à', pl: 'w', nl: 'in', es: 'en', en: 'in', it: 'a', pt: 'em', tr: 'içinde', uk: 'в' }[l] || 'in';
   return raw
     .replace(/\b([A-Za-z]+)\b/g, (word) => {
       if (/^in$/i.test(word)) return inPrep;
@@ -445,32 +579,38 @@ function localizeSlugTitle(slugTitle, lang) {
 function pickNonCyrillicTitle(item, lang, url) {
   const fromSlug =
     titleFromPropertyUrl(item.urls?.en) ||
-    titleFromPropertyUrl(url) ||
     titleFromPropertyUrl(item.urls?.es) ||
+    titleFromPropertyUrl(url) ||
     titleFromPropertyUrl(item.url);
   if (lang === 'en') {
     if (item.titles?.en && !containsCyrillic(item.titles.en)) return item.titles.en;
     if (fromSlug) return localizeSlugTitle(fromSlug, 'en');
   }
-  if (!['ru', 'en', 'es'].includes(lang) && fromSlug) {
+  if (lang !== 'ru' && fromSlug) {
     return localizeSlugTitle(fromSlug, lang);
   }
   const chain = FALLBACK_CHAIN[lang] || ['en', 'es', 'ru'];
-  let title = pickLocalized(item.titles, chain) || item.title || '';
-  if (lang !== 'ru' && containsCyrillic(title) && fromSlug) {
-    return localizeSlugTitle(fromSlug, lang);
+  let title = pickLocalized(item.titles, chain, { allowCyrillic: lang === 'ru' || lang === 'uk' }) || item.title || '';
+  if (lang !== 'ru' && containsCyrillic(title)) {
+    return localizeSlugTitle(fromSlug, lang) || title.replace(/[а-яё]+/gi, '').replace(/\s{2,}/g, ' ').trim();
   }
   return title;
 }
 
 function getLocalizedItem(item, lang) {
   const l = normalizeLang(lang);
-  const chain = FALLBACK_CHAIN[l] || ['ru'];
-  const url = pickLocalized(item.urls, chain) || item.url || '';
+  const allowCyr = l === 'ru' || l === 'uk';
+  const chain = FALLBACK_CHAIN[l] || ['en', 'es', 'ru'];
+  const url =
+    pickLocalized(item.urls, chain, { allowCyrillic: true }) ||
+    item.urls?.en ||
+    item.urls?.es ||
+    item.url ||
+    '';
   let title = pickNonCyrillicTitle(item, l, url);
   const factsLine = formatFactsLine(item, l);
-  const nativeDesc = pickLocalized(item.descriptions, [l]) || '';
-  const nativeOverview = pickLocalized(item.overviews, [l]) || '';
+  const nativeDesc = pickLocalized(item.descriptions, [l], { allowCyrillic: allowCyr, strict: true }) || '';
+  const nativeOverview = pickLocalized(item.overviews, [l], { allowCyrillic: allowCyr, strict: true }) || '';
   let description = nativeDesc;
   let overview = nativeOverview;
 
@@ -480,16 +620,42 @@ function getLocalizedItem(item, lang) {
   } else {
     if (containsCyrillic(title)) {
       const fromSlug =
-        titleFromPropertyUrl(url) ||
         titleFromPropertyUrl(item.urls?.en) ||
         titleFromPropertyUrl(item.urls?.es) ||
+        titleFromPropertyUrl(url) ||
         titleFromPropertyUrl(item.url);
       title =
         localizeSlugTitle(fromSlug, l) ||
         title.replace(/[а-яё]+/gi, '').replace(/\s{2,}/g, ' ').trim();
     }
-    if (!description || containsCyrillic(description)) description = factsLine;
-    if (!overview || containsCyrillic(overview)) overview = factsLine;
+    if (
+      !description ||
+      containsCyrillic(description) ||
+      l === 'it' ||
+      l === 'pt' ||
+      l === 'tr' ||
+      /DETALLES CLAVE|DESCRIPCIÓN DE PROPIEDAD|ОПИСАНИЕ/i.test(description)
+    ) {
+      description = factsLine;
+    }
+    if (
+      !overview ||
+      containsCyrillic(overview) ||
+      l === 'it' ||
+      l === 'pt' ||
+      l === 'tr' ||
+      /DETALLES CLAVE|DESCRIPCIÓN DE PROPIEDAD|ОПИСАНИЕ/i.test(overview)
+    ) {
+      overview = factsLine;
+    }
+  }
+
+  const { getItemPropertyCategories, formatDetectedTypes } = require('./property-types');
+  const cats = getItemPropertyCategories(item);
+  if (cats.includes('parking')) {
+    const typeNote = formatDetectedTypes(['parking'], l);
+    overview = [typeNote, factsLine].filter(Boolean).join(' — ');
+    if (!description || /business|negocio|бизнес/i.test(description)) description = overview;
   }
 
   return {
@@ -1159,8 +1325,16 @@ function searchForContext(query, limit = 8, options = {}) {
   }
 
   if (!ranked.length) {
-    return { found: false, text: NO_MATCH_MSG[lang] || NO_MATCH_MSG.ru, totalInDb, urls: [] };
+    return { found: false, text: NO_MATCH_MSG[lang] || NO_MATCH_MSG.en, totalInDb, urls: [] };
   }
+
+  const resultTypeIds = [];
+  for (const r of ranked) {
+    for (const c of getItemPropertyCategories(r.item)) {
+      if (!resultTypeIds.includes(c)) resultTypeIds.push(c);
+    }
+  }
+  const resultTypeLabel = resultTypeIds.length ? formatDetectedTypes(resultTypeIds, lang) : '';
   let lines;
   const shareUrls = [];
   const { getShareUrl } = require('./property-share');
@@ -1207,6 +1381,21 @@ function searchForContext(query, limit = 8, options = {}) {
       ? sectorHintMap[lang] || sectorHintMap.en
       : '';
 
+  const parkingTypeHint = resultTypeIds.includes('parking')
+    ? lang === 'fr'
+      ? ' TYPE RÉEL: parking / place de parking — NE PAS appeler cela un appartement.'
+      : lang === 'es'
+        ? ' TIPO REAL: parking / plaza — NO lo llames apartamento.'
+        : lang === 'de'
+          ? ' ECHTER TYP: Parkplatz — NICHT als Wohnung bezeichnen.'
+          : lang === 'pl'
+            ? ' PRAWDZIWY TYP: parking — NIE nazywaj tego mieszkaniem.'
+            : lang === 'nl'
+              ? ' ECHT TYPE: parkeerplaats — NOEM dit geen appartement.'
+              : lang === 'ru'
+                ? ' РЕАЛЬНЫЙ ТИП: паркинг — НЕ называй квартирой или апартаментами.'
+                : ' REAL TYPE: parking space — do NOT call it an apartment.'
+    : '';
   const typeHint =
     usedLastResortTypeFallback && lang === 'en'
       ? ' IMPORTANT: no exact property type in this region — showing nearest residential alternatives WITH catalog URLs. Say honestly that exact type is unavailable.'
@@ -1274,13 +1463,13 @@ function searchForContext(query, limit = 8, options = {}) {
                 ? ' Parafraseer in het Nederlands; nooit Russisch/Cyrillisch plakken.'
                 : ' Paraphrase in the client language; never paste Russian/Cyrillic.';
   const headerMap = {
-    en: `[Full catalog: ${totalInDb} listings; search picked ${lines.length} diverse matches below — use only these URLs.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
-    es: `[Catálogo completo: ${totalInDb} anuncios; abajo ${lines.length} opciones variadas — solo estos enlaces.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
-    de: `[Vollständiger Katalog: ${totalInDb} Objekte; unten ${lines.length} passende Varianten — nur diese URLs verwenden.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
-    fr: `[Catalogue complet: ${totalInDb} annonces; ci-dessous ${lines.length} options — utiliser uniquement ces liens.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
-    pl: `[Pełny katalog: ${totalInDb} ofert; poniżej ${lines.length} dopasowanych wariantów — używaj tylko tych URL.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
-    nl: `[Volledige catalogus: ${totalInDb} objecten; hieronder ${lines.length} passende opties — gebruik alleen deze URL’s.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
-    ru: `[Полный каталог: ${totalInDb} объектов; ниже ${lines.length} разных вариантов по запросу — другие ссылки не выдумывай.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`,
+    en: `[Full catalog: ${totalInDb} listings; search picked ${lines.length} diverse matches below — use only these URLs.${priceHint}${sectorHint}${typeHint}${parkingTypeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
+    es: `[Catálogo completo: ${totalInDb} anuncios; abajo ${lines.length} opciones variadas — solo estos enlaces.${priceHint}${sectorHint}${typeHint}${parkingTypeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
+    de: `[Vollständiger Katalog: ${totalInDb} Objekte; unten ${lines.length} passende Varianten — nur diese URLs verwenden.${priceHint}${sectorHint}${typeHint}${parkingTypeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
+    fr: `[Catalogue complet: ${totalInDb} annonces; ci-dessous ${lines.length} options — utiliser uniquement ces liens.${priceHint}${sectorHint}${typeHint}${parkingTypeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
+    pl: `[Pełny katalog: ${totalInDb} ofert; poniżej ${lines.length} dopasowanych wariantów — używaj tylko tych URL.${priceHint}${sectorHint}${typeHint}${parkingTypeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
+    nl: `[Volledige catalogus: ${totalInDb} objecten; hieronder ${lines.length} passende opties — gebruik alleen deze URL’s.${priceHint}${sectorHint}${typeHint}${parkingTypeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
+    ru: `[Полный каталог: ${totalInDb} объектов; ниже ${lines.length} разных вариантов по запросу — другие ссылки не выдумывай.${priceHint}${sectorHint}${typeHint}${parkingTypeHint}${fallbackHint}${areaHint}]`,
   };
   const header = headerMap[lang] || headerMap.en;
 
@@ -1290,6 +1479,8 @@ function searchForContext(query, limit = 8, options = {}) {
     syncedAt: data.syncedAt || null,
     totalInDb,
     urls: shareUrls,
+    typeLabel: resultTypeLabel,
+    typeIds: resultTypeIds,
     usedBudgetFallback,
     usedAreaFallback,
     usedSoftTypeFallback,
@@ -1370,11 +1561,12 @@ function listProperties({ q = '', page = 1, limit = 24, lang = 'ru' } = {}) {
 function getCatalogSiteUrl(lang) {
   const l = normalizeLang(lang);
   if (l === 'es') return 'https://housetenerife.eu/es/';
-  if (l === 'en') return 'https://housetenerife.eu/';
+  if (l === 'en' || l === 'it' || l === 'pt' || l === 'tr') return 'https://housetenerife.eu/';
   if (l === 'de') return 'https://housetenerife.eu/de/';
   if (l === 'fr') return 'https://housetenerife.eu/fr/';
   if (l === 'pl') return 'https://housetenerife.eu/pl/';
   if (l === 'nl') return 'https://housetenerife.eu/nl/';
+  if (l === 'uk') return 'https://housetenerife.eu/ru/';
   return 'https://housetenerife.eu/ru/';
 }
 

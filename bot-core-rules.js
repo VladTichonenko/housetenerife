@@ -78,6 +78,56 @@ function detectInvestmentTimeline(text) {
 }
 
 /**
+ * Короткий срок покупки для отчёта менеджеру: «через 2 мес.», «сейчас», «позже».
+ * Берём последнее совпадение в тексте клиента.
+ */
+function extractPurchaseTimelineLabel(text) {
+  const source = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!source) return '';
+
+  const rules = [
+    { re: /через\s+(\d+)\s*[-–—]\s*(\d+)\s*(?:месяц|мес\.?)/giu, to: (m) => `через ${m[1]}–${m[2]} мес.` },
+    { re: /через\s+(\d+)\s*(?:месяц|мес\.?)/giu, to: (m) => `через ${m[1]} мес.` },
+    { re: /через\s+(\d+)\s*(?:недел)/giu, to: (m) => `через ${m[1]} нед.` },
+    { re: /через\s+(\d+)\s*(?:год|лет|года)/giu, to: (m) => `через ${m[1]} г.` },
+    { re: /через\s+(?:пару|несколько)\s+месяц/giu, to: () => 'через пару месяцев' },
+    { re: /in\s+(\d+)\s*[-–—]\s*(\d+)\s*months?/giu, to: (m) => `через ${m[1]}–${m[2]} мес.` },
+    { re: /(?:in|within)\s+(\d+)\s*months?/giu, to: (m) => `через ${m[1]} мес.` },
+    { re: /en\s+(\d+)\s*meses?/giu, to: (m) => `через ${m[1]} мес.` },
+    { re: /dans\s+(\d+)\s*mois/giu, to: (m) => `через ${m[1]} мес.` },
+    {
+      re: /(?:^|[^\p{L}])(?:2|два|two)\s*[-–—]?\s*(?:3|три|three)\s*(?:месяц|мес\.?|months?|meses)/giu,
+      to: () => 'через 2–3 мес.',
+    },
+    { re: /этот\s+год|this\s+year|este\s+a[nñ]o|dieses\s+jahr|cette\s+ann/giu, to: () => 'в этом году' },
+    { re: /следующ(?:ий|ем)\s+год|next\s+year/giu, to: () => 'в следующем году' },
+    {
+      re: /(?:^|[^\p{L}])(?:сейчас|сразу|немедленн|asap|срочно|now|immediately|right\s+away|ahora|sofort|maintenant)(?:[^\p{L}]|$)/giu,
+      to: () => 'сейчас',
+    },
+    { re: /прямо\s+сейчас|готов(?:ы|а)?\s+(?:сейчас|сразу)|ready\s+now|de\s+inmediato/giu, to: () => 'сейчас' },
+    {
+      re: /(?:^|[^\p{L}])(?:позже|позднее|later|soon(?:ish)?)(?:[^\p{L}]|$)|не\s+спеш|присматрива|no\s+rush|m[aá]s\s+adelante|plus\s+tard|keine\s+eile/giu,
+      to: () => 'позже',
+    },
+  ];
+
+  let last = '';
+  let lastIndex = -1;
+  for (const rule of rules) {
+    rule.re.lastIndex = 0;
+    let match;
+    while ((match = rule.re.exec(source))) {
+      if (match.index >= lastIndex) {
+        lastIndex = match.index;
+        last = rule.to(match);
+      }
+    }
+  }
+  return last;
+}
+
+/**
  * Жалоба / сложный запрос → эскалация к человеку (правило 9).
  */
 function wantsEscalation(text) {
@@ -217,6 +267,7 @@ module.exports = {
   CORE_RULES,
   BUDGET_RANGE_RATIO,
   detectInvestmentTimeline,
+  extractPurchaseTimelineLabel,
   wantsEscalation,
   expandBudgetBand,
   formatCoreRulesForPrompt,

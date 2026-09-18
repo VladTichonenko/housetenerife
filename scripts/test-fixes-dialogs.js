@@ -1514,6 +1514,10 @@ function runDeterministicTests() {
       true
   );
   check(
+    'mortgage: «ипотека не нужна»',
+    detectMortgagePreference('ипотека не нужна').needsMortgage === false
+  );
+  check(
     'mortgage: lastMessageConfirmsMortgage',
     lastMessageConfirmsMortgage('на руках 600 тысяч, остальное планирую брать в ипотеку')
   );
@@ -1751,6 +1755,15 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
   check(
     'timeline: «now»',
     require('../bot-core-rules').detectInvestmentTimeline('now')
+  );
+  const { extractPurchaseTimelineLabel } = require('../bot-core-rules');
+  check('timeline label: через 2 месяца', extractPurchaseTimelineLabel('через 2 месяца') === 'через 2 мес.');
+  check('timeline label: in 3 months', extractPurchaseTimelineLabel('in 3 months') === 'через 3 мес.');
+  check('timeline label: сейчас', extractPurchaseTimelineLabel('хочу купить сейчас') === 'сейчас');
+  check('timeline label: позже', extractPurchaseTimelineLabel('позже, пока присматриваюсь') === 'позже');
+  check(
+    'timeline label: последнее совпадение',
+    extractPurchaseTimelineLabel('сейчас не готов, через 3 месяца') === 'через 3 мес.'
   );
   const invSkipLinks = analyzeConversation(
     user(
@@ -2035,7 +2048,7 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
   const { buildReplyLanguageRule, getSearchingListingsMessage } = require('../sales-localization');
   const catalogItems = load().items || [];
   const hz741 = catalogItems.find((x) => String(x.id).toUpperCase() === 'HZ741') || catalogItems[0];
-  for (const lang of ['en', 'es', 'de', 'fr', 'pl', 'nl']) {
+  for (const lang of ['en', 'es', 'de', 'fr', 'pl', 'nl', 'it', 'pt', 'tr']) {
     const loc = getLocalizedItem(hz741, lang);
     check(
       `card ${lang}: title без кириллицы`,
@@ -2107,6 +2120,172 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
     /Preis:/.test(linkedDe) && !/Цена \//.test(linkedDe)
   );
   check('linked DE без кириллицы в теле', !containsCyrillic(linkedDe.replace(/https?:\/\/\S+/g, '')));
+
+  console.log('\n15) Короткий отчёт менеджеру');
+  const {
+    collectDialogReportFacts,
+    buildWhatsAppReportText,
+    managerWhatsAppChatId,
+    DEFAULT_REPORT_WHATSAPP,
+  } = require('../manager-dialog-report');
+  const reportFacts = collectDialogReportFacts({
+    history: [
+      { sender: 'user', text: 'Ищу виллу в Adeje под инвестиции, бюджет 800000' },
+      { sender: 'assistant', text: 'Когда планируете покупку?' },
+      { sender: 'user', text: 'Через 3 месяца, ипотека не нужна. Меня зовут Андрей.' },
+    ],
+    properties: [{ title: 'Villa Adeje 12', price: '€790,000' }],
+    language: 'ru',
+    clientName: 'Андрей',
+    contact: { display: '+34612345678', waLink: 'https://wa.me/34612345678' },
+  });
+  const reportText = buildWhatsAppReportText(reportFacts);
+  check('отчёт: имя', /^Имя: Андрей$/m.test(reportText));
+  check('отчёт: язык', /^Язык: Русский$/m.test(reportText));
+  check('отчёт: объект', /Объект: Villa Adeje 12 — €790,000/.test(reportText));
+  check('отчёт: бюджет', /Бюджет:.*800,000/.test(reportText));
+  check('отчёт: срок', /Срок: через 3 мес/.test(reportText));
+  check('отчёт: ипотека не нужна', /Ипотека: не нужна/.test(reportText));
+  check('отчёт: телефон', /Тел: \+34612345678/.test(reportText));
+  check(
+    'отчёт короткий, без выжимки',
+    reportText.split('\n').length <= 8 && !/Что обсуждали|Причина отчёта|Открыть чат/.test(reportText)
+  );
+  const prevReportWa = process.env.MANAGER_REPORT_WHATSAPP;
+  delete process.env.MANAGER_REPORT_WHATSAPP;
+  check(
+    'отчёты на +375336867911',
+    DEFAULT_REPORT_WHATSAPP.replace(/\D/g, '') === '375336867911' &&
+      managerWhatsAppChatId() === '375336867911@c.us'
+  );
+  if (prevReportWa == null) delete process.env.MANAGER_REPORT_WHATSAPP;
+  else process.env.MANAGER_REPORT_WHATSAPP = prevReportWa;
+
+  console.log('\n=== 23. Sticky объект / /start / фото / parking ===\n');
+  const { userStartsFreshSearch, refersToCurrentProperty, findItemsByNameMention, clearChatPropertyInterest } =
+    require('../property-interest');
+  const { splitGluedUrlTail } = require('../property-share');
+
+  check(
+    'fresh search PL Los Cristianos не «этот объект»',
+    userStartsFreshSearch(
+      'Cześć, zmieńmy język na polski. Szukam mieszkania w Los Cristianos do 300000 euro, na życie'
+    )
+  );
+  check(
+    'fresh search NL Adeje',
+    userStartsFreshSearch(
+      'Hallo, ik zoek een appartement in Adeje om te wonen, budget 350000 euro'
+    )
+  );
+  check(
+    'fotos ESTE piso — не fresh search',
+    !userStartsFreshSearch('Mándame las fotos de ESTE piso, no otros anuncios') &&
+      refersToCurrentProperty('Mándame las fotos de ESTE piso, no otros anuncios')
+  );
+  check(
+    'volví Island Village — продолжение объекта',
+    refersToCurrentProperty('Hola, volví mañana. Seguimos con Island Village: ¿precio y terraza?')
+  );
+
+  const parkingItem =
+    catalogItems.find((x) =>
+      /(?:^|[/-])(?:parking|car-parking|parking-a-vendre|parkplatz|машиномест)(?:[/-]|$)/i.test(
+        [x.url, ...Object.values(x.urls || {})].join(' ')
+      )
+    ) || null;
+  if (parkingItem) {
+    const cats = getItemPropertyCategories(parkingItem);
+    check('parking item категория parking', cats.includes('parking'), String(cats));
+    check('parking не business', !cats.includes('business'), String(cats));
+    const frPark = getLocalizedItem(parkingItem, 'fr');
+    check(
+      'FR parking карточка не appartements',
+      /parking|place de parking|parkplatz/i.test(`${frPark.factsLine} ${frPark.overview}`) &&
+        !/appartement/i.test(frPark.factsLine || ''),
+      frPark.factsLine
+    );
+  } else {
+    check('parking item найден в каталоге', false);
+  }
+
+  const afterNewSearch = resolveMentionedPropertyItems(
+    'Cześć, szukam mieszkania w Los Cristianos do 300000 euro, na życie',
+    [
+      {
+        sender: 'assistant',
+        text: 'Car Parking https://housetenerife.eu/property/car-parking-for-sale-317/',
+      },
+    ]
+  );
+  check(
+    'новый поиск не тащит parking из истории',
+    afterNewSearch.length === 0,
+    JSON.stringify(afterNewSearch.map((x) => x.id))
+  );
+
+  const photosThis = resolveMentionedPropertyItems('Mándame las fotos de ESTE piso', [
+    { sender: 'assistant', text: aptUrl },
+  ]);
+  check(
+    'фото ESTE берёт объект из истории',
+    photosThis.length === 1 && /741|adehe|adeje/i.test(String(photosThis[0].id || photosThis[0].url || '')),
+    photosThis[0] && photosThis[0].id
+  );
+
+  const named = findItemsByNameMention('Seguimos con Island Village precio y terraza');
+  check(
+    'имя Island Village резолвится из каталога',
+    named.length >= 1 && /island/i.test(JSON.stringify(named[0])),
+    named[0] && (named[0].id || named[0].title)
+  );
+
+  const stickyResetChat = `test-start-interest-${Date.now()}@c.us`;
+  clearChatPropertyInterest(stickyResetChat);
+  check(
+    '/start analog: clearChatPropertyInterest чистит interested',
+    require('../property-interest').getInterestedProperties(stickyResetChat).length === 0
+  );
+
+  check(
+    'wantsPhotos ES mándame las fotos',
+    wantsPropertyPhotos('Mándame las fotos de ESTE piso, no otros anuncios')
+  );
+  check(
+    'wantsPhotos DE schick mir die Fotos',
+    wantsPropertyPhotos('Schick mir bitte die Fotos von DIESEM Apartment in Adeje')
+  );
+  check(
+    'wantsPhotos IT mandami le foto',
+    wantsPropertyPhotos('Mandami le foto di questo appartamento')
+  );
+
+  const glued = splitGluedUrlTail(
+    'https://housetenerife.eu/es/property/apartamentos-en-adeje-741/)Sobreparking'
+  );
+  check(
+    'URL glue )Sobreparking отделяется',
+    /apartamentos-en-adeje-741\/?$/i.test(glued.url) && /Sobreparking/i.test(glued.tail),
+    JSON.stringify(glued)
+  );
+
+  const persist = analyzeConversation(
+    [
+      {
+        sender: 'user',
+        text: 'Hola, volví mañana. Seguimos con Island Village: ¿precio y terraza?',
+      },
+    ],
+    'es'
+  );
+  check(
+    'return-tomorrow: не FIRST_CONTACT/NEED_PURPOSE',
+    persist.stage !== 'FIRST_CONTACT' && persist.stage !== 'NEED_PURPOSE',
+    persist.stage
+  );
+
+  const itCard = getLocalizedItem(hz741, 'it');
+  check('IT facts не кириллица', !containsCyrillic(itCard.factsLine || ''), itCard.factsLine);
 
   console.log(`\n--- Итого: ${passed} passed, ${failed} failed ---\n`);
   return failed === 0;
