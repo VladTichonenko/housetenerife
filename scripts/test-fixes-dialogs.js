@@ -1956,6 +1956,7 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
     getLinkedPropertyStageInstruction,
     clientTalksAboutLinkedProperty,
     resolveMentionedPropertyItems,
+    formatLinkedPropertiesForPrompt,
   } = require('../property-interest');
   const { extractClientName } = require('../handoff-pending');
   const { detectNegativeResponse } = require('../manager-handoff');
@@ -2027,6 +2028,85 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
   check('start: sticky fr выставлен', getStickyDialogLanguage(stickyChat) === 'fr');
   clearStickyDialogLanguage(stickyChat);
   check('start: clearSticky сбрасывает язык', getStickyDialogLanguage(stickyChat) == null);
+
+  console.log('\n=== 22. Локализация карточек и шаблонов ===\n');
+  const { getLocalizedItem, containsCyrillic } = require('../property-catalog');
+  const { getTranslation } = require('../phone-utils');
+  const { buildReplyLanguageRule, getSearchingListingsMessage } = require('../sales-localization');
+  const catalogItems = load().items || [];
+  const hz741 = catalogItems.find((x) => String(x.id).toUpperCase() === 'HZ741') || catalogItems[0];
+  for (const lang of ['en', 'es', 'de', 'fr', 'pl', 'nl']) {
+    const loc = getLocalizedItem(hz741, lang);
+    check(
+      `card ${lang}: title без кириллицы`,
+      loc.title && !containsCyrillic(loc.title),
+      loc.title
+    );
+    check(
+      `card ${lang}: description без кириллицы`,
+      !containsCyrillic(loc.description || ''),
+      String(loc.description || '').slice(0, 80)
+    );
+    if (lang !== 'es') {
+      check(
+        `card ${lang}: не испанский дамп описания`,
+        !/DETALLES CLAVE|DESCRIPCIÓN DE PROPIEDAD/i.test(loc.description || ''),
+        String(loc.description || '').slice(0, 80)
+      );
+    }
+    check(
+      `card ${lang}: factsLine есть`,
+      Boolean(loc.factsLine && loc.factsLine.length > 4),
+      loc.factsLine
+    );
+  }
+  const ruLoc = getLocalizedItem(hz741, 'ru');
+  check('card ru: кириллический title допустим', /[а-яё]/i.test(ruLoc.title || ruLoc.description || ''));
+
+  for (const lang of ['ru', 'en', 'es', 'de', 'fr', 'pl', 'nl', 'it', 'pt', 'tr', 'uk']) {
+    const start = getTranslation(lang, 'start');
+    check(
+      `start ${lang}: Maxim, не «я бот»`,
+      /Maxim|Maksim|Максим/i.test(start) && !/WhatsApp bot|WhatsApp бот|botunum/i.test(start),
+      start.slice(0, 80)
+    );
+    check(
+      `start ${lang}: цель жить/инвестировать`,
+      /live|invest|vivir|invertir|Wohnen|Investment|habiter|investir|życia|inwestycj|wonen|investeren|viverci|viver|oturmak|yatırım|життя|інвестиц|жизн|инвест/i.test(
+        start
+      ),
+      start.slice(0, 90)
+    );
+    const cipher = getTranslation(lang, 'ciphertext_reply');
+    check(`ciphertext ${lang} не пустой`, cipher.length > 20 && cipher !== 'ciphertext_reply');
+  }
+  check(
+    'DE start не урезанный /help-only',
+    /Wohnen|Investment/.test(getTranslation('de', 'start')) && !/Tippe \/help/.test(getTranslation('de', 'start'))
+  );
+  check(
+    'IT start не generic bot',
+    /Maxim/i.test(getTranslation('it', 'start')) && !/il tuo bot WhatsApp/i.test(getTranslation('it', 'start'))
+  );
+  check(
+    'reply lock DE без кириллицы в клиентский ответ',
+    /never paste Russian|niemals Russisch|paraphrase/i.test(buildReplyLanguageRule('de'))
+  );
+  check(
+    'reply lock IT на итальянском',
+    /italiano/i.test(buildReplyLanguageRule('it'))
+  );
+  check(
+    'searching IT не русский fallback',
+    /opzioni|mando/i.test(getSearchingListingsMessage('it')) &&
+      !/[а-яё]/i.test(getSearchingListingsMessage('it'))
+  );
+  const linkedDe = formatLinkedPropertiesForPrompt([hz741], 'de');
+  check(
+    'linked DE: подписи Preis/Typ, не «Цена / Price»',
+    /Preis:/.test(linkedDe) && !/Цена \//.test(linkedDe)
+  );
+  check('linked DE без кириллицы в теле', !containsCyrillic(linkedDe.replace(/https?:\/\/\S+/g, '')));
 
   console.log(`\n--- Итого: ${passed} passed, ${failed} failed ---\n`);
   return failed === 0;

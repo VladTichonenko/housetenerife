@@ -521,6 +521,21 @@ const RU = {
 };
 
 function buildReplyLanguageRule(targetLang) {
+  const raw = String(targetLang || '').toLowerCase().slice(0, 2);
+  const neverCyr =
+    ' If listing facts are in another language, paraphrase — never paste Russian or Cyrillic into the client reply.';
+  if (raw === 'uk') {
+    return `**МОВА ВІДПОВІДІ (критично):** Відповідай СТРОГО українською. Уся відповідь однією мовою — без російських канцеляризмів і без англійських фраз. Підбірка, вступ і фінальне питання теж українською. Назви районів латиницею як у каталозі (Costa Adeje, Los Cristianos). Не змінюй мову через короткі ok/yes.${neverCyr}`;
+  }
+  if (raw === 'it') {
+    return `**LINGUA DI RISPOSTA (critico):** Rispondi STRETTAMENTE in italiano naturale. Tutta la risposta in una sola lingua — niente russo né inglese mescolato. Selezione, intro e domanda finale in italiano. Toponimi in latino come in catalogo. Non cambiare per ok/yes corti.${neverCyr}`;
+  }
+  if (raw === 'pt') {
+    return `**LÍNGUA DE RESPOSTA (crítico):** Responde ESTRITAMENTE em português natural. Toda a resposta num só idioma — sem russo nem inglês misturado. Seleção, intro e pergunta final em português. Topónimos em latim como no catálogo. Não mudes por ok/yes curtos.${neverCyr}`;
+  }
+  if (raw === 'tr') {
+    return `**YANIT DİLİ (kritik):** YALNIZCA doğal Türkçe yanıt ver. Tüm yanıt tek dilde — Rusça veya İngilizce karıştırma. Seçim, giriş ve kapanış sorusu da Türkçe. Yer adları katalogdaki gibi Latin harfleriyle. Kısa ok/yes yüzünden dil değiştirme.${neverCyr}`;
+  }
   const code = normalizeSalesLang(targetLang);
   if (code === 'ru') {
     return `**ЯЗЫК ОТВЕТА (критично):** Отвечай СТРОГО на русском. Весь ответ целиком на одном языке — без английских или испанских фраз, без смеси «половина по-русски / половина по-английски». Подборка объектов, вступление и финальный вопрос — тоже на русском.
@@ -528,26 +543,31 @@ function buildReplyLanguageRule(targetLang) {
 Не пиши ярлык «Почему вам:». Не переключайся из‑за коротких ok/yes или языка номера телефона.`;
   }
   if (code === 'es') {
-    return `**IDIOMA DE RESPUESTA (crítico):** Responde ESTRICTAMENTE en español. Toda la respuesta en un solo idioma — sin mezclar ruso o inglés. La selección de inmuebles, la intro y la pregunta final también en español. No uses el rótulo «Por qué encaja:». No cambies por ok/yes cortos ni por el idioma del teléfono.`;
+    return `**IDIOMA DE RESPUESTA (crítico):** Responde ESTRICTAMENTE en español. Toda la respuesta en un solo idioma — sin mezclar ruso o inglés. La selección de inmuebles, la intro y la pregunta final también en español. No uses el rótulo «Por qué encaja:». No cambies por ok/yes cortos ni por el idioma del teléfono.${neverCyr}`;
   }
   if (code === 'de') {
-    return `**ANTWORTSPRACHE (kritisch):** Antworte STRENG auf Deutsch. Die gesamte Antwort in einer Sprache — kein Russisch oder Englisch gemischt. Objektauswahl, Intro und Abschlussfrage ebenfalls auf Deutsch. Nie das Label „Warum für Sie:“ / „Why for you:“. Nicht wegen kurzem ok/yes oder Telefon-Sprache wechseln. Ortsnamen lateinisch genau wie im Katalog.`;
+    return `**ANTWORTSPRACHE (kritisch):** Antworte STRENG auf Deutsch. Die gesamte Antwort in einer Sprache — kein Russisch oder Englisch gemischt. Objektauswahl, Intro und Abschlussfrage ebenfalls auf Deutsch. Nie das Label „Warum für Sie:“ / „Why for you:“. Nicht wegen kurzem ok/yes oder Telefon-Sprache wechseln. Ortsnamen lateinisch genau wie im Katalog.${neverCyr}`;
   }
   if (code === 'fr') {
-    return `**LANGUE DE RÉPONSE (critique):** Réponds STRICTEMENT en français. Toute la réponse dans une seule langue — sans mélanger russe ou anglais. Sélection, intro et question finale aussi en français. Jamais le rótulo « Pourquoi pour vous: » / « Why for you: ». Ne change pas pour ok/yes courts ni pour la langue du téléphone. Toponymes en latin exacts comme au catalogue.`;
+    return `**LANGUE DE RÉPONSE (critique):** Réponds STRICTEMENT en français. Toute la réponse dans une seule langue — sans mélanger russe ou anglais. Sélection, intro et question finale aussi en français. Jamais le rótulo « Pourquoi pour vous: » / « Why for you: ». Ne change pas pour ok/yes courts ni pour la langue du téléphone. Toponymes en latin exacts comme au catalogue.${neverCyr}`;
   }
   if (code === 'pl') {
-    return `**JĘZYK ODPOWIEDZI (krytyczne):** Odpowiadaj ŚCIŚLE po polsku. Cała odpowiedź w jednym języku — bez mieszania rosyjskiego ani angielskiego. Selekcja, wstęp i pytanie końcowe też po polsku. Nigdy etykieta „Dlaczego dla Państwa:“ / „Why for you:“. Nie zmieniaj języka przez krótkie ok/yes ani język numeru telefonu. Toponimy łacińsko dokładnie jak w katalogu.`;
+    return `**JĘZYK ODPOWIEDZI (krytyczne):** Odpowiadaj ŚCIŚLE po polsku. Cała odpowiedź w jednym języku — bez mieszania rosyjskiego ani angielskiego. Selekcja, wstęp i pytanie końcowe też po polsku. Nigdy etykieta „Dlaczego dla Państwa:“ / „Why for you:“. Nie zmieniaj języka przez krótkie ok/yes ani język numeru telefonu. Toponimy łacińsko dokładnie jak w katalogu.${neverCyr}`;
   }
   if (code === 'nl') {
     return `**ANTWOORDTAAL (kritisch):** Antwoord STRENG in het Nederlands. Het hele antwoord in één taal — geen Russisch of Engels erdoorheen.
 NOOIT beginnen met «Hi!» / «Hello!» / «I'm Maxim…» — schrijf «Hallo!» / «Goedemorgen!» en Nederlands.
-Selectie, intro en slotvraag ook in het Nederlands. Nooit het label „Waarom voor u:“ / „Why for you:“. Niet wisselen door kort ok/yes of de telefoontaal. Plaatsnamen Latijns precies zoals in de catalogus.`;
+Selectie, intro en slotvraag ook in het Nederlands. Nooit het label „Waarom voor u:“ / „Why for you:“. Niet wisselen door kort ok/yes of de telefoontaal. Plaatsnamen Latijns precies zoals in de catalogus.${neverCyr}`;
   }
-  return `**REPLY LANGUAGE (critical):** Reply STRICTLY in English. Entire reply in one language only — no Russian or Spanish mixed in. Listing intros and the closing question must also be English. Never write the label "Why for you:" / "Why it fits:". Do not switch because of short ok/sí/да or the phone number's language.`;
+  return `**REPLY LANGUAGE (critical):** Reply STRICTLY in English. Entire reply in one language only — no Russian or Spanish mixed in. Listing intros and the closing question must also be English. Never write the label "Why for you:" / "Why it fits:". Do not switch because of short ok/sí/да or the phone number's language.${neverCyr}`;
 }
 
 function getSearchingListingsMessage(lang) {
+  const raw = String(lang || '').toLowerCase().slice(0, 2);
+  if (raw === 'uk') return 'Окей, зараз підберу варіанти і надішлю :)';
+  if (raw === 'it') return 'Ok, ora preparo alcune opzioni e te le mando :)';
+  if (raw === 'pt') return 'Ok, vou escolher algumas opções e envio já :)';
+  if (raw === 'tr') return 'Tamam, şimdi birkaç seçenek ayırıp gönderiyorum :)';
   const code = normalizeSalesLang(lang);
   if (code === 'es') {
     return 'Vale, ahora te preparo unas opciones y te las mando :)';
@@ -709,10 +729,19 @@ ${dialog.hasBudget ? `- Do NOT ask for budget again${dialog.budgetLabel ? ` (${d
     propertyFinance: pack.systemRules.propertyFinance,
     managerHandoff: pack.systemRules.managerHandoff,
     replyLanguage: pack.replyLanguageRule,
-    stageHeader: (stage, turns) =>
-      lang === 'es'
-        ? `**ETAPA ACTUAL (${stage}, mensajes del cliente: ${turns}):**`
-        : `**CURRENT STAGE (${stage}, client messages: ${turns}):**`
+    stageHeader: (stage, turns) => {
+      const headers = {
+        es: `**ETAPA ACTUAL (${stage}, mensajes del cliente: ${turns}):**`,
+        de: `**AKTUELLE STUFE (${stage}, Kundennachrichten: ${turns}):**`,
+        fr: `**ÉTAPE ACTUELLE (${stage}, messages du client: ${turns}):**`,
+        pl: `**AKTUALNY ETAP (${stage}, wiadomości klienta: ${turns}):**`,
+        nl: `**HUIDIGE STAP (${stage}, berichten van de klant: ${turns}):**`,
+        ru: `**ТЕКУЩИЙ ЭТАП ДИАЛОГА (${stage}, сообщений клиента: ${turns}):**`,
+        en: `**CURRENT STAGE (${stage}, client messages: ${turns}):**`,
+      };
+      const key = String(lang || 'en').slice(0, 2);
+      return headers[key] || headers.en;
+    }
   };
 }
 

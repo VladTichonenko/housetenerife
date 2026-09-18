@@ -89,6 +89,8 @@ const translations = {
     echo: 'Escribiste:',
     useHelp: 'Usa /help para ver la lista de comandos.',
     error: 'Ocurrió un error al procesar el mensaje. Inténtalo de nuevo.',
+    ciphertext_reply:
+      'Mensaje recibido, pero no puedo leer el texto (cifrado o de un solo uso). Escribe, por favor, un mensaje de texto normal.',
     voice_reply:
       'No puedo escuchar mensajes de voz.\n\nEscríbeme por *texto* — o dime si quieres una llamada con {manager_name} para hablar de tu consulta.',
     manager_handoff:
@@ -136,101 +138,135 @@ Just write me any message and I will reply!`,
   },
   de: {
     start:
-      'Hallo! Ich bin Maxim, Investment-Analyst bei House Tenerife. Tippe /help für die Befehle — oder schreib einfach, wofür du Immobilien suchst.',
+      'Hallo! Ich bin *Maxim*, Investment-Analyst bei House Tenerife — ich helfe bei Immobilien und Investmentprojekten (Teneriffa, Dubai, Ibiza, Marbella, Málaga, Barcelona und mehr, Katalog housetenerife.eu).\n\nZum Start: suchen Sie *zum Wohnen* oder *als Investment*? Oder /help für Befehle.',
     help: `Verfügbare Befehle:
 /start - Gespräch starten
 /help - Hilfe anzeigen
-/status - Bot-Status
+/status - Bot-Status prüfen
 /time - Aktuelle Zeit
 /site - Katalog housetenerife.eu
+/ping - Prüfen, ob der Bot Sie sieht
 
-Schreib mir einfach eine Nachricht — ich antworte auf Deutsch.`,
+Schreiben Sie einfach, wonach Sie suchen — ich antworte auf Deutsch.`,
     status: 'Bot funktioniert! Status: bereit',
     time: 'Aktuelle Zeit:',
     site: 'House Tenerife — Immobilienkatalog:',
-    echo: 'Du hast geschrieben:',
-    useHelp: 'Verwende /help für die Liste der Befehle.',
-    error: 'Beim Verarbeiten der Nachricht ist ein Fehler aufgetreten. Bitte versuche es erneut.',
+    echo: 'Sie haben geschrieben:',
+    useHelp: 'Verwenden Sie /help für die Liste der Befehle.',
+    error: 'Beim Verarbeiten der Nachricht ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
     ciphertext_reply:
-      'Nachricht erhalten, aber ich kann den Text nicht lesen (verschlüsselt/einmalig). Bitte als normalen Text senden.',
+      'Nachricht erhalten, aber ich kann den Text nicht lesen (verschlüsselt oder einmalig). Bitte als normalen Text senden.',
     voice_reply:
-      'Danke für die Sprachnachricht — ich arbeite mit Text. Schreib kurz dein Ziel (wohnen/investieren) oder tippe /help.',
+      'Ich kann Sprachnachrichten nicht anhören.\n\nBitte schreiben Sie *Text* — oder sagen Sie, ob Sie einen Anruf mit {manager_name} möchten.',
     manager_handoff:
-      'Perfekt — unser Manager meldet sich bei dir. Du kannst hier weiter schreiben.',
+      'Perfekt{client_name_part}! Ich habe Ihre Anfrage weitergegeben — *{manager_name}* schreibt Ihnen in Kürze auf WhatsApp.\n\nOder schreiben Sie zuerst selbst: {manager_phone}\n\nSolange Sie warten, kann ich die Auswahl hier verfeinern oder Fragen beantworten.',
     manager_handoff_image:
-      'Foto erhalten — unser Manager schaut es sich an und meldet sich.',
+      'Perfekt{client_name_part}! Ich habe Ihre Anfrage weitergegeben — *{manager_name}* schreibt Ihnen in Kürze auf WhatsApp.\n\nOder schreiben Sie zuerst selbst: {manager_phone}',
     manager_handoff_link:
-      'Link erhalten — unser Manager prüft ihn und meldet sich.',
+      'Perfekt{client_name_part}! Ich habe Ihre Anfrage weitergegeben — *{manager_name}* schreibt Ihnen in Kürze auf WhatsApp.\n\nOder schreiben Sie zuerst selbst: {manager_phone}',
     handoff_ask_name:
-      'Gerne — lass uns einen kurzen Anruf vereinbaren.\n\n*Wie dürfen wir dich ansprechen?*',
+      'Gerne — lassen Sie uns einen kurzen Anruf vereinbaren.\n\n*Wie dürfen wir Sie ansprechen?*',
     handoff_name_invalid:
-      'Sag uns bitte, wie wir dich ansprechen sollen (dein Name).'
+      'Bitte sagen Sie uns, wie wir Sie ansprechen sollen (Ihr Name).'
   },
   fr: {
     start:
-      'Bonjour! Je suis Maxim, analyste d’investissement chez House Tenerife. Tapez /help pour les commandes — ou écrivez simplement ce que vous cherchez.',
-    help: `Commandes disponibles:
+      'Bonjour ! Je suis *Maxim*, analyste d’investissement chez House Tenerife — j’aide pour l’immobilier et les projets d’investissement (Ténérife, Dubaï, Ibiza, Marbella, Málaga, Barcelone et plus, catalogue housetenerife.eu).\n\nPour commencer : vous cherchez *pour habiter* ou *pour investir* ? Ou /help pour les commandes.',
+    help: `Commandes disponibles :
 /start - Démarrer la conversation
 /help - Afficher l’aide
 /status - État du bot
 /time - Heure actuelle
 /site - Catalogue housetenerife.eu
+/ping - Vérifier si le bot vous voit
 
 Écrivez-moi simplement — je répondrai en français.`,
-    status: 'Le bot fonctionne! Statut: prêt',
-    time: 'Heure actuelle:',
-    site: 'House Tenerife — catalogue immobilier:',
-    echo: 'Vous avez écrit:',
+    status: 'Le bot fonctionne ! Statut : prêt',
+    time: 'Heure actuelle :',
+    site: 'House Tenerife — catalogue immobilier :',
+    echo: 'Vous avez écrit :',
     useHelp: 'Utilisez /help pour la liste des commandes.',
     error: 'Une erreur s’est produite lors du traitement du message. Veuillez réessayer.',
     ciphertext_reply:
-      'Message reçu, mais je ne peux pas lire le texte (chiffré/éphémère). Envoyez un message texte normal.',
+      'Message reçu, mais je ne peux pas lire le texte (chiffré ou éphémère). Envoyez un message texte normal.',
     voice_reply:
-      'Merci pour le message vocal — je travaille en texte. Écrivez brièvement votre objectif (habiter/investir) ou /help.',
+      'Je ne peux pas écouter les messages vocaux.\n\nÉcrivez en *texte* — ou dites si vous voulez un appel avec {manager_name}.',
     manager_handoff:
-      'Parfait — notre manager vous recontactera. Vous pouvez continuer à écrire ici.',
+      'Parfait{client_name_part} ! J’ai transmis votre demande — *{manager_name}* vous écrira bientôt sur WhatsApp.\n\nOu écrivez-lui en premier : {manager_phone}\n\nEn attendant, je peux affiner la sélection ou répondre ici.',
     manager_handoff_image:
-      'Photo reçue — notre manager la regardera et vous répondra.',
+      'Parfait{client_name_part} ! J’ai transmis votre demande — *{manager_name}* vous écrira bientôt sur WhatsApp.\n\nOu écrivez-lui en premier : {manager_phone}',
     manager_handoff_link:
-      'Lien reçu — notre manager le vérifiera et vous répondra.',
+      'Parfait{client_name_part} ! J’ai transmis votre demande — *{manager_name}* vous écrira bientôt sur WhatsApp.\n\nOu écrivez-lui en premier : {manager_phone}',
     handoff_ask_name:
-      'Avec plaisir — organisons un court appel.\n\n*Comment devons-nous vous appeler?*',
+      'Avec plaisir — organisons un court appel.\n\n*Comment devons-nous vous appeler ?*',
     handoff_name_invalid:
       'Indiquez-nous comment vous appeler (votre prénom).'
   },
   it: {
-    start: 'Ciao! Sono il tuo bot WhatsApp. Digita /help per vedere l\'elenco dei comandi.',
+    start:
+      'Ciao! Sono *Maxim*, analista di investimenti di House Tenerife — ti aiuto con immobili e progetti di investimento (Tenerife, Dubai, Ibiza, Marbella, Málaga, Barcellona e altro, catalogo housetenerife.eu).\n\nPer iniziare: cerchi *per viverci* o *per investire*? Oppure /help per i comandi.',
     help: `Comandi disponibili:
-/start - Iniziare a lavorare con il bot
-/help - Mostrare aiuto
-/status - Verificare lo stato del bot
+/start - Inizia la conversazione
+/help - Mostra aiuto
+/status - Stato del bot
 /time - Ora attuale
-/site - Vai al sito web House Tenerife
+/site - Catalogo housetenerife.eu
+/ping - Controlla se il bot ti vede
 
-Scrivimi semplicemente un messaggio e risponderò!`,
-    status: 'Il bot funziona! Stato: pronto per lavorare',
+Scrivimi pure — rispondo in italiano.`,
+    status: 'Il bot funziona! Stato: pronto',
     time: 'Ora attuale:',
-    site: 'Il nostro sito web ufficiale House Tenerife, dove puoi vedere tutti gli annunci immobiliari:',
+    site: 'Catalogo House Tenerife:',
     echo: 'Hai scritto:',
-    useHelp: 'Usa /help per vedere l\'elenco dei comandi.',
-    error: 'Si è verificato un errore durante l\'elaborazione del messaggio. Riprova.'
+    useHelp: 'Usa /help per l’elenco dei comandi.',
+    error: 'Si è verificato un errore durante l’elaborazione del messaggio. Riprova.',
+    ciphertext_reply:
+      'Messaggio ricevuto, ma non riesco a leggere il testo (cifrato o monouso). Invia un messaggio di testo normale.',
+    voice_reply:
+      'Non posso ascoltare i messaggi vocali.\n\nScrivi in *testo* — o dimmi se vuoi una chiamata con {manager_name}.',
+    manager_handoff:
+      'Perfetto{client_name_part}! Ho inoltrato la richiesta — *{manager_name}* ti scriverà su WhatsApp a breve.\n\nOppure scrivigli per primo: {manager_phone}\n\nNel frattempo posso affinare la selezione o rispondere qui.',
+    manager_handoff_image:
+      'Perfetto{client_name_part}! Ho inoltrato la richiesta — *{manager_name}* ti scriverà su WhatsApp a breve.\n\nOppure scrivigli per primo: {manager_phone}',
+    manager_handoff_link:
+      'Perfetto{client_name_part}! Ho inoltrato la richiesta — *{manager_name}* ti scriverà su WhatsApp a breve.\n\nOppure scrivigli per primo: {manager_phone}',
+    handoff_ask_name:
+      'Volentieri — organizziamo una breve chiamata.\n\n*Come dobbiamo chiamarti?*',
+    handoff_name_invalid:
+      'Scrivi come dobbiamo chiamarti (il tuo nome).'
   },
   pt: {
-    start: 'Olá! Sou seu bot do WhatsApp. Digite /help para ver a lista de comandos.',
+    start:
+      'Olá! Sou o *Maxim*, analista de investimentos da House Tenerife — ajudo com imóveis e projetos de investimento (Tenerife, Dubai, Ibiza, Marbella, Málaga, Barcelona e mais, catálogo housetenerife.eu).\n\nPara começar: procura *para viver* ou *para investir*? Ou /help para os comandos.',
     help: `Comandos disponíveis:
-/start - Começar a trabalhar com o bot
+/start - Iniciar a conversa
 /help - Mostrar ajuda
-/status - Verificar o status do bot
+/status - Estado do bot
 /time - Hora atual
-/site - Ir ao site House Tenerife
+/site - Catálogo housetenerife.eu
+/ping - Verificar se o bot o vê
 
-Apenas me escreva uma mensagem e eu responderei!`,
-    status: 'O bot está funcionando! Status: pronto para trabalhar',
+Escreva-me — respondo em português.`,
+    status: 'O bot está a funcionar! Estado: pronto',
     time: 'Hora atual:',
-    site: 'Nosso site oficial House Tenerife, onde você pode ver todos os anúncios de imóveis:',
-    echo: 'Você escreveu:',
-    useHelp: 'Use /help para ver a lista de comandos.',
-    error: 'Ocorreu um erro ao processar a mensagem. Tente novamente.'
+    site: 'Catálogo House Tenerife:',
+    echo: 'Escreveu:',
+    useHelp: 'Use /help para a lista de comandos.',
+    error: 'Ocorreu um erro ao processar a mensagem. Tente novamente.',
+    ciphertext_reply:
+      'Mensagem recebida, mas não consigo ler o texto (encriptada ou de uso único). Envie uma mensagem de texto normal.',
+    voice_reply:
+      'Não consigo ouvir mensagens de voz.\n\nEscreva em *texto* — ou diga se quer uma chamada com {manager_name}.',
+    manager_handoff:
+      'Perfeito{client_name_part}! Passei o pedido — *{manager_name}* vai escrever no WhatsApp em breve.\n\nOu escreva primeiro: {manager_phone}\n\nEnquanto espera, posso afinar a seleção ou responder aqui.',
+    manager_handoff_image:
+      'Perfeito{client_name_part}! Passei o pedido — *{manager_name}* vai escrever no WhatsApp em breve.\n\nOu escreva primeiro: {manager_phone}',
+    manager_handoff_link:
+      'Perfeito{client_name_part}! Passei o pedido — *{manager_name}* vai escrever no WhatsApp em breve.\n\nOu escreva primeiro: {manager_phone}',
+    handoff_ask_name:
+      'Com prazer — vamos marcar uma chamada breve.\n\n*Como devemos tratar-lhe?*',
+    handoff_name_invalid:
+      'Escreva como devemos tratar-lhe (o seu nome).'
   },
   pl: {
     start:
@@ -240,9 +276,10 @@ Apenas me escreva uma mensagem e eu responderei!`,
 /help - Pokaż pomoc
 /status - Sprawdź status bota
 /time - Aktualny czas
-/site - Przejdź do strony House Tenerife
+/site - Katalog housetenerife.eu
+/ping - Sprawdź, czy bot Was widzi
 
-Po prostu napisz mi wiadomość, a odpowiem!`,
+Po prostu napiszcie wiadomość — odpowiem po polsku.`,
     status: 'Bot działa! Status: gotowy do pracy',
     time: 'Aktualny czas:',
     site: 'Oficjalna strona House Tenerife z ofertami:',
@@ -253,15 +290,16 @@ Po prostu napisz mi wiadomość, a odpowiem!`,
       'Wiadomość otrzymana, ale nie mogę odczytać tekstu (szyfrowana/jednorazowa). Proszę napisać zwykłym tekstem.',
     voice_reply:
       'Nie mogę odsłuchać wiadomości głosowych.\n\nNapisz *tekstem* — albo powiedz, czy chcesz rozmowę z {manager_name} o zapytaniu.',
-    handoff:
+    manager_handoff:
       'Świetnie{client_name_part}! Przekazałem zapytanie — *{manager_name}* napisze na WhatsApp wkrótce.\n\nMożesz też napisać pierwszy: {manager_phone}\n\nTymczasem mogę tu dopracować selekcję lub odpowiedzieć na pytania.',
-    handoff_photo:
+    manager_handoff_image:
       'Świetnie{client_name_part}! Przekazałem zapytanie — *{manager_name}* napisze na WhatsApp wkrótce.\n\nMożesz też napisać pierwszy: {manager_phone}',
-    handoff_link:
+    manager_handoff_link:
       'Świetnie{client_name_part}! Przekazałem zapytanie — *{manager_name}* napisze na WhatsApp wkrótce.\n\nMożesz też napisać pierwszy: {manager_phone}',
-    ask_name:
+    handoff_ask_name:
       'Świetnie, zorganizujmy krótką rozmowę o szczegółach.\n\n*Jak mamy się do Państwa zwracać?*',
-    ask_name_retry: 'Proszę napisać, jak mamy się zwracać (imię).'
+    handoff_name_invalid:
+      'Proszę napisać, jak mamy się zwracać (imię).'
   },
   nl: {
     start:
@@ -271,9 +309,10 @@ Po prostu napisz mi wiadomość, a odpowiem!`,
 /help - Toon hulp
 /status - Controleer botstatus
 /time - Huidige tijd
-/site - Ga naar House Tenerife
+/site - Catalogus housetenerife.eu
+/ping - Check of de bot je ziet
 
-Schrijf me gewoon een bericht — ik antwoord!`,
+Schrijf me gewoon een bericht — ik antwoord in het Nederlands.`,
     status: 'Bot werkt! Status: klaar',
     time: 'Huidige tijd:',
     site: 'Officiële House Tenerife-site met objecten:',
@@ -284,49 +323,82 @@ Schrijf me gewoon een bericht — ik antwoord!`,
       'Bericht ontvangen, maar ik kan de tekst niet lezen (versleuteld/eenmalig). Stuur een normaal tekstbericht.',
     voice_reply:
       'Ik kan spraakberichten niet beluisteren.\n\nSchrijf me in *tekst* — of zeg of je een belletje met {manager_name} wilt over je aanvraag.',
-    handoff:
+    manager_handoff:
       'Top{client_name_part}! Ik heb je aanvraag doorgegeven — *{manager_name}* schrijft je zo via WhatsApp.\n\nJe kunt ook eerst zelf schrijven: {manager_phone}\n\nIntussen kan ik hier de selectie verfijnen of vragen beantwoorden.',
-    handoff_photo:
+    manager_handoff_image:
       'Top{client_name_part}! Ik heb je aanvraag doorgegeven — *{manager_name}* schrijft je zo via WhatsApp.\n\nJe kunt ook eerst zelf schrijven: {manager_phone}',
-    handoff_link:
+    manager_handoff_link:
       'Top{client_name_part}! Ik heb je aanvraag doorgegeven — *{manager_name}* schrijft je zo via WhatsApp.\n\nJe kunt ook eerst zelf schrijven: {manager_phone}',
-    ask_name:
+    handoff_ask_name:
       'Prima, laten we een kort belletje plannen voor de details.\n\n*Hoe mogen we je aanspreken?*',
-    ask_name_retry: 'Schrijf alsjeblieft hoe we je moeten aanspreken (je naam).'
+    handoff_name_invalid:
+      'Schrijf alsjeblieft hoe we je moeten aanspreken (je naam).'
   },
   tr: {
-    start: 'Merhaba! Ben senin WhatsApp botunum. Komut listesini görmek için /help yazın.',
-    help: `Mevcut komutlar:
-/start - Bot ile çalışmaya başla
-/help - Yardım göster
+    start:
+      'Merhaba! Ben *Maxim*, House Tenerife yatırım analisti — gayrimenkul ve yatırım projelerinde yardımcı oluyorum (Tenerife, Dubai, Ibiza, Marbella, Málaga, Barcelona ve daha fazlası, katalog housetenerife.eu).\n\nBaşlamak için: *oturmak* mı yoksa *yatırım* mı arıyorsunuz? Komutlar için /help yazın.',
+    help: `Komutlar:
+/start - Sohbeti başlat
+/help - Yardımı göster
 /status - Bot durumunu kontrol et
-/time - Mevcut saat
-/site - House Tenerife web sitesine git
+/time - Şu anki saat
+/site - housetenerife.eu kataloğu
+/ping - Botun sizi görüp görmediğini kontrol et
 
-Sadece bana bir mesaj yaz ve cevap vereceğim!`,
-    status: 'Bot çalışıyor! Durum: çalışmaya hazır',
-    time: 'Mevcut saat:',
-    site: 'Tüm emlak ilanlarını görebileceğiniz resmi House Tenerife web sitemiz:',
-    echo: 'Yazdın:',
-    useHelp: 'Komut listesini görmek için /help kullanın.',
-    error: 'Mesaj işlenirken bir hata oluştu. Lütfen tekrar deneyin.'
+Bana yazın — Türkçe yanıtlarım.`,
+    status: 'Bot çalışıyor! Durum: hazır',
+    time: 'Şu anki saat:',
+    site: 'House Tenerife katalog:',
+    echo: 'Yazdınız:',
+    useHelp: 'Komut listesi için /help kullanın.',
+    error: 'Mesaj işlenirken bir hata oluştu. Lütfen tekrar deneyin.',
+    ciphertext_reply:
+      'Mesaj alındı ama metni okuyamıyorum (şifreli veya tek kullanımlık). Lütfen normal bir metin gönderin.',
+    voice_reply:
+      'Sesli mesajları dinleyemiyorum.\n\nLütfen *yazıyla* yazın — veya {manager_name} ile görüşmek istediğinizi söyleyin.',
+    manager_handoff:
+      'Harika{client_name_part}! Talebinizi ilettim — *{manager_name}* kısa süre içinde WhatsApp’tan yazacak.\n\nİsterseniz önce siz yazın: {manager_phone}\n\nBeklerken seçimi burada netleştirebilirim.',
+    manager_handoff_image:
+      'Harika{client_name_part}! Talebinizi ilettim — *{manager_name}* kısa süre içinde WhatsApp’tan yazacak.\n\nİsterseniz önce siz yazın: {manager_phone}',
+    manager_handoff_link:
+      'Harika{client_name_part}! Talebinizi ilettim — *{manager_name}* kısa süre içinde WhatsApp’tan yazacak.\n\nİsterseniz önce siz yazın: {manager_phone}',
+    handoff_ask_name:
+      'Tabii — kısa bir görüşme ayarlayalım.\n\n*Size nasıl hitap edelim?*',
+    handoff_name_invalid:
+      'Lütfen size nasıl hitap edeceğimizi yazın (adınız).'
   },
   uk: {
-    start: 'Привіт! Я ваш WhatsApp бот. Введіть /help для списку команд.',
+    start:
+      'Привіт! Я *Максим*, інвестиційний аналітик House Tenerife — допоможу з нерухомістю та інвестпроєктами (Тенерифе, Дубай, Ібіца, Марбелья, Малага, Барселона тощо, каталог housetenerife.eu).\n\nДля початку: шукаєте *для життя* чи *для інвестиції*? Або /help для команд.',
     help: `Доступні команди:
 /start - Почати роботу з ботом
 /help - Показати довідку
 /status - Перевірити стан бота
 /time - Поточний час
-/site - Перейти на сайт House Tenerife
+/site - Каталог housetenerife.eu
+/ping - Перевірити, чи бачить вас бот
 
-Просто напишіть мені будь-яке повідомлення, і я відповім!`,
+Просто напишіть запит — відповім українською.`,
     status: 'Бот працює! Стан: готовий до роботи',
     time: 'Поточний час:',
-    site: 'Наш офіційний сайт House Tenerife, де ви можете переглянути всі оголошення нерухомості:',
+    site: 'Каталог House Tenerife:',
     echo: 'Ви написали:',
     useHelp: 'Використовуйте /help для списку команд.',
-    error: 'Сталася помилка при обробці повідомлення. Спробуйте ще раз.'
+    error: 'Сталася помилка при обробці повідомлення. Спробуйте ще раз.',
+    ciphertext_reply:
+      'Повідомлення отримано, але я не бачу текст (шифроване або одноразове). Напишіть, будь ласка, звичайним текстом.',
+    voice_reply:
+      'Я не можу прослуховувати голосові повідомлення.\n\nНапишіть *текстом* — або скажіть, якщо хочете дзвінок з {manager_name}.',
+    manager_handoff:
+      'Чудово{client_name_part}! Я передав заявку — *{manager_name}* напише вам у WhatsApp найближчим часом.\n\nМожете написати першим: {manager_phone}\n\nПоки чекаєте, можу уточнити підбірку або відповісти тут.',
+    manager_handoff_image:
+      'Чудово{client_name_part}! Я передав заявку — *{manager_name}* напише вам у WhatsApp найближчим часом.\n\nМожете написати першим: {manager_phone}',
+    manager_handoff_link:
+      'Чудово{client_name_part}! Я передав заявку — *{manager_name}* напише вам у WhatsApp найближчим часом.\n\nМожете написати першим: {manager_phone}',
+    handoff_ask_name:
+      'Добре, давайте коротко созвонимося.\n\n*Як до вас звертатися?*',
+    handoff_name_invalid:
+      'Напишіть, будь ласка, як до вас звертатися (ім’я).'
   },
   // Для остальных языков (zh, ja, ko, hi, ar) будет использоваться английский как fallback
 };
@@ -407,7 +479,7 @@ function getLanguageFromPhone(phoneNumber) {
  */
 function getTranslation(language, key) {
   const raw = String(language || 'en').toLowerCase().slice(0, 2);
-  const mapped = raw === 'uk' || raw === 'be' ? 'ru' : raw;
+  const mapped = raw === 'be' ? 'ru' : raw;
   const langPack = translations[mapped] || translations.en;
   const aliases = {
     manager_handoff: ['handoff'],

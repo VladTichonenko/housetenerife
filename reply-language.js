@@ -208,7 +208,8 @@ const PL_MARKER_RE =
  * Ответ явно не на языке диалога (кириллица vs латиница), с иероглифами или фонетическим мусором.
  */
 function replyMismatchesLanguage(text, lang) {
-  const salesLang = normalizeSalesLang(lang);
+  const raw = String(lang || '').toLowerCase().slice(0, 2);
+  const salesLang = raw === 'uk' ? 'uk' : raw === 'it' || raw === 'pt' || raw === 'tr' ? raw : normalizeSalesLang(lang);
   const body = stripUrlsAndBrands(text);
   if (!body.trim()) return false;
 
@@ -219,6 +220,25 @@ function replyMismatchesLanguage(text, lang) {
   const lat = (body.match(/[a-zàáâãäåæçèéêëìíîïñòóôõöùúûüýÿœßąćęłńóśźż]/gi) || []).length;
   const letters = cyr + lat;
   if (letters < 12) return false;
+
+  if (salesLang === 'uk') {
+    if (lat > 40 && cyr / Math.max(letters, 1) < 0.25) return true;
+    if (EN_MARKER_RE.test(body) && cyr < 20) return true;
+    return false;
+  }
+
+  if (salesLang === 'it' || salesLang === 'pt' || salesLang === 'tr') {
+    if (cyr >= 8 && cyr / Math.max(letters, 1) >= 0.12) return true;
+    if (RU_MARKER_RE.test(body)) return true;
+    const native =
+      salesLang === 'it'
+        ? /\b(ciao|buongiorno|cerco|appartamento|investire|vivere|grazie)\b/i
+        : salesLang === 'pt'
+          ? /\b(ol[aá]|procuro|apartamento|investir|viver|obrigado)\b/i
+          : /\b(merhaba|arıyorum|daire|yatırım|teşekkür)\b/i;
+    if (EN_MARKER_RE.test(body) && !native.test(body)) return true;
+    return false;
+  }
 
   if (salesLang === 'ru') {
     if (hasPhoneticGarbage(body)) return true;
@@ -295,6 +315,35 @@ function replyMismatchesLanguage(text, lang) {
 }
 
 function languageRewriteInstruction(lang) {
+  const raw = String(lang || '').toLowerCase().slice(0, 2);
+  if (raw === 'uk') {
+    return (
+      'Перепиши останню відповідь СТРОГО українською. ' +
+      'Без російської канцелярії, без англійських фраз і без китайських/японських ієрогліфів. ' +
+      'Назви районів латиницею точно як у каталозі: Los Cristianos, Costa Adeje, Sant Antoni. Стиль WhatsApp.'
+    );
+  }
+  if (raw === 'it') {
+    return (
+      'Riscrivi l’ultima risposta STRETTAMENTE in italiano naturale. ' +
+      'Niente russo, inglese o caratteri cinesi/giapponesi. Toponimi in latino come in catalogo ' +
+      '(Los Cristianos, Costa Adeje, Sant Antoni). Stile WhatsApp, tono umano.'
+    );
+  }
+  if (raw === 'pt') {
+    return (
+      'Reescreve a última resposta ESTRITAMENTE em português natural. ' +
+      'Sem russo, inglês nem caracteres chineses/japoneses. Topónimos em latim como no catálogo ' +
+      '(Los Cristianos, Costa Adeje, Sant Antoni). Estilo WhatsApp, tom humano.'
+    );
+  }
+  if (raw === 'tr') {
+    return (
+      'Son yanıtı YALNIZCA doğal Türkçe yeniden yaz. ' +
+      'Rusça, İngilizce veya Çin/Japon karakterleri karıştırma. Yer adları katalogdaki gibi Latin harfleriyle ' +
+      '(Los Cristianos, Costa Adeje, Sant Antoni). WhatsApp stili, insani ton.'
+    );
+  }
   const code = normalizeSalesLang(lang);
   if (code === 'ru') {
     return (

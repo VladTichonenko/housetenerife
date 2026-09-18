@@ -892,7 +892,7 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fal
       if (!share || seen.has(share)) continue;
       seen.add(share);
       const loc = getLocalizedItem(item, lang);
-      const desc = String(loc.description || '')
+      const desc = String(loc.factsLine || loc.description || '')
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 160);
@@ -1477,15 +1477,15 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       console.warn('⚠️ Каталог пуст по критериям — честный ответ без выдуманных объектов');
       reply = buildHonestNoCatalogReply(userLanguage, dialog);
     }
-    if (replyMismatchesLanguage(reply, salesLang)) {
+    if (replyMismatchesLanguage(reply, userLanguage)) {
       console.warn(
-        `⚠️ AI ответ не на языке диалога (${salesLang}) или с транслитом — переписываю`
+        `⚠️ AI ответ не на языке диалога (${userLanguage}) или с транслитом — переписываю`
       );
       reply = await callAI(
         [
           ...messages,
           { role: 'assistant', content: reply },
-          { role: 'user', content: languageRewriteInstruction(salesLang) }
+          { role: 'user', content: languageRewriteInstruction(userLanguage) }
         ],
         'chat-lang-rewrite'
       );

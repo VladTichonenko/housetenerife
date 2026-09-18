@@ -3622,7 +3622,11 @@ async function handleIncomingMessage(msg, options = {}) {
     msg = resolved.msg;
     const messageText = resolved.text;
 
-    const earlyLang = getLanguageFromPhone(senderId) || 'en';
+    const chatIdEarly = getConversationChatId(msg, chat);
+    const earlyLang =
+      getStickyDialogLanguage(chatIdEarly) ||
+      getLanguageFromPhone(senderId) ||
+      'en';
 
     if (isVoiceMessage(msg)) {
       const voiceReply = buildVoiceReply(earlyLang);
@@ -3687,7 +3691,10 @@ async function handleIncomingMessage(msg, options = {}) {
       } else if (isPermanentNonText(msg)) {
         clearEmptyBodyRetry(msgId);
         try {
-          const lang = getLanguageFromPhone(senderId) || 'en';
+          const lang =
+            getStickyDialogLanguage(getConversationChatId(msg, chat)) ||
+            getLanguageFromPhone(senderId) ||
+            'en';
           const replyText = getTranslation(lang, 'ciphertext_reply');
           await sendMessageSafely(msg, replyText, client);
           console.log(`📩 [DEBUG] Сообщение без текста (медиа/одноразовое), type=${msg.type}`);

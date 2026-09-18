@@ -138,24 +138,358 @@ function looksCyrillicHeavy(text) {
   return cyr >= 8 && cyr > lat;
 }
 
+function containsCyrillic(text) {
+  return /[а-яё]/i.test(String(text || ''));
+}
+
+const SLUG_TYPE_WORDS = {
+  en: {
+    apartments: 'Apartment',
+    apartment: 'Apartment',
+    apartamentos: 'Apartment',
+    apartamenty: 'Apartment',
+    villas: 'Villa',
+    villa: 'Villa',
+    parking: 'Parking',
+    house: 'House',
+    houses: 'House',
+    casa: 'House',
+    land: 'Land',
+    plot: 'Plot',
+    commercial: 'Commercial',
+    penthouse: 'Penthouse',
+    studio: 'Studio',
+    duplex: 'Duplex',
+    bar: 'Bar',
+    restaurant: 'Restaurant',
+  },
+  es: {
+    apartments: 'Apartamento',
+    apartment: 'Apartamento',
+    apartamentos: 'Apartamento',
+    apartamenty: 'Apartamento',
+    villas: 'Villa',
+    villa: 'Villa',
+    parking: 'Parking',
+    house: 'Casa',
+    houses: 'Casa',
+    casa: 'Casa',
+    land: 'Terreno',
+    plot: 'Parcela',
+    commercial: 'Comercial',
+    penthouse: 'Ático',
+    studio: 'Estudio',
+    duplex: 'Dúplex',
+    bar: 'Bar',
+    restaurant: 'Restaurante',
+  },
+  de: {
+    apartments: 'Apartment',
+    apartment: 'Apartment',
+    apartamentos: 'Apartment',
+    apartamenty: 'Apartment',
+    villas: 'Villa',
+    villa: 'Villa',
+    parking: 'Parkplatz',
+    house: 'Haus',
+    houses: 'Haus',
+    casa: 'Haus',
+    land: 'Grundstück',
+    plot: 'Grundstück',
+    commercial: 'Gewerbe',
+    penthouse: 'Penthouse',
+    studio: 'Studio',
+    duplex: 'Duplex',
+    bar: 'Bar',
+    restaurant: 'Restaurant',
+  },
+  fr: {
+    apartments: 'Appartement',
+    apartment: 'Appartement',
+    apartamentos: 'Appartement',
+    apartamenty: 'Appartement',
+    villas: 'Villa',
+    villa: 'Villa',
+    parking: 'Parking',
+    house: 'Maison',
+    houses: 'Maison',
+    casa: 'Maison',
+    land: 'Terrain',
+    plot: 'Terrain',
+    commercial: 'Commercial',
+    penthouse: 'Penthouse',
+    studio: 'Studio',
+    duplex: 'Duplex',
+    bar: 'Bar',
+    restaurant: 'Restaurant',
+  },
+  pl: {
+    apartments: 'Apartament',
+    apartment: 'Apartament',
+    apartamentos: 'Apartament',
+    apartamenty: 'Apartament',
+    villas: 'Willa',
+    villa: 'Willa',
+    parking: 'Parking',
+    house: 'Dom',
+    houses: 'Dom',
+    casa: 'Dom',
+    land: 'Działka',
+    plot: 'Działka',
+    commercial: 'Komercja',
+    penthouse: 'Penthouse',
+    studio: 'Kawalerka',
+    duplex: 'Bliźniak',
+    bar: 'Bar',
+    restaurant: 'Restauracja',
+  },
+  nl: {
+    apartments: 'Appartement',
+    apartment: 'Appartement',
+    apartamentos: 'Appartement',
+    apartamenty: 'Appartement',
+    villas: 'Villa',
+    villa: 'Villa',
+    parking: 'Parkeerplaats',
+    house: 'Huis',
+    houses: 'Huis',
+    casa: 'Huis',
+    land: 'Grond',
+    plot: 'Kavel',
+    commercial: 'Commercieel',
+    penthouse: 'Penthouse',
+    studio: 'Studio',
+    duplex: 'Duplex',
+    bar: 'Bar',
+    restaurant: 'Restaurant',
+  },
+};
+
+const FACT_LABELS = {
+  ru: {
+    bed: 'спальня',
+    beds: 'спальни',
+    bath: 'ванная',
+    baths: 'ванные',
+    area: 'м²',
+    land: 'участок',
+    garage: 'гараж',
+    terrace: 'терраса',
+  },
+  en: {
+    bed: 'bedroom',
+    beds: 'bedrooms',
+    bath: 'bathroom',
+    baths: 'bathrooms',
+    area: 'm²',
+    land: 'plot',
+    garage: 'garage',
+    terrace: 'terrace',
+  },
+  es: {
+    bed: 'dormitorio',
+    beds: 'dormitorios',
+    bath: 'baño',
+    baths: 'baños',
+    area: 'm²',
+    land: 'parcela',
+    garage: 'garaje',
+    terrace: 'terraza',
+  },
+  de: {
+    bed: 'Schlafzimmer',
+    beds: 'Schlafzimmer',
+    bath: 'Bad',
+    baths: 'Bäder',
+    area: 'm²',
+    land: 'Grundstück',
+    garage: 'Garage',
+    terrace: 'Terrasse',
+  },
+  fr: {
+    bed: 'chambre',
+    beds: 'chambres',
+    bath: 'salle de bain',
+    baths: 'salles de bain',
+    area: 'm²',
+    land: 'terrain',
+    garage: 'garage',
+    terrace: 'terrasse',
+  },
+  pl: {
+    bed: 'sypialnia',
+    beds: 'sypialnie',
+    bath: 'łazienka',
+    baths: 'łazienki',
+    area: 'm²',
+    land: 'działka',
+    garage: 'garaż',
+    terrace: 'taras',
+  },
+  nl: {
+    bed: 'slaapkamer',
+    beds: 'slaapkamers',
+    bath: 'badkamer',
+    baths: 'badkamers',
+    area: 'm²',
+    land: 'kavel',
+    garage: 'garage',
+    terrace: 'terras',
+  },
+};
+
+function parseIntLoose(raw) {
+  const s = String(raw || '').replace(',', '.');
+  const m = s.match(/(\d+(?:\.\d+)?)/);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Структурные факты из overview/описания (кровати, ванны, м²) — язык-нейтрально.
+ */
+function parseListingFacts(item) {
+  const blob = [
+    item.overview,
+    item.overviews?.en,
+    item.overviews?.es,
+    item.overviews?.ru,
+    item.title,
+    item.description,
+    item.descriptions?.en,
+    item.descriptions?.es,
+    item.descriptions?.ru,
+  ]
+    .filter(Boolean)
+    .join(' | ');
+  const facts = {
+    beds: null,
+    baths: null,
+    areaM2: null,
+    landM2: null,
+    garage: null,
+    terrace: /терраса|terrace|terraza|terrasse|taras|terras\b/i.test(blob),
+  };
+
+  const bedM =
+    blob.match(/(\d+(?:\s*[-–]\s*\d+)?)\s*\|\s*(?:Bedroom|Bedrooms|Комнат\w*|Rooms?|Habitacion(?:es)?|Schlafzimmer)/i) ||
+    blob.match(/(\d+)\s*(?:bedroom|bedrooms|спальн\w*|habitacion(?:es)?|schlafzimmer|chambre|sypialn\w*|slaapkamer)/i);
+  if (bedM) facts.beds = String(bedM[1]).replace(/\s+/g, '');
+
+  const bathM =
+    blob.match(/(\d+)\s*\|\s*(?:Bathroom|Bathrooms|Ванн\w*|Baños?|Badezimmer)/i) ||
+    blob.match(/(\d+)\s*(?:bathroom|bathrooms|ванн\w*|baño|badezimmer|salle de bain|łazienk\w*|badkamer)/i);
+  if (bathM) facts.baths = bathM[1];
+
+  const areaM =
+    blob.match(/(\d+(?:[.,]\d+)?)\s*(?:m²|m2|м2|м²)\b/i) ||
+    blob.match(/(\d+(?:[.,]\d+)?)\s*\|\s*Area Size/i);
+  if (areaM) {
+    const n = parseIntLoose(areaM[1]);
+    if (n && n < 20000) facts.areaM2 = Math.round(n);
+  }
+
+  const landM = blob.match(/(\d+(?:[.,]\d+)?)\s*\|\s*Land Area/i);
+  if (landM) {
+    const n = parseIntLoose(landM[1]);
+    if (n) facts.landM2 = Math.round(n);
+  }
+
+  const garageM = blob.match(/(\d+)\s*\|\s*Garage/i);
+  if (garageM) facts.garage = garageM[1];
+
+  return facts;
+}
+
+function formatFactsLine(item, lang) {
+  const l = FACT_LABELS[lang] ? lang : 'en';
+  const labels = FACT_LABELS[l];
+  const facts = parseListingFacts(item);
+  const cats = getItemPropertyCategories(item);
+  const parts = [];
+  if (cats.length) parts.push(formatDetectedTypes(cats, l));
+  if (facts.beds) {
+    const n = parseInt(String(facts.beds).replace(/[^\d].*/, ''), 10);
+    const word = n === 1 ? labels.bed : labels.beds;
+    parts.push(`${facts.beds} ${word}`);
+  }
+  if (facts.baths) {
+    const n = parseInt(facts.baths, 10);
+    const word = n === 1 ? labels.bath : labels.baths;
+    parts.push(`${facts.baths} ${word}`);
+  }
+  if (facts.areaM2) parts.push(`${facts.areaM2} ${labels.area}`);
+  if (facts.landM2) parts.push(`${labels.land} ${facts.landM2} ${labels.area}`);
+  if (facts.garage) parts.push(`${facts.garage} ${labels.garage}`);
+  if (facts.terrace) parts.push(labels.terrace);
+  return parts.filter(Boolean).join(', ');
+}
+
+function localizeSlugTitle(slugTitle, lang) {
+  const raw = String(slugTitle || '').trim();
+  if (!raw) return '';
+  const l = SLUG_TYPE_WORDS[lang] ? lang : 'en';
+  const dict = SLUG_TYPE_WORDS[l];
+  const inPrep = { de: 'in', fr: 'à', pl: 'w', nl: 'in', es: 'en', en: 'in' }[l] || 'in';
+  return raw
+    .replace(/\b([A-Za-z]+)\b/g, (word) => {
+      if (/^in$/i.test(word)) return inPrep;
+      const mapped = dict[word.toLowerCase()];
+      return mapped || word;
+    })
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function pickNonCyrillicTitle(item, lang, url) {
+  const fromSlug =
+    titleFromPropertyUrl(item.urls?.en) ||
+    titleFromPropertyUrl(url) ||
+    titleFromPropertyUrl(item.urls?.es) ||
+    titleFromPropertyUrl(item.url);
+  if (lang === 'en') {
+    if (item.titles?.en && !containsCyrillic(item.titles.en)) return item.titles.en;
+    if (fromSlug) return localizeSlugTitle(fromSlug, 'en');
+  }
+  if (!['ru', 'en', 'es'].includes(lang) && fromSlug) {
+    return localizeSlugTitle(fromSlug, lang);
+  }
+  const chain = FALLBACK_CHAIN[lang] || ['en', 'es', 'ru'];
+  let title = pickLocalized(item.titles, chain) || item.title || '';
+  if (lang !== 'ru' && containsCyrillic(title) && fromSlug) {
+    return localizeSlugTitle(fromSlug, lang);
+  }
+  return title;
+}
+
 function getLocalizedItem(item, lang) {
   const l = normalizeLang(lang);
   const chain = FALLBACK_CHAIN[l] || ['ru'];
   const url = pickLocalized(item.urls, chain) || item.url || '';
-  let title = pickLocalized(item.titles, chain) || item.title || '';
-  let description = pickLocalized(item.descriptions, chain) || item.description || '';
-  const overview = pickLocalized(item.overviews, chain) || item.overview || '';
+  let title = pickNonCyrillicTitle(item, l, url);
+  const factsLine = formatFactsLine(item, l);
+  const nativeDesc = pickLocalized(item.descriptions, [l]) || '';
+  const nativeOverview = pickLocalized(item.overviews, [l]) || '';
+  let description = nativeDesc;
+  let overview = nativeOverview;
 
-  // Для ES/EN/DE/… не отдаём русские названия, если есть латинский slug URL
-  if (l !== 'ru' && looksCyrillicHeavy(title)) {
-    const fromSlug = titleFromPropertyUrl(url) || titleFromPropertyUrl(item.urls?.en) || titleFromPropertyUrl(item.url);
-    if (fromSlug) title = fromSlug;
-  }
-  if (l !== 'ru' && looksCyrillicHeavy(description)) {
-    // Краткое описание из overview на латинице или пусто — модель не должна слать клиенту русский абзац
-    const ov = String(overview || '');
-    if (ov && !looksCyrillicHeavy(ov)) description = ov.slice(0, 220);
-    else description = '';
+  if (l === 'ru') {
+    description = nativeDesc || item.description || '';
+    overview = nativeOverview || item.overview || '';
+  } else {
+    if (containsCyrillic(title)) {
+      const fromSlug =
+        titleFromPropertyUrl(url) ||
+        titleFromPropertyUrl(item.urls?.en) ||
+        titleFromPropertyUrl(item.urls?.es) ||
+        titleFromPropertyUrl(item.url);
+      title =
+        localizeSlugTitle(fromSlug, l) ||
+        title.replace(/[а-яё]+/gi, '').replace(/\s{2,}/g, ' ').trim();
+    }
+    if (!description || containsCyrillic(description)) description = factsLine;
+    if (!overview || containsCyrillic(overview)) overview = factsLine;
   }
 
   return {
@@ -163,7 +497,8 @@ function getLocalizedItem(item, lang) {
     url,
     title,
     description,
-    overview
+    overview,
+    factsLine,
   };
 }
 
@@ -832,9 +1167,9 @@ function searchForContext(query, limit = 8, options = {}) {
   try {
     lines = ranked.map((r, i) => {
       const loc = getLocalizedItem(r.item, lang);
-      const desc = (loc.description || '').replace(/\s+/g, ' ').trim();
+      const desc = (loc.factsLine || loc.description || '').replace(/\s+/g, ' ').trim();
       const short = desc.length > 240 ? `${desc.slice(0, 240)}…` : desc;
-      const priceLabel = loc.price || PRICE_FALLBACK[lang] || PRICE_FALLBACK.ru;
+      const priceLabel = loc.price || PRICE_FALLBACK[lang] || PRICE_FALLBACK.en;
       const shareUrl = getShareUrl(r.item, lang);
       if (shareUrl) shareUrls.push(shareUrl);
       const typeCats = getItemPropertyCategories(r.item);
@@ -847,22 +1182,29 @@ function searchForContext(query, limit = 8, options = {}) {
     console.warn('⚠️ searchForContext format:', e.message);
     return { found: false, text: NO_MATCH_MSG[lang] || NO_MATCH_MSG.ru, totalInDb, urls: [] };
   }
-  const priceHint =
-    priceTarget
-      ? lang === 'en'
-        ? ' (internal filter: near client budget — NEVER tell the client «±26%» or quote a €floor–€ceiling corridor aloud).'
-        : lang === 'es'
-          ? ' (filtro interno: cerca del presupuesto — NUNCA digas «±26%» ni cites un corredor €min–€max al cliente).'
-          : ' (внутренний фильтр: около бюджета клиента — ЗАПРЕЩЕНО говорить клиенту «±26%», «коридор €X–€Y» или что бюджет расширен).'
-      : '';
+  const priceHintMap = {
+    ru: ' (внутренний фильтр: около бюджета клиента — ЗАПРЕЩЕНО говорить клиенту «±26%», «коридор €X–€Y» или что бюджет расширен).',
+    en: ' (internal filter: near client budget — NEVER tell the client «±26%» or quote a €floor–€ceiling corridor aloud).',
+    es: ' (filtro interno: cerca del presupuesto — NUNCA digas «±26%» ni cites un corredor €min–€max al cliente).',
+    de: ' (interner Filter nah am Budget — NIE «±26%» oder einen €-Korridor dem Kunden nennen).',
+    fr: ' (filtre interne près du budget — JAMAIS dire « ±26 % » ni un couloir €min–€max au client).',
+    pl: ' (filtr wewnętrzny wokół budżetu — NIGDY nie mów klientowi o «±26%» ani korytarzu €min–€max).',
+    nl: ' (interne filter rond budget — NOOIT «±26%» of een €-band hardop aan de klant noemen).',
+  };
+  const priceHint = priceTarget ? priceHintMap[lang] || priceHintMap.en : '';
 
+  const sectorHintMap = {
+    ru: ' ЖЁСТКИЙ фильтр по сфере — ниже только объекты выбранной клиентом сферы.',
+    en: ' STRICT sector filter active — only listings matching the client sector below.',
+    es: ' Filtro ESTRICTO de sector — solo fichas del sector elegido abajo.',
+    de: ' STRIKTER Branchenfilter — nur Objekte der gewählten Branche.',
+    fr: ' Filtre STRICT de secteur — uniquement les fiches du secteur choisi.',
+    pl: ' ŚCISŁY filtr branży — tylko oferty wybranej branży.',
+    nl: ' STRIKTE sectorfilter — alleen objecten van de gekozen sector.',
+  };
   const sectorHint =
     businessSectors.length && !businessSectors.includes('other')
-      ? lang === 'en'
-        ? ' STRICT sector filter active — only listings matching the client sector below.'
-        : lang === 'es'
-          ? ' Filtro ESTRICTO de sector — solo fichas del sector elegido abajo.'
-          : ' ЖЁСТКИЙ фильтр по сфере — ниже только объекты выбранной клиентом сферы.'
+      ? sectorHintMap[lang] || sectorHintMap.en
       : '';
 
   const typeHint =
@@ -917,20 +1259,30 @@ function searchForContext(query, limit = 8, options = {}) {
   const fallbackHint = usedBudgetFallback ? budgetFallbackHints[lang] || budgetFallbackHints.ru : '';
   const areaHint = usedAreaFallback ? areaFallbackHints[lang] || areaFallbackHints.ru : '';
 
-  const header =
-    lang === 'en'
-      ? `[Full catalog: ${totalInDb} listings; search picked ${lines.length} diverse matches below — use only these URLs.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`
+  const paraphraseHint =
+    lang === 'ru'
+      ? ''
       : lang === 'es'
-        ? `[Catálogo completo: ${totalInDb} anuncios; abajo ${lines.length} opciones variadas — solo estos enlaces.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`
+        ? ' Parafrasea al cliente en español; nunca copies ruso/cirílico.'
         : lang === 'de'
-          ? `[Vollständiger Katalog: ${totalInDb} Objekte; unten ${lines.length} passende Varianten — nur diese URLs verwenden.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`
+          ? ' Für den Kunden auf Deutsch umschreiben; niemals Russisch/Kyrillisch kopieren.'
           : lang === 'fr'
-            ? `[Catalogue complet: ${totalInDb} annonces; ci-dessous ${lines.length} options — utiliser uniquement ces liens.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`
+            ? ' Paraphraser en français pour le client ; ne jamais copier du russe/cyrillique.'
             : lang === 'pl'
-              ? `[Pełny katalog: ${totalInDb} ofert; poniżej ${lines.length} dopasowanych wariantów — używaj tylko tych URL.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`
+              ? ' Parafrazuj po polsku; nigdy nie wklejaj rosyjskiego/cyrylicy.'
               : lang === 'nl'
-                ? `[Volledige catalogus: ${totalInDb} objecten; hieronder ${lines.length} passende opties — gebruik alleen deze URL’s.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`
-                : `[Полный каталог: ${totalInDb} объектов; ниже ${lines.length} разных вариантов по запросу — другие ссылки не выдумывай.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`;
+                ? ' Parafraseer in het Nederlands; nooit Russisch/Cyrillisch plakken.'
+                : ' Paraphrase in the client language; never paste Russian/Cyrillic.';
+  const headerMap = {
+    en: `[Full catalog: ${totalInDb} listings; search picked ${lines.length} diverse matches below — use only these URLs.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
+    es: `[Catálogo completo: ${totalInDb} anuncios; abajo ${lines.length} opciones variadas — solo estos enlaces.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
+    de: `[Vollständiger Katalog: ${totalInDb} Objekte; unten ${lines.length} passende Varianten — nur diese URLs verwenden.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
+    fr: `[Catalogue complet: ${totalInDb} annonces; ci-dessous ${lines.length} options — utiliser uniquement ces liens.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
+    pl: `[Pełny katalog: ${totalInDb} ofert; poniżej ${lines.length} dopasowanych wariantów — używaj tylko tych URL.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
+    nl: `[Volledige catalogus: ${totalInDb} objecten; hieronder ${lines.length} passende opties — gebruik alleen deze URL’s.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}${paraphraseHint}]`,
+    ru: `[Полный каталог: ${totalInDb} объектов; ниже ${lines.length} разных вариантов по запросу — другие ссылки не выдумывай.${priceHint}${sectorHint}${typeHint}${fallbackHint}${areaHint}]`,
+  };
+  const header = headerMap[lang] || headerMap.en;
 
   return {
     found: true,
@@ -1032,6 +1384,9 @@ module.exports = {
   searchForContext,
   listProperties,
   getLocalizedItem,
+  parseListingFacts,
+  formatFactsLine,
+  containsCyrillic,
   normalizeItem,
   normalizeLang,
   getCatalogSiteUrl,

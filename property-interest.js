@@ -162,6 +162,17 @@ function formatLinkedPropertiesForPrompt(items, lang = 'ru') {
                 ? '**OBJECT VIA KLANTLINK (catalogusgegevens — beschrijf, niet verzinnen):**'
                 : '**ОБЪЕКТ ПО ССЫЛКЕ КЛИЕНТА (данные из каталога — расскажи по ним, не выдумывай):**';
 
+  const fieldLabels = {
+    ru: { price: 'Цена', type: 'Тип', region: 'Регион', area: 'Район', overview: 'Обзор', desc: 'Описание' },
+    es: { price: 'Precio', type: 'Tipo', region: 'Región', area: 'Zona', overview: 'Resumen', desc: 'Descripción' },
+    en: { price: 'Price', type: 'Type', region: 'Region', area: 'Area', overview: 'Overview', desc: 'Description' },
+    de: { price: 'Preis', type: 'Typ', region: 'Region', area: 'Zone', overview: 'Überblick', desc: 'Beschreibung' },
+    fr: { price: 'Prix', type: 'Type', region: 'Région', area: 'Zone', overview: 'Aperçu', desc: 'Description' },
+    pl: { price: 'Cena', type: 'Typ', region: 'Region', area: 'Strefa', overview: 'Przegląd', desc: 'Opis' },
+    nl: { price: 'Prijs', type: 'Type', region: 'Regio', area: 'Zone', overview: 'Overzicht', desc: 'Beschrijving' },
+  };
+  const F = fieldLabels[l] || fieldLabels.en;
+
   const lines = items.slice(0, 3).map((item, i) => {
     const loc = getLocalizedItem(item, l);
     const share = getShareUrl(item, l) || loc.url || item.url || '';
@@ -170,27 +181,29 @@ function formatLinkedPropertiesForPrompt(items, lang = 'ru') {
     const regionId = getPrimaryMacroRegion(item);
     const regionNote = regionId ? formatRegionLabel([regionId], l) : '';
     const micro = detectMicroAreas(
-      [loc.title, loc.overview, share, item.url].filter(Boolean).join(' '),
+      [loc.title, loc.overview, loc.factsLine, share, item.url].filter(Boolean).join(' '),
       l
     );
     const areaNote = micro.hasSpecific ? micro.label : '';
-    const desc = String(loc.description || '')
+    const facts = String(loc.factsLine || '').replace(/\s+/g, ' ').trim();
+    const descRaw = String(loc.description || '')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 520);
-    const overview = String(loc.overview || '')
+    const desc = l === 'ru' ? descRaw : facts || descRaw;
+    const overview = String(loc.overview || loc.factsLine || '')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 220);
     return [
       `${i + 1}. ${loc.title || item.title || item.id || 'Object'}`,
       `   ID: ${item.id || '—'}`,
-      `   Цена / Price: ${loc.price || item.price || '—'}`,
-      typeNote ? `   Тип / Type: ${typeNote}` : null,
-      regionNote ? `   Регион / Region: ${regionNote}` : null,
-      areaNote ? `   Район / Area: ${areaNote}` : null,
-      overview ? `   Overview: ${overview}` : null,
-      desc ? `   Описание: ${desc}${desc.length >= 520 ? '…' : ''}` : null,
+      `   ${F.price}: ${loc.price || item.price || '—'}`,
+      typeNote ? `   ${F.type}: ${typeNote}` : null,
+      regionNote ? `   ${F.region}: ${regionNote}` : null,
+      areaNote ? `   ${F.area}: ${areaNote}` : null,
+      overview ? `   ${F.overview}: ${overview}` : null,
+      desc && desc !== overview ? `   ${F.desc}: ${desc}${desc.length >= 520 ? '…' : ''}` : null,
       `   URL: ${share}`
     ]
       .filter(Boolean)

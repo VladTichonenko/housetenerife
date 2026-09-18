@@ -115,6 +115,20 @@ function main() {
   check('getLanguageFromPhone LID → null', getLanguageFromPhone('198848513318995@lid') === null);
   check('PL manager_handoff alias', /Przekazałem|manager|WhatsApp/i.test(getTranslation('pl', 'manager_handoff')));
   check('NL handoff_ask_name alias', getTranslation('nl', 'handoff_ask_name').length > 10);
+  for (const lang of ['de', 'fr', 'it', 'pt', 'uk', 'tr']) {
+    const start = getTranslation(lang, 'start');
+    check(
+      `start ${lang} Maxim`,
+      /Maxim|Maksim|Максим/i.test(start) && !/WhatsApp bot|WhatsApp бот/i.test(start)
+    );
+    check(`ciphertext ${lang}`, getTranslation(lang, 'ciphertext_reply').length > 20);
+  }
+
+  const { getLocalizedItem, containsCyrillic } = require('../property-catalog');
+  const hz = (catalog.items || []).find((i) => String(i.id).toUpperCase() === 'HZ741') || catalog.items[0];
+  const deCard = getLocalizedItem(hz, 'de');
+  check('DE карточка без кириллицы', deCard.title && !containsCyrillic(deCard.title + deCard.description));
+  check('DE factsLine', Boolean(deCard.factsLine));
 
   console.log('\n5) Модель');
   check('gpt-4.1 резолвится', resolveModel('openai/gpt-4.1') === 'openai/gpt-4.1');
