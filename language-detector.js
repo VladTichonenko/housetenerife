@@ -163,22 +163,56 @@ function stripUrls(text) {
     .trim();
 }
 
+/**
+ * Названия объектов из каталога / скобки: «Parking à vendre», «en venta» —
+ * не сигнал языка клиента (иначе ES→FR из‑за à vendre).
+ */
+function stripCatalogTitleNoise(text) {
+  return String(text || '')
+    .replace(/\[[^\]]{0,120}\]/g, ' ')
+    .replace(/\([^)]{0,120}\)/g, ' ')
+    .replace(
+      /\b(?:parking|garage|plaza|local|negocio|bar|villa|apartamento?|piso|maison|wohnung)\s+(?:à\s+vendre|a\s+vendre|en\s+vente|en\s+venta|zu\s+verkaufen|for\s+sale|te\s+koop)\b/gi,
+      ' '
+    )
+    .replace(/\b(?:à|a)\s+vendre\b/gi, ' ')
+    .replace(/\ben\s+venta\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Текст для детекта языка: без URL и без «шума» каталога. */
+function prepareDetectBody(text) {
+  return stripCatalogTitleNoise(stripUrls(text));
+}
+
 function isUrlOnlyMessage(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return false;
   if (!/https?:\/\/|housetenerife\.eu/i.test(trimmed)) return false;
-  const rest = stripUrls(trimmed).replace(/[^\p{L}\p{N}]+/gu, '');
+  const rest = prepareDetectBody(trimmed).replace(/[^\p{L}\p{N}]+/gu, '');
   return rest.length < 3;
 }
 
 function detectByScript(text) {
   if (/[а-яёіїєґ]/i.test(text)) {
-    if (/\b(і|ї|є|ґ|це|як|де|чому|привіт|дякую)\b/i.test(text)) return 'uk';
+    // Украинские буквы в слове (жіття, шукаю) — не только целые слова «і/ї»
+    if (/[іїєґІЇЄҐ]/.test(text) || /\b(це|як|де|чому|привіт|дякую|шукаю|хочу|бюджет)\b/i.test(text)) {
+      return 'uk';
+    }
     return 'ru';
+  }
+  // Турецкий ДО немецкого: ü/ö/ç есть и в DE/FR/PT (bütçe, Yatırım)
+  if (/[ışğİŞĞ]/.test(text)) return 'tr';
+  if (
+    /[üçöÜÇÖ]/.test(text) &&
+    /\b(merhaba|i[cç]in|istiyorum|daire|yat[iı]r[iı]m|b[uü]t[cç]e|almak|ar[iı]yorum)\b/i.test(text)
+  ) {
+    return 'tr';
   }
   // Немецкий ДО испанского: ü в für/würde раньше ошибочно давал ES
   if (/[äöüßÄÖÜ]/.test(text)) return 'de';
-  // Испанский ¿¡ñ ДО польского: ó есть и в ES (inversión), и в PL — иначе ES→pl
+  // Испанский ¿¡ñ ДО польского
   if (/[ñÑ]/.test(text) || /[¿¡]/.test(text)) return 'es';
   // Польские буквы без ó (ó общая с испанским)
   if (/[ąćęłńśźżĄĆĘŁŃŚŹŻ]/.test(text)) return 'pl';
@@ -190,20 +224,81 @@ function detectByScript(text) {
   ) {
     return 'pl';
   }
+  // Португальский ã õ — уникальны; Olá/procuro ДО голого á→ES
+  if (/[ãõÃÕ]/.test(text)) return 'pt';
   if (
-    /[áéíóúÁÉÍÓÚ]/.test(text) &&
-    /\b(qué|quién|cómo|dónde|más|también|está|están|señor|información|inversi[oó]n|sí|aquí|así|buscas|quieres|para\s+vivir)\b/i.test(
+    /\b(ol[aá]|procuro|quero|obrigado|bom\s+dia|or[cç]amento|para\s+viver)\b/i.test(text) &&
+    /\b(um|uma|em|para|comprar|apartamento|villa)\b/i.test(text)
+  ) {
+    return 'pt';
+  }
+  // Испанские ударные (не голое á из PT Olá без ES-контекста)
+  if (
+    /[íúÍÚ]/.test(text) ||
+    (/[áÁ]/.test(text) &&
+      /\b(está|están|días|más|información|aquí|así|qué|quién|cómo|dónde|también|mañana|días)\b/i.test(text))
+  ) {
+    return 'es';
+  }
+  if (
+    /[óÓ]/.test(text) &&
+    /\b(inversi[oó]n|informaci[oó]n|opci[oó]n|tambi[eé]n|m[aá]s|c[oó]mo|d[oó]nde)\b/i.test(text)
+  ) {
+    return 'es';
+  }
+  if (
+    /\b\w+[éÉ]\b/.test(text) &&
+    /\b(yo|me|te|mi|tu|ya|esto|este|propuesta|pas[eé]|habl[eé]|dij[eé]|estoy|alquilar|alquilarlo|dijistes|hablastes)\b/i.test(
       text
     )
   ) {
     return 'es';
   }
-  if (/[àâçéèêëîïôùûœæ]/i.test(text)) return 'fr';
+  // Португальский ç с PT-контекстом (ç также FR/TR)
+  if (/[çÇ]/.test(text) && /\b(ol[aá]|procuro|quero|obrigado|or[cç]amento)\b/i.test(text)) {
+    return 'pt';
+  }
+  // Французский: уникальные буквы (не голое é; ï часто в NL: geïnteresseerd)
+  if (/[œæŒÆ]/.test(text) || /[àâêëôùûÀÂÊËÔÙÛ]/.test(text)) return 'fr';
+  if (/[çÇ]/.test(text) && /\b(je|nous|fran[cç]ais|gar[cç]on|ça)\b/i.test(text)) return 'fr';
+  if (
+    /[îÎ]/.test(text) &&
+    /\b(je|nous|vous|bonjour|merci|appartement|na[iï]ve)\b/i.test(text)
+  ) {
+    return 'fr';
+  }
+  if (
+    /[ïÏ]/.test(text) &&
+    /\b(je|nous|vous|bonjour|merci|appartement)\b/i.test(text) &&
+    !/\b(ik|wij|bedankt|ge[iï]nteresseerd|zoek|woning)\b/i.test(text)
+  ) {
+    return 'fr';
+  }
+  if (
+    /[èÈ]/.test(text) &&
+    /\b(je|nous|vous|bonjour|merci|appartement|cherche|voudrais|pour|avec|une|des)\b/i.test(text)
+  ) {
+    return 'fr';
+  }
+  // Нидерландский (без диакритики)
+  if (
+    /\b(wij|willen|kopen|wonen|bedankt|ge[iï]nteresseerd|goedemorgen|alsjeblieft)\b/i.test(text) &&
+    /\b(ik|een|het|om\s+te|villa|appartement|budget|object|dit)\b/i.test(text)
+  ) {
+    return 'nl';
+  }
+  // Итальянский
+  if (
+    /\b(buongiorno|ciao|cerco|vorrei|appartamento|grazie|per\s+favore|investimento)\b/i.test(text) &&
+    /\b(un|una|per|sono|voglio|comprare)\b/i.test(text)
+  ) {
+    return 'it';
+  }
   return null;
 }
 
 function scoreStopWords(words) {
-  const scores = { ru: 0, en: 0, es: 0, de: 0, fr: 0, pl: 0, nl: 0 };
+  const scores = { ru: 0, en: 0, es: 0, de: 0, fr: 0, pl: 0, nl: 0, uk: 0, pt: 0, it: 0, tr: 0 };
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
     const weight = i < HEAD_WORD_COUNT ? HEAD_WORD_BONUS : 1;
@@ -243,11 +338,11 @@ function isMostlyPlaceName(text) {
 }
 
 function applySpanishMarkers(text, words, scores) {
-  const signalText = stripPlaceNames(text);
+  const signalText = stripPlaceNames(stripCatalogTitleNoise(text));
   if (!signalText || isMostlyPlaceName(text)) return;
   // Не считаем топонимы (Tenerife/Dubai…) — они есть во всех языках и ломают детекцию EN↔ES
   if (
-    /\b(quiero|quieres|busco|buscas|necesito|quisiera|gustaria|gustaría|apartamento|piso|invertir|inversión|inversion|presupuesto|hola|gracias|españa|espana|vivir|trabajar|alquilar|vender|comprar|bar)\b/i.test(
+    /\b(quiero|quieres|busco|buscas|necesito|quisiera|gustaria|gustaría|apartamento|piso|invertir|inversión|inversion|presupuesto|hola|gracias|españa|espana|vivir|trabajar|alquilar|alquilarlo|vender|comprar|bar|parking|propuesta|pas[eé]|habl[eé]|dij[eé]|dijistes|hablastes|estoy|interesado|interesada|buenos|d[ií]as|podemos|hablar|aqu[ií])\b/i.test(
       signalText
     )
   ) {
@@ -255,15 +350,22 @@ function applySpanishMarkers(text, words, scores) {
   }
   // Артикли el/la/de только вместе с другими ES-сигналами — иначе «Puerto de la Cruz» → es
   if (
-    /\b(estoy|tenemos|tengo|encaja|encajan|quisiera|busco|buscas|quiero|quieres|para\s+vivir|para\s+invertir|para\s+trabajar)\b/i.test(
+    /\b(estoy|estamos|tenemos|tengo|encaja|encajan|quisiera|busco|buscas|quiero|quieres|para\s+vivir|para\s+invertir|para\s+trabajar|te\s+(?:pas[eé]|habl[eé]|dij[eé]))\b/i.test(
       signalText
     ) &&
-    /\b(el|la|los|las|un|una|del|al|para|por|con)\b/i.test(signalText)
+    /\b(el|la|los|las|un|una|del|al|para|por|con|yo|mi|me|te)\b/i.test(signalText)
   ) {
     scores.es += 1.5;
   }
   if (/\b\w+(ción|cion|sión|sion|mente)\b/i.test(signalText)) {
     scores.es += 2;
+  }
+  // Прошедшее на -é / -ó типично для ES (pasé, hablé) — не путать с FR
+  if (
+    /\b\w+[éó]\b/.test(signalText) &&
+    /\b(yo|me|te|mi|tu|ya|esto|este|propuesta|parking)\b/i.test(signalText)
+  ) {
+    scores.es += 2.5;
   }
   if (/[¿¡]/.test(signalText)) scores.es += 3;
 }
@@ -296,18 +398,28 @@ function applyGermanMarkers(text, scores) {
 }
 
 function applyFrenchMarkers(text, scores) {
-  const signalText = stripPlaceNames(text);
+  const signalText = stripPlaceNames(stripCatalogTitleNoise(text));
   if (!signalText || isMostlyPlaceName(text)) return;
-  if (/\b(je|nous|cherche|cherchons|voudrais|appartement|maison|bonjour|merci|budget|acheter|investir)\b/i.test(signalText)) {
+  // Не бустить FR из «à vendre» в названии объекта — вырезается в stripCatalogTitleNoise
+  if (
+    /\b(je|nous|cherche|cherchons|voudrais|appartement|maison|bonjour|merci|acheter|investir|s'?il\s+vous\s+pla[iî]t|pouvez|suis\s+int[eé]ress[eé]|int[eé]ress[eé])\b/i.test(
+      signalText
+    )
+  ) {
     scores.fr += 3;
   }
-  if (/\b(pour|avec|dans|une|des|suis|avons|aimerais)\b/i.test(signalText)) {
+  if (/\b(pour|avec|dans|une|des|suis|avons|aimerais|ce\s+bien|appeler)\b/i.test(signalText)) {
     scores.fr += 1.5;
   }
+  if (/[çœæ]/i.test(signalText)) scores.fr += 3;
 }
 
 function applyRussianMarkers(text, scores) {
   if (/[а-яё]/i.test(text)) scores.ru += 4;
+  if (/[іїєґ]/i.test(text)) {
+    scores.uk = (scores.uk || 0) + 5;
+    scores.ru = Math.max(0, (scores.ru || 0) - 2);
+  }
 }
 
 function applyPolishMarkers(text, scores) {
@@ -322,11 +434,48 @@ function applyPolishMarkers(text, scores) {
 }
 
 function applyDutchMarkers(text, scores) {
-  if (/\b(ik|wij|zoek|zoeken|appartement|woning|vastgoed|budget|investering|bedankt|graag|goedemorgen)\b/i.test(text)) {
+  if (
+    /\b(ik|wij|zoek|zoeken|appartement|woning|vastgoed|budget|investering|bedankt|graag|goedemorgen|willen|kopen|wonen|ge[iï]nteresseerd|object)\b/i.test(
+      text
+    )
+  ) {
     scores.nl += 3;
   }
-  if (/\b(het|een|van|voor|naar|met|wil|kopen|wonen)\b/i.test(text)) {
+  if (/\b(het|een|van|voor|naar|met|wil|om\s+te|dit)\b/i.test(text)) {
     scores.nl += 1.5;
+  }
+  // ï в geïnteresseerd — NL, не FR
+  if (/ge[iï]nteresseerd/i.test(text) || /\b(bedankt|alsjeblieft|goedemiddag)\b/i.test(text)) {
+    scores.nl += 3;
+    if (scores.fr) scores.fr = Math.max(0, scores.fr - 2);
+  }
+}
+
+function applyPortugueseMarkers(text, scores) {
+  if (/[ãõÃÕ]/.test(text)) scores.pt = (scores.pt || 0) + 4;
+  if (
+    /\b(ol[aá]|procuro|quero|comprar|apartamento|or[cç]amento|obrigado|bom\s+dia|para\s+viver|investir)\b/i.test(
+      text
+    )
+  ) {
+    scores.pt = (scores.pt || 0) + 3;
+  }
+}
+
+function applyItalianMarkers(text, scores) {
+  if (
+    /\b(buongiorno|ciao|cerco|vorrei|appartamento|grazie|investimento|comprare|per\s+viverci)\b/i.test(
+      text
+    )
+  ) {
+    scores.it = (scores.it || 0) + 3;
+  }
+}
+
+function applyTurkishMarkers(text, scores) {
+  if (/[ışğüçöİŞĞÜÇÖ]/.test(text)) scores.tr = (scores.tr || 0) + 5;
+  if (/\b(merhaba|arıyorum|istiyorum|daire|yatırım|bütçe|için)\b/i.test(text)) {
+    scores.tr = (scores.tr || 0) + 3;
   }
 }
 
@@ -428,20 +577,50 @@ function isStrongLanguageSignal(text, detectedLang) {
   if (isMostlyPlaceName(trimmed)) return false;
   if (isBudgetAmountReply(trimmed)) return false;
 
-  const scriptLang = detectByScript(trimmed);
-  if (scriptLang && scriptLang === detectedLang) return true;
-  if (/[а-яёіїєґ]/i.test(trimmed) && (detectedLang === 'ru' || detectedLang === 'uk')) {
-    return true;
+  const body = prepareDetectBody(trimmed) || trimmed;
+  // После вырезания «à vendre» почти ничего не осталось — не переключаем sticky
+  if (tokenize(body).length < 2 && /à\s+vendre|en\s+venta|housetenerife/i.test(trimmed)) {
+    return false;
   }
-  if (/[ąćęłńóśźż]/i.test(trimmed) && detectedLang === 'pl') {
-    return true;
-  }
-  if (/[äöüß]/i.test(trimmed) && detectedLang === 'de') return true;
-  if (/[àâçéèêëîïôùûœæ]/i.test(trimmed) && detectedLang === 'fr') return true;
 
-  const words = tokenize(stripPlaceNames(trimmed));
-  if (words.length >= 4 && stripPlaceNames(trimmed).length >= 16) return true;
-  if (words.length >= 3 && stripPlaceNames(trimmed).length >= 12) return true;
+  const scriptLang = detectByScript(body);
+  if (scriptLang && scriptLang === detectedLang) return true;
+  if (/[а-яёіїєґ]/i.test(body) && (detectedLang === 'ru' || detectedLang === 'uk')) {
+    return true;
+  }
+  if (/[ąćęłńóśźż]/i.test(body) && detectedLang === 'pl') {
+    return true;
+  }
+  if (/[äöüß]/i.test(body) && detectedLang === 'de') return true;
+  // FR: не голое é/ï (ES pasé, NL geïnteresseerd)
+  if (/[çœæàâêëôùû]/i.test(body) && detectedLang === 'fr') return true;
+  if (
+    detectedLang === 'fr' &&
+    /\b(je|nous|bonjour|merci|appartement|cherche|suis)\b/i.test(body) &&
+    !/\b(yo|me\s+pas[eé]|habl[eé]|propuesta|estoy|interesado)\b/i.test(body)
+  ) {
+    return true;
+  }
+  // Длинное сообщение без маркеров detectedLang — не strong для «чужого» языка
+  if (detectedLang === 'fr') {
+    const looksEs =
+      /\b(yo|me|te|mi|propuesta|pas[eé]|habl[eé]|estoy|interesado|alquilar)\b/i.test(body) ||
+      (/\b\w+[éó]\b/.test(body) && /\b(yo|ya|te|me)\b/i.test(body));
+    const looksFr = /\b(je|nous|bonjour|merci|appartement|cherche|suis)\b/i.test(body);
+    if (looksEs && !looksFr) return false;
+  }
+  if (
+    detectedLang === 'es' &&
+    (/\b(yo|me|te|pas[eé]|habl[eé]|propuesta|estoy|interesado)\b/i.test(body) ||
+      /[ñ¿¡áíú]/i.test(body) ||
+      (/\b\w+[éó]\b/.test(body) && /\b(yo|ya|te|me|esto)\b/i.test(body)))
+  ) {
+    return true;
+  }
+
+  const words = tokenize(stripPlaceNames(body));
+  if (words.length >= 4 && stripPlaceNames(body).length >= 16) return true;
+  if (words.length >= 3 && stripPlaceNames(body).length >= 12) return true;
   return false;
 }
 
@@ -458,7 +637,7 @@ function detectLanguageFromText(text) {
     return 'en';
   }
 
-  const detectBody = stripUrls(trimmed) || trimmed;
+  const detectBody = prepareDetectBody(trimmed) || trimmed;
   const words = tokenize(detectBody);
 
   if (words.length === 1) {
@@ -467,7 +646,8 @@ function detectLanguageFromText(text) {
   }
 
   const scriptLang = detectByScript(detectBody);
-  if (scriptLang && /[а-яёіїєґñáéíóúäöüßàâçéèêëîïôùûœæąćęłńóśźż¿¡]/i.test(detectBody)) {
+  // detectByScript уже фильтрует ложные срабатывания (é ES vs FR, ï NL vs FR…)
+  if (scriptLang) {
     return scriptLang;
   }
 
@@ -496,6 +676,22 @@ function detectLanguageFromText(text) {
   applyRussianMarkers(detectBody, scores);
   applyPolishMarkers(detectBody, scores);
   applyDutchMarkers(detectBody, scores);
+  applyPortugueseMarkers(detectBody, scores);
+  applyItalianMarkers(detectBody, scores);
+  applyTurkishMarkers(detectBody, scores);
+
+  // Если после вырезания каталога остался явный ES — не даём FR победить из slug
+  if ((scores.es || 0) >= 3 && (scores.fr || 0) > 0 && (scores.es || 0) >= (scores.fr || 0)) {
+    scores.fr = Math.min(scores.fr, scores.es - 1);
+  }
+  // NL vs FR: geïnteresseerd
+  if ((scores.nl || 0) >= 3 && (scores.fr || 0) > 0) {
+    scores.fr = Math.min(scores.fr, Math.max(0, scores.nl - 1));
+  }
+  // FR vs ES: je/merci
+  if ((scores.fr || 0) >= 3 && (scores.es || 0) > 0 && /\b(je|nous|merci|bonjour|suis)\b/i.test(detectBody)) {
+    scores.es = Math.min(scores.es, Math.max(0, scores.fr - 1));
+  }
 
   const heuristicLang = pickTopScore(scores);
   const francLang = signalText.length >= 8 ? detectByFranc(signalText) : null;
@@ -503,7 +699,7 @@ function detectLanguageFromText(text) {
   if (heuristicLang && francLang) {
     if (heuristicLang === francLang) return heuristicLang;
     const topHeuristicScore = scores[heuristicLang] || 0;
-    // Heuristic надёжнее franc на коротких Romance/Slavic текстах (ES↔PL путаница)
+    // Heuristic надёжнее franc на коротких Romance/Slavic текстах (ES↔PL/FR путаница)
     if (topHeuristicScore >= 3) return heuristicLang;
     if ((scores[francLang] || 0) >= 2) return francLang;
     return heuristicLang;
@@ -547,5 +743,7 @@ module.exports = {
   isBudgetAmountReply,
   isUrlOnlyMessage,
   stripUrls,
+  stripCatalogTitleNoise,
+  prepareDetectBody,
   SUPPORTED_DETECT,
 };

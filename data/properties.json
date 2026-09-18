@@ -27,7 +27,11 @@
       },
       "overviews": {
         "ru": "Property type | Апартаменты | 1 | Bedroom | 1 | Bathroom"
-      }
+      },
+      "ogImage": "https://housetenerife.eu/wp-content/uploads/2022/09/izobrazhenie_viber_2022-09-02_18-13-27-098.jpg",
+      "images": [
+        "https://housetenerife.eu/wp-content/uploads/2022/09/izobrazhenie_viber_2022-09-02_18-13-27-098.jpg"
+      ]
     },
     {
       "id": "HZ758",
@@ -681,7 +685,11 @@
       "overviews": {
         "ru": "Property type | Апартаменты | 2 | Комнаты | 1 | Bathroom | 95 | Area Size",
         "es": "Property type | Pisos | 2 | Rooms | 1 | Bathroom | 95 | Area Size"
-      }
+      },
+      "ogImage": "https://housetenerife.eu/wp-content/uploads/2021/01/11-1-750x397-1.jpeg",
+      "images": [
+        "https://housetenerife.eu/wp-content/uploads/2021/01/11-1-750x397-1.jpeg"
+      ]
     },
     {
       "id": "HZ507",
@@ -5819,7 +5827,11 @@
       },
       "overviews": {
         "ru": "Property type | Апартаменты | 1 | Bedroom | 1 | Bathroom"
-      }
+      },
+      "ogImage": "https://housetenerife.eu/wp-content/uploads/2022/12/izobrazhenie_viber_2022-12-19_09-32-48-029.jpg",
+      "images": [
+        "https://housetenerife.eu/wp-content/uploads/2022/12/izobrazhenie_viber_2022-12-19_09-32-48-029.jpg"
+      ]
     },
     {
       "id": "HZ1278",
@@ -12176,7 +12188,11 @@
       "overviews": {
         "ru": "Property type | Апартаменты | 1 | Bathroom | 40 | Area Size",
         "es": "1 | Bathroom | 40 | Area Size"
-      }
+      },
+      "ogImage": "https://housetenerife.eu/wp-content/uploads/2023/05/03570584-79a6-4ca2-a73a-fceadb76c2eb.jpg",
+      "images": [
+        "https://housetenerife.eu/wp-content/uploads/2023/05/03570584-79a6-4ca2-a73a-fceadb76c2eb.jpg"
+      ]
     },
     {
       "id": null,

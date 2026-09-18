@@ -62,13 +62,20 @@ function buildFallbackSummary(conversationHistory, reasonKey, preview, clientNam
 }
 
 /**
- * Краткая выжимка для менеджера (без полного чата).
+ * Выжимка для менеджера по (по возможности полной) переписке.
  * @param {Array<{sender:string,text:string}>} conversationHistory
- * @param {{ reasonKey: string, preview?: string, language?: string }} meta
+ * @param {{ reasonKey: string, preview?: string, language?: string, clientName?: string, mode?: string }} meta
  */
 async function generateHandoffSummary(conversationHistory, meta = {}) {
-  const { reasonKey = 'handoff', preview = '', language = 'ru', clientName = '' } = meta;
-  const history = (conversationHistory || []).slice(-20);
+  const {
+    reasonKey = 'handoff',
+    preview = '',
+    language = 'ru',
+    clientName = '',
+    mode = 'handoff',
+  } = meta;
+  // Берём длинный хвост: после деплоя история восстанавливается из SQLite
+  const history = (conversationHistory || []).slice(-120);
 
   if (!AI_API_KEY || !String(AI_API_KEY).trim()) {
     return buildFallbackSummary(history, reasonKey, preview, clientName);
@@ -78,7 +85,25 @@ async function generateHandoffSummary(conversationHistory, meta = {}) {
     .map((m) => `${m.sender === 'user' ? 'Клиент' : 'Бот'}: ${m.text}`)
     .join('\n');
 
-  const systemPrompt = `Ты помощник риелтора House Tenerife. По переписке клиента с ботом составь КРАТКУЮ выжимку для менеджера на русском языке (5–8 коротких пунктов или абзацев).
+  const isReport = mode === 'manager_report';
+  const systemPrompt = isReport
+    ? `Ты помощник риелтора House Tenerife. По полной переписке клиента с ботом составь ОТЧЁТ для главного менеджера на русском языке.
+
+Структура (коротко, по делу, 8–12 пунктов):
+1) Кто клиент / язык общения
+2) С чего начался диалог и что хотел
+3) Какие критерии собрали (бюджет, цель жизнь/инвестиция, район, тип)
+4) Какие объекты обсуждали / какой выбрал (название, цена, ссылка если есть)
+5) Финансы: деньги на руках, ипотека, документы — если говорили
+6) К чему пришли сейчас (интерес, готовность к созвону/просмотру, открытые вопросы)
+7) Что менеджеру важно знать перед звонком / что клиент уже «помнил» из бота
+
+${clientName ? `Имя клиента: ${clientName}.` : ''}
+Контекст триггера: ${REASON_LABELS[reasonKey] || reasonKey}${preview ? ` («${preview.slice(0, 300)}»)` : ''}.
+Язык клиента в WhatsApp: ${language}.
+
+Не цитируй весь чат дословно. Не выдумывай факты. Если данных мало — явно напиши, что уточнить.`
+    : `Ты помощник риелтора House Tenerife. По переписке клиента с ботом составь КРАТКУЮ выжимку для менеджера на русском языке (5–8 коротких пунктов или абзацев).
 
 ${clientName ? `Имя клиента (уже известно): ${clientName}.` : ''}
 
@@ -95,8 +120,8 @@ ${clientName ? `Имя клиента (уже известно): ${clientName}.`
 Язык клиента в WhatsApp: ${language}.`;
 
   const userContent = transcript.trim()
-    ? `Переписка:\n${transcript}`
-    : `Переписки почти нет. Триггер передачи: ${preview || REASON_LABELS[reasonKey] || reasonKey}.`;
+    ? `Переписка (${history.length} сообщ.):\n${transcript}`
+    : `Переписки почти нет. Триггер: ${preview || REASON_LABELS[reasonKey] || reasonKey}.`;
 
   try {
     const response = await chatCompletions(
@@ -107,9 +132,9 @@ ${clientName ? `Имя клиента (уже известно): ${clientName}.`
           { role: 'user', content: userContent },
         ],
         temperature: 0.35,
-        max_tokens: 600,
+        max_tokens: isReport ? 900 : 600,
       },
-      { purpose: 'background', label: 'handoff-summary', maxAttempts: 4, timeout: 60000 }
+      { purpose: 'background', label: isReport ? 'manager-dialog-report' : 'handoff-summary', maxAttempts: 4, timeout: 60000 }
     );
 
     let text = response.data?.choices?.[0]?.message?.content || '';

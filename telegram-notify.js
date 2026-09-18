@@ -575,6 +575,35 @@ function notifyHandoffLead(item) {
   });
 }
 
+/**
+ * Полный отчёт по диалогу для главного менеджера (Telegram-группа алертов).
+ */
+function notifyDialogReport(item) {
+  if (!item) return;
+  const props = (item.properties || [])
+    .slice(0, 3)
+    .map((p) => escapeHtml(p.title || p.id || ''))
+    .filter(Boolean)
+    .join('; ');
+  const summary = String(item.summary || '')
+    .slice(0, 1200)
+    .trim();
+  const lines = [
+    '📋 <b>Отчёт по диалогу с клиентом</b>',
+    item.clientName ? `Клиент: ${escapeHtml(item.clientName)}` : null,
+    item.phoneDisplay ? `📞 ${escapeHtml(item.phoneDisplay)}` : null,
+    item.languageLabel ? `🌍 ${escapeHtml(item.languageLabel)}` : null,
+    item.trigger ? `Триггер: ${escapeHtml(String(item.trigger))}` : null,
+    props ? `🏠 ${props}` : null,
+    item.waSent ? '✅ Отправлено главному менеджеру в WhatsApp' : '⚠️ WhatsApp менеджеру: не отправлено',
+    summary ? `\n${escapeHtml(summary)}` : null,
+    item.waLink ? `🔗 ${item.waLink}` : null,
+  ].filter(Boolean);
+  sendAlert(lines.join('\n')).catch((err) => {
+    console.error('telegram-notify dialog-report:', err.message);
+  });
+}
+
 function notifyBotStarted(meta = {}) {
   const lines = [
     '🚀 <b>House Tenerife бот запущен</b>',
@@ -859,6 +888,7 @@ module.exports = {
   notifyFirstWhatsAppUser,
   notifyWhatsAppConnection,
   notifyHandoffLead,
+  notifyDialogReport,
   notifyBotStarted,
   startTelegram,
   startTelegramPolling,

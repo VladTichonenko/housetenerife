@@ -1,6 +1,70 @@
 {
   "items": [
     {
+      "id": "1f4c2cf7-6e8b-423b-a1cf-2b54779e6484",
+      "chatId": "test-purchase-1789736454498@test.c.us",
+      "phone": "1789736454498",
+      "isLid": false,
+      "phoneDisplay": "+1789736454498",
+      "waLink": "https://wa.me/1789736454498",
+      "status": "handed_off",
+      "handoffId": "handoff-test-id",
+      "clientName": "",
+      "createdAt": "2026-09-18T13:00:54.499Z",
+      "language": "ru",
+      "languageLabel": "Русский",
+      "properties": [
+        {
+          "id": "HZ100",
+          "title": "Villa A",
+          "price": "€1.5M",
+          "siteUrl": "https://housetenerife.eu/property/HZ100"
+        }
+      ],
+      "fundsNowLabel": "все своими",
+      "needsMortgage": false,
+      "financeStage": "FINANCE_DOCUMENTS_CASH",
+      "budget": "до €2,000,000",
+      "region": "Тенерифе / Канары",
+      "propertyType": "виллы",
+      "businessSector": "",
+      "preview": "первый",
+      "lastActivityAt": "2026-09-18T13:00:54.500Z",
+      "updatedAt": "2026-09-18T13:00:54.500Z"
+    },
+    {
+      "id": "45a84be8-5b8d-4da1-b330-82a3e988f32d",
+      "chatId": "test-purchase-1789649491873@test.c.us",
+      "phone": "1789649491873",
+      "isLid": false,
+      "phoneDisplay": "+1789649491873",
+      "waLink": "https://wa.me/1789649491873",
+      "status": "handed_off",
+      "handoffId": "handoff-test-id",
+      "clientName": "",
+      "createdAt": "2026-09-17T12:51:31.874Z",
+      "language": "ru",
+      "languageLabel": "Русский",
+      "properties": [
+        {
+          "id": "HZ100",
+          "title": "Villa A",
+          "price": "€1.5M",
+          "siteUrl": "https://housetenerife.eu/property/HZ100"
+        }
+      ],
+      "fundsNowLabel": "все своими",
+      "needsMortgage": false,
+      "financeStage": "FINANCE_DOCUMENTS_CASH",
+      "budget": "до €2,000,000",
+      "region": "Тенерифе / Канары",
+      "propertyType": "виллы",
+      "businessSector": "",
+      "preview": "первый",
+      "lastActivityAt": "2026-09-17T12:51:31.875Z",
+      "updatedAt": "2026-09-17T12:51:31.875Z"
+    },
+    {
       "id": "912c7fde-e196-4a11-ae68-0c827923d4aa",
       "chatId": "test-purchase-1789305461793@test.c.us",
       "phone": "1789305461793",
@@ -498,5 +562,5 @@
       "updatedAt": "2026-08-13T13:08:27.654Z"
     }
   ],
-  "updatedAt": "2026-09-13T13:17:41.794Z"
+  "updatedAt": "2026-09-18T13:00:54.500Z"
 }

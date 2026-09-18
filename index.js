@@ -1,5 +1,5 @@
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
-const { Client, LocalAuth, Message } = require('whatsapp-web.js');
+const { Client, LocalAuth, Message, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 const express = require('express');
@@ -40,6 +40,7 @@ const {
 } = require('./message-body');
 const {
   isVoiceMessage,
+  isImageMessage,
   isImageWithDescription,
   containsLink,
   wantsManagerHandoff,
@@ -56,6 +57,14 @@ const {
   startHandoffFromCallAcceptance,
   formatCustomerPhone,
 } = require('./manager-handoff');
+const {
+  describeIncomingWhatsAppPhoto,
+  formatPhotoUserLine,
+} = require('./photo-vision');
+const {
+  wantsPropertyPhotos,
+  preparePropertyPhotosForSend,
+} = require('./property-images');
 const {
   getPendingHandoff,
   clearPendingHandoff,
@@ -77,6 +86,13 @@ const { hydrateConversationHistory } = require('./conversation-history');
 const { getDb, DB_PATH } = require('./db');
 const { migrateFromJsonIfNeeded } = require('./db-migrate');
 const { ensureFreshMortgageData } = require('./bank-mortgage-data');
+const {
+  setManagerWhatsAppSender,
+  queueManagerDialogReport,
+  loadFullHistory,
+  managerWhatsAppChatId,
+  reportsEnabled,
+} = require('./manager-dialog-report');
 
 try {
   getDb();
@@ -122,6 +138,16 @@ const LINK_MESSAGE_DELAY_MS = Math.max(
 setRecordHandoff(recordHandoff);
 console.log(`📋 Лиды handoff (панель «Связь с менеджером»): ${HANDOFF_PATH}`);
 console.log(`👤 Пользователи и чаты: SQLite (${DB_PATH}), legacy JSON: ${CLIENTS_PATH}`);
+if (reportsEnabled()) {
+  const mgrWa = managerWhatsAppChatId();
+  console.log(
+    mgrWa
+      ? `📋 Отчёты главному менеджеру: WhatsApp ${mgrWa}`
+      : '📋 Отчёты менеджеру: задайте MANAGER_WHATSAPP в .env'
+  );
+} else {
+  console.log('📋 Отчёты главному менеджеру выключены (MANAGER_DIALOG_REPORTS=0)');
+}
 if (telegramNotify.isConfigured()) {
   console.log('📱 Telegram: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID заданы (проверка при старте HTTP)');
 } else {
@@ -1091,6 +1117,79 @@ async function sendMessageSafely(msg, text, clientRef = client) {
     console.error('❌ Все методы отправки не сработали:', lastError.message);
   }
   return { queued: true };
+}
+
+/**
+ * Отправка фото (MessageMedia) с теми же soft-timeout правилами, что и текст.
+ * @param {object} msg
+ * @param {string} imageUrl
+ * @param {string} [caption]
+ * @param {object} [clientRef]
+ */
+async function sendMediaSafely(msg, imageUrl, caption = '', clientRef = client) {
+  if (!imageUrl) return { queued: false, skipped: true };
+  const chatId = msg.from;
+  const lid = isLidChatId(chatId);
+  rememberInboundMessage(msg);
+  pauseMessagePolling(25000);
+
+  if (isCdpBusy() || hasAbandonedCdpWork() || softReloadInFlight) {
+    console.warn(`⏳ CDP busy — фото ${chatId} пропущено (текст уже ушёл)`);
+    return { queued: false, skipped: true };
+  }
+
+  let media;
+  try {
+    media = await MessageMedia.fromUrl(String(imageUrl), {
+      unsafeMime: true,
+      filename: 'property.jpg',
+    });
+  } catch (e) {
+    console.warn(`🖼️ MessageMedia.fromUrl: ${e.message}`);
+    return { queued: false, error: e.message };
+  }
+
+  const softMs = lid ? SEND_SOFT_TIMEOUT_LID_MS : Math.max(SEND_SOFT_TIMEOUT_MS, 35000);
+  const opts = { caption: String(caption || '').slice(0, 900), sendSeen: false };
+
+  try {
+    if (lid) {
+      await withSendSoftTimeout(msg.reply(media, undefined, opts), softMs);
+    } else {
+      await withSendSoftTimeout(
+        clientRef.sendMessage(chatId, media, opts),
+        softMs
+      );
+    }
+    touchWhatsAppActivity();
+    return { queued: false };
+  } catch (err) {
+    if (isMarkedUnreadError(err)) {
+      touchWhatsAppActivity();
+      return { queued: false };
+    }
+    console.warn(`🖼️ sendMedia ${chatId}:`, err.message || err);
+    markChromiumSlow(12000);
+    return { queued: false, error: err.message };
+  }
+}
+
+/**
+ * После текстового ответа — прислать обложки объектов (до PROPERTY_PHOTOS_MAX).
+ */
+async function maybeSendPropertyPhotos(msg, replyText, lang, opts = {}) {
+  if (process.env.DISABLE_PROPERTY_PHOTOS === '1') return;
+  try {
+    const photos = await preparePropertyPhotosForSend(replyText, lang, opts);
+    if (!photos.length) return;
+    console.log(`🖼️ Отправка ${photos.length} фото объектов…`);
+    for (const photo of photos) {
+      await sendMediaSafely(msg, photo.imageUrl, photo.caption);
+      await new Promise((r) => setTimeout(r, 600));
+    }
+  } catch (e) {
+    console.warn('🖼️ maybeSendPropertyPhotos:', e.message);
+  }
 }
 
 // Создание клиента WhatsApp
@@ -2255,8 +2354,11 @@ async function processBatchedIncomingMessages(messages, source) {
   });
 }
 
-// Максимальное количество сообщений в истории (чтобы не перегружать контекст)
-const MAX_HISTORY_LENGTH = 20;
+// Максимальное количество сообщений в оперативной истории (после деплоя поднимается из SQLite)
+const MAX_HISTORY_LENGTH = Math.max(
+  20,
+  parseInt(process.env.CONVERSATION_RUNTIME_LIMIT, 10) || 80
+);
 
 function ensureHistoryHydrated(chatId) {
   try {
@@ -2322,9 +2424,30 @@ function addToHistory(chatId, sender, text, { persist = true, language = null } 
   }
 }
 
-// Функция для получения истории разговора
+// Функция для получения истории разговора (оперативная + гидратация из SQLite)
 function getHistory(chatId) {
+  ensureHistoryHydrated(chatId);
   return conversationHistory.get(chatId) || [];
+}
+
+/** Полная история из SQLite для отчётов менеджеру и handoff (не обрезается деплоем). */
+function getHistoryForAnalysis(chatId) {
+  const full = loadFullHistory(chatId);
+  if (full.length) return full;
+  return getHistory(chatId);
+}
+
+function queuePropertyInterestReport(chatId, dialogLanguage, preview, properties) {
+  setImmediate(() => {
+    queueManagerDialogReport({
+      chatId,
+      trigger: 'property_interest',
+      language: dialogLanguage,
+      preview: String(preview || '').slice(0, 300),
+      properties: properties || [],
+      conversationHistory: getHistoryForAnalysis(chatId),
+    }).catch((err) => console.warn('⚠️ manager dialog report:', err.message));
+  });
 }
 
 async function sendManagerMessage(chatId, text, { managerId = '', managerName = '' } = {}) {
@@ -2582,6 +2705,10 @@ client.on('ready', async () => {
   );
   console.log('📱 WhatsApp бот запущен и готов получать сообщения');
   botReady = true;
+  setManagerWhatsAppSender(async (targetChatId, text) => {
+    if (!client || !botReady) throw new Error('WhatsApp не готов');
+    await client.sendMessage(targetChatId, text, { sendSeen: false });
+  });
   waWatchState = 'CONNECTED';
   cdpActiveOps = 0;
   cdpActiveLabel = '';
@@ -3542,7 +3669,10 @@ async function handleIncomingMessage(msg, options = {}) {
           return 'processed';
         }
       }
-      if (isPermanentNonText(msg)) {
+      // Фото без подписи — не ciphertext: ниже vision + обычный диалог
+      if (isImageMessage(msg)) {
+        clearEmptyBodyRetry(msgId);
+      } else if (isPermanentNonText(msg)) {
         clearEmptyBodyRetry(msgId);
         try {
           const lang = getLanguageFromPhone(senderId) || 'en';
@@ -3553,15 +3683,16 @@ async function handleIncomingMessage(msg, options = {}) {
           console.warn('⚠️ Не удалось отправить подсказку:', replyErr.message);
         }
         return 'processed';
+      } else {
+        const attempts = trackEmptyBodyRetry(msgId);
+        if (exceededEmptyBodyRetries(msgId)) {
+          clearEmptyBodyRetry(msgId);
+          console.warn(`⚠️ [DEBUG] Не удалось прочитать текст после ${attempts} попыток (type=${msg.type})`);
+          return 'skip';
+        }
+        console.log(`⏳ [DEBUG] Текст пока недоступен (type=${msg.type}), попытка ${attempts}/${MAX_EMPTY_BODY_RETRIES}`);
+        return 'retry';
       }
-      const attempts = trackEmptyBodyRetry(msgId);
-      if (exceededEmptyBodyRetries(msgId)) {
-        clearEmptyBodyRetry(msgId);
-        console.warn(`⚠️ [DEBUG] Не удалось прочитать текст после ${attempts} попыток (type=${msg.type})`);
-        return 'skip';
-      }
-      console.log(`⏳ [DEBUG] Текст пока недоступен (type=${msg.type}), попытка ${attempts}/${MAX_EMPTY_BODY_RETRIES}`);
-      return 'retry';
     }
     clearEmptyBodyRetry(msgId);
     
@@ -3587,6 +3718,100 @@ async function handleIncomingMessage(msg, options = {}) {
       firstMessageUsers.add(chatId);
     }
     const languageName = getLanguageName(dialogLanguage);
+
+    // ── Фото: vision + обычный AI-диалог (с подписью или без) ──
+    if (isImageMessage(msg)) {
+      console.log(`📷 Фото от ${chatId} (caption=${Boolean(String(messageText || '').trim())})`);
+      let visionText = null;
+      try {
+        visionText = await withChatTyping(msg, () =>
+          describeIncomingWhatsAppPhoto(msg, messageText || '', dialogLanguage)
+        );
+      } catch (e) {
+        console.warn('📷 vision:', e.message);
+      }
+      const userLine = formatPhotoUserLine(messageText, visionText);
+      try {
+        recordClientMessage({
+          chatId,
+          senderId,
+          chatName: chat.isGroup
+            ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
+            : chat.name,
+          messageText: userLine.slice(0, 500),
+          language: dialogLanguage,
+          languageLabel: languageName,
+          country: userCountry || '',
+          isGroup: chat.isGroup,
+          kind: 'image',
+        });
+      } catch (clientStoreErr) {
+        console.warn('⚠️ Не удалось сохранить клиента:', clientStoreErr.message);
+      }
+      telegramNotify
+        .notifyIncomingWhatsAppMessage({
+          msgId,
+          chatId,
+          preview: userLine.slice(0, 400),
+          chatName: chat.isGroup
+            ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
+            : chat.name,
+          phone: formatCustomerPhone(senderId),
+          language: languageName,
+          isGroup: chat.isGroup,
+          kind: 'image',
+        })
+        .catch((err) => console.error('telegram-notify message:', err.message));
+
+      if (isAiDisabled(chatId)) {
+        addToHistory(chatId, 'user', userLine, { language: dialogLanguage });
+        console.log(`🔇 AI отключён для ${chatId} — фото сохранено`);
+        return 'processed';
+      }
+
+      try {
+        for (const t of prependUserTexts) {
+          addToHistory(chatId, 'user', t, { language: dialogLanguage });
+        }
+        addToHistory(chatId, 'user', userLine, { language: dialogLanguage });
+        const history = getHistory(chatId).slice();
+        let aiResponse = await withChatTyping(msg, () =>
+          askAI(history, dialogLanguage, { chatId })
+        );
+        const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
+        await sendMessageSafely(msg, outgoing, client);
+        addToHistory(chatId, 'assistant', outgoing);
+        await maybeSendPropertyPhotos(msg, outgoing, dialogLanguage, {
+          force: wantsPropertyPhotos(messageText),
+          historyText: history.map((h) => h.text).join('\n'),
+        });
+        const dialog = analyzeConversation(getHistory(chatId), dialogLanguage);
+        if (dialog.hasPropertyInterest) {
+          const { getInterestedProperties } = require('./property-interest');
+          const properties = getInterestedProperties(chatId, dialogLanguage);
+          upsertPurchaseRequestFromDialog({
+            chatId,
+            dialog,
+            properties,
+            language: dialogLanguage,
+            preview: userLine.slice(0, 200),
+          });
+          queuePropertyInterestReport(chatId, dialogLanguage, userLine, properties);
+        }
+        if (shouldTrackCallOfferAfterReply(dialog, outgoing)) {
+          setPendingCallOffer(chatId, {
+            reasonKey: dialog.hasPropertyInterest ? 'purchase' : 'image',
+            preview: userLine.slice(0, 200),
+            language: dialogLanguage,
+          });
+        }
+      } catch (aiError) {
+        console.error('❌ Ошибка AI при фото:', aiError);
+        await sendMessageSafely(msg, getTranslation(dialogLanguage, 'error'), client);
+      }
+      return 'processed';
+    }
+
     const recordItems =
       batchMessages && batchMessages.length > 1
         ? batchMessages
@@ -3667,7 +3892,7 @@ async function handleIncomingMessage(msg, options = {}) {
           reasonKey: pendingHandoff.reasonKey,
           preview: pendingHandoff.preview,
           translationKey: pendingHandoff.translationKey,
-          conversationHistory: getHistory(chatId),
+          conversationHistory: getHistoryForAnalysis(chatId),
           clientName,
         });
         addToHistory(chatId, 'assistant', buildHandoffReply(handoffLang, 'manager_handoff', clientName));
@@ -3712,7 +3937,7 @@ async function handleIncomingMessage(msg, options = {}) {
           {
             reasonKey: pendingCallOffer.reasonKey || 'handoff',
             preview: pendingCallOffer.preview || messageText,
-            conversationHistory: getHistory(chatId),
+            conversationHistory: getHistoryForAnalysis(chatId),
             clientName: '',
             useHistoryName: false,
           }
@@ -3734,28 +3959,7 @@ async function handleIncomingMessage(msg, options = {}) {
     }
 
     if (isImageWithDescription(msg, messageText)) {
-      console.log(`📷 Фото с описанием от ${chatId} — мягкое предложение созвона`);
-      try {
-        await offerSoftCallViaAi({
-          msg,
-          client,
-          chatId,
-          dialogLanguage,
-          reasonKey: 'image',
-          preview: messageText,
-          messageText,
-          userLine: `[фото] ${messageText}`,
-          sendMessageSafely,
-          withChatTyping,
-          askAI,
-          getHistory,
-          addToHistory,
-          localizeUrlsInText,
-        });
-      } catch (aiError) {
-        console.error('❌ Ошибка AI при фото:', aiError);
-        await sendMessageSafely(msg, getTranslation(dialogLanguage, 'error'), client);
-      }
+      // Уже обработано выше в isImageMessage — сюда не должны попасть
       return 'processed';
     }
 
@@ -3878,15 +4082,32 @@ async function handleIncomingMessage(msg, options = {}) {
         }
 
         const dialog = analyzeConversation(getHistory(chatId), dialogLanguage);
+        const replyHasListingLinks =
+          /housetenerife\.eu[^.\s]*\/property\//i.test(String(outgoing || '')) ||
+          /\bHZ\d{2,6}\b/i.test(String(outgoing || ''));
+        if (
+          replyHasListingLinks ||
+          dialog.wantsPhotos ||
+          wantsPropertyPhotos(messageText)
+        ) {
+          await maybeSendPropertyPhotos(msg, outgoing, dialogLanguage, {
+            force: dialog.wantsPhotos || wantsPropertyPhotos(messageText),
+            historyText: getHistory(chatId)
+              .map((h) => h.text)
+              .join('\n'),
+          });
+        }
         if (dialog.hasPropertyInterest) {
           const { getInterestedProperties } = require('./property-interest');
+          const properties = getInterestedProperties(chatId, dialogLanguage);
           upsertPurchaseRequestFromDialog({
             chatId,
             dialog,
-            properties: getInterestedProperties(chatId, dialogLanguage),
+            properties,
             language: dialogLanguage,
             preview: messageText,
           });
+          queuePropertyInterestReport(chatId, dialogLanguage, messageText, properties);
         }
         if (shouldTrackCallOfferAfterReply(dialog, outgoing)) {
           setPendingCallOffer(chatId, {

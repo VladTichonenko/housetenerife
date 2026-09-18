@@ -1,6 +1,10 @@
 'use strict';
 
-const DEFAULT_HISTORY_LIMIT = 20;
+/** Сколько сообщений поднимать из SQLite в оперативную память после рестарта/деплоя */
+const DEFAULT_HISTORY_LIMIT = Math.max(
+  20,
+  parseInt(process.env.CONVERSATION_RUNTIME_LIMIT, 10) || 80
+);
 
 function normalizeHistoryMessage(message = {}) {
   const text = String(message.text || '').trim();

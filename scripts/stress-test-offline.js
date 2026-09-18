@@ -43,16 +43,29 @@ function main() {
     ['de', 'Hallo, ich suche eine Wohnung in Adeje zum Wohnen, Budget 350000 Euro'],
     ['es', 'Sí, ya tengo dinero. No necesito hipoteca. ¿Pueden confirmar la visita?'],
     ['es', 'No entiendo lo que escribiste.'],
+    ['es', 'Alquilarlo yo ya te pasé mi propuesta'],
+    ['es', 'Hola, estoy interesado/a en [Parking à vendre 317] https://housetenerife.eu/es/property/parking-a-vendre-317-2/'],
     ['pl', 'Cześć, szukam mieszkania w Adeje, budżet 350000'],
     ['fr', 'Bonjour, je cherche un appartement à Adeje'],
+    ['fr', 'Merci, je suis intéressé par ce bien, pouvez-vous m’appeler ?'],
     ['nl', 'Goedemorgen, ik zoek een appartement in Adeje'],
+    ['nl', 'Bedankt, ik ben geïnteresseerd in dit object'],
     ['ru', 'Здравствуйте, ищу виллу на Тенерифе для жизни'],
     ['en', 'Looking for an investment property in Tenerife, budget 500000'],
+    ['uk', 'Добрий день, шукаю квартиру на Тенеріфе для життя'],
+    ['it', 'Buongiorno, cerco un appartamento a Tenerife per viverci'],
+    ['pt', 'Olá, procuro um apartamento em Tenerife para viver'],
+    ['tr', 'Merhaba, Tenerife’de yaşamak için daire arıyorum'],
   ];
   for (const [exp, text] of langCases) {
     const got = detectLanguageFromText(text);
     check(`${exp}: ${text.slice(0, 42)}…`, got === exp, `got ${got}`);
   }
+  check(
+    'ES pasé не strong для FR',
+    isStrongLanguageSignal('Alquilarlo yo ya te pasé mi propuesta', 'es') &&
+      !isStrongLanguageSignal('Alquilarlo yo ya te pasé mi propuesta', 'fr')
+  );
   const url = 'https://housetenerife.eu/es/property/en-venta-un-bar-en-los-cristianos-748/';
   check('URL-only ambiguous', isUrlOnlyMessage(url) && isAmbiguousShortReply(url));
   check('URL не задаёт ES', detectLanguageFromText(url) === 'en');

@@ -75,12 +75,26 @@ function parseProperty(html, url) {
       .trim();
   }
   if (description.length > 4000) description = `${description.slice(0, 4000)}…`;
+  const ogRaw =
+    $('meta[property="og:image"]').attr('content') ||
+    $('meta[property="og:image:secure_url"]').attr('content') ||
+    $('meta[name="twitter:image"]').attr('content') ||
+    '';
+  let ogImage = '';
+  if (ogRaw) {
+    ogImage = ogRaw.startsWith('//')
+      ? `https:${ogRaw}`
+      : ogRaw.startsWith('/')
+        ? `https://housetenerife.eu${ogRaw}`
+        : ogRaw;
+  }
   return {
     url,
     title: title || url,
     price: price || '',
     overview: overview || '',
     description: description || '',
+    ogImage,
   };
 }
 
@@ -190,6 +204,8 @@ async function fetchPropertyFromUrl(url) {
     descriptions: { [lang]: parsed.description },
     overviews: { [lang]: parsed.overview },
     liveFetchedAt: new Date().toISOString(),
+    ogImage: parsed.ogImage || '',
+    images: parsed.ogImage ? [parsed.ogImage] : [],
   };
 
   return upsertCatalogItem(item);

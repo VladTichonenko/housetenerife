@@ -148,6 +148,8 @@ async function recordHandoff(payload) {
       preview,
       language,
       clientName: item.clientName,
+      chatId,
+      properties: item.interestedProperties || [],
     }).catch((e) => {
       console.warn('⚠️ finishHandoffSummary:', e.message);
     });
@@ -157,9 +159,23 @@ async function recordHandoff(payload) {
 }
 
 async function finishHandoffSummary(id, conversationHistory, meta) {
+  let history = conversationHistory;
+  try {
+    const { loadFullHistory } = require('./manager-dialog-report');
+    const full = loadFullHistory(meta.chatId || '');
+    if (full.length > (history?.length || 0)) {
+      history = full;
+    }
+  } catch {
+    /* optional */
+  }
+
   let summary;
   try {
-    summary = await generateHandoffSummary(conversationHistory, meta);
+    summary = await generateHandoffSummary(history, {
+      ...meta,
+      mode: 'manager_report',
+    });
   } catch (e) {
     summary = `Не удалось сформировать выжимку: ${e.message}`;
   }
@@ -176,6 +192,26 @@ async function finishHandoffSummary(id, conversationHistory, meta) {
   };
   saveStore(store);
   console.log(`✅ Выжимка готова для лида ${id}`);
+
+  // Дублируем отчёт главному менеджеру в WhatsApp (с полной историей)
+  if (meta.chatId) {
+    try {
+      const { queueManagerDialogReport } = require('./manager-dialog-report');
+      await queueManagerDialogReport({
+        chatId: meta.chatId,
+        trigger: meta.reasonKey || 'handoff',
+        language: meta.language || 'ru',
+        preview: meta.preview || '',
+        clientName: meta.clientName || '',
+        properties: meta.properties || store.items[idx].interestedProperties || [],
+        conversationHistory: history,
+        summary,
+        force: true,
+      });
+    } catch (e) {
+      console.warn('⚠️ manager dialog report after handoff:', e.message);
+    }
+  }
 }
 
 function touchHandoffActivity(chatId) {

@@ -294,12 +294,26 @@ function parseProperty(html, url) {
       .trim();
   }
   if (description.length > 4000) description = `${description.slice(0, 4000)}…`;
+  const ogImage =
+    $('meta[property="og:image"]').attr('content') ||
+    $('meta[property="og:image:secure_url"]').attr('content') ||
+    $('meta[name="twitter:image"]').attr('content') ||
+    '';
+  let ogAbs = '';
+  if (ogImage) {
+    ogAbs = ogImage.startsWith('//')
+      ? `https:${ogImage}`
+      : ogImage.startsWith('/')
+        ? `https://housetenerife.eu${ogImage}`
+        : ogImage;
+  }
   return {
     url,
     title: title || url,
     price: price || '',
     overview: overview || '',
-    description: description || ''
+    description: description || '',
+    ogImage: ogAbs || '',
   };
 }
 
@@ -333,6 +347,8 @@ function buildMultilingualItem(ruParsed, ruHtml, extraByLang, alternates = {}) {
     price: ruParsed.price,
     overview: overviews[primaryLang] || ruParsed.overview,
     description: descriptions[primaryLang] || ruParsed.description,
+    ogImage: ruParsed.ogImage || '',
+    images: ruParsed.ogImage ? [ruParsed.ogImage] : [],
     urls,
     titles,
     descriptions,

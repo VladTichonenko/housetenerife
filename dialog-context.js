@@ -148,6 +148,8 @@ function analyzeConversation(history, lang = 'ru') {
     /(?:дай|дайте|скинь|скиньте|пришли|пришлите|отправь|отправьте|покажи|покажите|нужн[аы]|хочу|можно).{0,40}ссылк|(?:ссылк|линк).{0,30}(?:на\s+(?:них|не[её]|объект|вариант|этот|эти|карт)|пожалуйста)|ссылк[аиуеы]?\s*$|send(?:\s+me)?\s+(?:the\s+)?links?|give(?:\s+me)?\s+(?:the\s+)?links?|links?\s+(?:to|for)\s+(?:them|it|the|these|those)|proporcion(?:a|e|ar)?\s+(?:me\s+)?(?:los\s+)?enlaces?|muéstrame\s+los\s+enlaces|dame\s+(?:los\s+)?(?:enlaces?|links?)|env[ií]ame\s+(?:los\s+)?enlaces?|enlaces?\s+a\s+(?:estos|esas|ellos|ellas|las|los|dichos)|los\s+enlaces\s+(?:por\s+favor)?|Zeig(?:e)?\s+(?:mir\s+)?(?:die\s+)?Links?|donne(?:z)?[- ]moi\s+les\s+liens|les\s+liens\s+(?:s'?il\s+vous\s+pla[iî]t)?/i.test(
       lastUserLower
     );
+  const { wantsPropertyPhotos } = require('./property-images');
+  const wantsPhotos = wantsPropertyPhotos(lastUser);
   const wantsMoreLikeThese =
     /похож|ещё\s*(?:так|раз|вариант|объект|вилл|апартамент|квартир|опци)|еще\s*(?:так|раз|вариант|объект|вилл|апартамент|квартир|опци)|другие\s*(?:вариант|опци|вилл|объект)|все\s+(?:вилл|апартамент|квартир|вариант|объект)|по\s+моим\s+параметр|что\s+(?:ещё|еще)\s+есть|которые?\s+у\s+вас\s+есть|similar|more\s+(?:like|options|listings|villas?)|show\s+(?:me\s+)?(?:all|more)\s+(?:the\s+)?(?:villas?|apartments?|options)|otra\s+opci|otras?\s+(?:opcion|ficha)|parecid|ähnliche|aehnliche|weitere\s+(?:option|villen)|plus\s+d.?options|similaires|autres?\s+(?:options|fiches|villas)/i.test(
       lastUserLower
@@ -534,6 +536,7 @@ function analyzeConversation(history, lang = 'ru') {
     wantsListings,
     wantsMoreLikeThese,
     wantsPropertyLinks,
+    wantsPhotos,
     ignoreBudget,
     budget,
     budgetLabel: ignoreBudget

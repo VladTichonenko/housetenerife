@@ -542,6 +542,33 @@ ${blocks.managerHandoff}`;
     ? `${linkedStageBlock}\n\n${funnelGlueByLang[salesLang] || funnelGlueByLang.en}`
     : dialog.stageInstruction;
 
+  const lastRaw = String(lastUserMessage?.text || '');
+  const hasVisionNote = /\[описание фото\]|\[foto\]|\[photo description\]/i.test(lastRaw) ||
+    /\[фото/i.test(lastRaw);
+  const photoVisionBlock = hasVisionNote
+    ? salesLang === 'es'
+      ? '\n**FOTO DEL CLIENTE:** Hay un bloque «описание фото» / visión. Úsalo como si hubieras visto la imagen. Relaciónalo con búsqueda de inmuebles; una pregunta clara.\n'
+      : salesLang === 'en'
+        ? '\n**CLIENT PHOTO:** There is a vision description block. Use it as if you saw the image. Tie it to property search; ask one clear question.\n'
+        : salesLang === 'de'
+          ? '\n**KUNDENFOTO:** Es gibt einen Vision-Beschreibungblock. Nutze ihn, als hättest du das Bild gesehen. Beziehe es auf Immobiliensuche; eine klare Frage.\n'
+          : salesLang === 'nl'
+            ? '\n**KLANTFOTO:** Er is een vision-beschrijvingsblok. Gebruik het alsof je de foto zag. Koppel aan vastgoedzoektocht; één duidelijke vraag.\n'
+            : '\n**ФОТО КЛИЕНТА:** В сообщении есть блок «описание фото» (vision). Опирайся на него как на то, что ты «увидел». Свяжи с поиском недвижимости; один понятный вопрос.\n'
+    : '';
+  const photoSendBlock =
+    dialog.wantsPhotos || showingListings || hasLinkedProperty
+      ? salesLang === 'es'
+        ? '\n**FOTOS:** El sistema puede enviar fotos de portada de los objetos con enlace. En el texto pon título, precio y enlace; no digas que no puedes enviar fotos.\n'
+        : salesLang === 'en'
+          ? '\n**PHOTOS:** The system can send cover photos for listed properties. In text put title, price and link; do not say you cannot send photos.\n'
+          : salesLang === 'de'
+            ? '\n**FOTOS:** Das System kann Cover-Fotos zu verlinkten Objekten senden. Im Text: Titel, Preis, Link; sage nicht, du könntest keine Fotos senden.\n'
+            : salesLang === 'nl'
+              ? '\n**FOTO\'S:** Het systeem kan coverfoto\'s van objecten met link sturen. In tekst: titel, prijs, link; zeg niet dat je geen foto\'s kunt sturen.\n'
+              : '\n**ФОТО:** Система может прислать обложки объектов со ссылками отдельно. В тексте укажи название, цену и ссылку; не говори, что не умеешь слать фото.\n'
+      : '';
+
   const systemPrompt = `${mainPrompt}
 
 ${siteLabel} ${siteUrl}
@@ -556,6 +583,7 @@ ${coreRulesBlock}
 
 ${stageHeader}
 ${stageBlock}
+${photoVisionBlock}${photoSendBlock}
 ${mortgageOpeningInstruction ? `\n${mortgageOpeningInstruction}\n` : ''}
 
 ${criteriaBlock}
