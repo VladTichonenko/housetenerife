@@ -1146,14 +1146,6 @@ async function sendMessageSafely(msg, text, clientRef = client) {
  */
 async function mediaFromImageUrl(imageUrl) {
   try {
-    return await MessageMedia.fromUrl(String(imageUrl), {
-      unsafeMime: true,
-      filename: 'property.jpg',
-    });
-  } catch (e) {
-    console.warn(`🖼️ MessageMedia.fromUrl: ${e.message}`);
-  }
-  try {
     const res = await axios.get(String(imageUrl), {
       responseType: 'arraybuffer',
       timeout: 15000,
@@ -1162,10 +1154,21 @@ async function mediaFromImageUrl(imageUrl) {
       validateStatus: (s) => s >= 200 && s < 400,
     });
     const mime = String(res.headers['content-type'] || 'image/jpeg').split(';')[0];
+    if (mime && !/^image\//i.test(mime) && mime !== 'application/octet-stream') {
+      throw new Error(`not an image: ${mime}`);
+    }
     const b64 = Buffer.from(res.data).toString('base64');
-    return new MessageMedia(mime || 'image/jpeg', b64, 'property.jpg');
+    return new MessageMedia(mime && mime.startsWith('image/') ? mime : 'image/jpeg', b64, 'property.jpg');
   } catch (e) {
     console.warn(`🖼️ axios image: ${e.message}`);
+  }
+  try {
+    return await MessageMedia.fromUrl(String(imageUrl), {
+      unsafeMime: true,
+      filename: 'property.jpg',
+    });
+  } catch (e) {
+    console.warn(`🖼️ MessageMedia.fromUrl: ${e.message}`);
     return null;
   }
 }
@@ -1225,6 +1228,15 @@ async function sendMediaSafely(msg, imageUrl, caption = '', clientRef = client, 
   }
 }
 
+async function waitForCdpIdle(maxMs = 8000) {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    if (!isCdpBusy() && !hasAbandonedCdpWork() && !softReloadInFlight) return true;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return !isCdpBusy() && !hasAbandonedCdpWork() && !softReloadInFlight;
+}
+
 /**
  * После текстового ответа — прислать обложки объектов (до PROPERTY_PHOTOS_MAX).
  */
@@ -1239,10 +1251,16 @@ async function maybeSendPropertyPhotos(msg, replyText, lang, opts = {}) {
       if (opts.force) console.warn(`🖼️ Нет фото для отправки (${msg.from})`);
       return;
     }
+    const idle = await waitForCdpIdle(opts.force ? 10000 : 6000);
+    if (!idle) {
+      console.warn(`🖼️ CDP ещё занят — фото ${msg.from} ставим в очередь`);
+    }
     console.log(`🖼️ Отправка ${photos.length} фото объектов…`);
     for (const photo of photos) {
-      await sendMediaSafely(msg, photo.imageUrl, photo.caption);
-      await new Promise((r) => setTimeout(r, 600));
+      await sendMediaSafely(msg, photo.imageUrl, photo.caption, client, {
+        skipQueue: false,
+      });
+      await new Promise((r) => setTimeout(r, 700));
     }
   } catch (e) {
     console.warn('🖼️ maybeSendPropertyPhotos:', e.message);
@@ -2482,6 +2500,23 @@ function addToHistory(chatId, sender, text, { persist = true, language = null } 
 }
 
 // Функция для получения истории разговора (оперативная + гидратация из SQLite)
+function pickIncomingDisplayName(msg, chat) {
+  const names = [
+    chat?.name,
+    msg?._data?.notifyName,
+    msg?.notifyName,
+    msg?._data?.verifiedName,
+    msg?._data?.pushname,
+  ];
+  for (const raw of names) {
+    const n = String(raw || '').trim();
+    if (!n || n === '(без имени)') continue;
+    if (/^\+?\d[\d\s()-]{6,}$/.test(n)) continue;
+    return n;
+  }
+  return '';
+}
+
 function getHistory(chatId) {
   ensureHistoryHydrated(chatId);
   return conversationHistory.get(chatId) || [];
@@ -2496,12 +2531,38 @@ function getHistoryForAnalysis(chatId) {
 
 function queuePropertyInterestReport(chatId, dialogLanguage, preview, properties) {
   setImmediate(() => {
+    let clientName = '';
+    try {
+      const { getClient } = require('./clients-store');
+      const c = getClient(chatId);
+      if (c?.name) clientName = String(c.name).trim();
+      const hist = getHistoryForAnalysis(chatId);
+      for (let i = hist.length - 1; i >= 0; i--) {
+        if (hist[i]?.sender !== 'user') continue;
+        const spoken = extractClientName(hist[i].text || '');
+        if (spoken) {
+          clientName = spoken;
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ report clientName:', e.message);
+    }
+    let discussed = [];
+    try {
+      const { getDiscussedProperties } = require('./property-interest');
+      discussed = getDiscussedProperties(chatId, dialogLanguage);
+    } catch {
+      discussed = [];
+    }
     queueManagerDialogReport({
       chatId,
       trigger: 'property_interest',
       language: dialogLanguage,
       preview: String(preview || '').slice(0, 300),
+      clientName,
       properties: properties || [],
+      discussedProperties: discussed,
       conversationHistory: getHistoryForAnalysis(chatId),
     }).catch((err) => console.warn('⚠️ manager dialog report:', err.message));
   });
@@ -3712,7 +3773,7 @@ async function handleIncomingMessage(msg, options = {}) {
           senderId,
           chatName: chat.isGroup
             ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
-            : chat.name,
+            : pickIncomingDisplayName(msg, chat),
           messageText: '[голосовое сообщение]',
           language: earlyLang,
           languageLabel: getLanguageName(earlyLang),
@@ -3734,7 +3795,7 @@ async function handleIncomingMessage(msg, options = {}) {
           preview: '[голосовое сообщение]',
           chatName: chat.isGroup
             ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
-            : chat.name,
+            : pickIncomingDisplayName(msg, chat),
           phone: formatCustomerPhone(senderId),
           language: getLanguageName(earlyLang),
           isGroup: chat.isGroup,
@@ -3832,7 +3893,7 @@ async function handleIncomingMessage(msg, options = {}) {
           senderId,
           chatName: chat.isGroup
             ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
-            : chat.name,
+            : pickIncomingDisplayName(msg, chat),
           messageText: userLine.slice(0, 500),
           language: dialogLanguage,
           languageLabel: languageName,
@@ -3850,7 +3911,7 @@ async function handleIncomingMessage(msg, options = {}) {
           preview: userLine.slice(0, 400),
           chatName: chat.isGroup
             ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
-            : chat.name,
+            : pickIncomingDisplayName(msg, chat),
           phone: formatCustomerPhone(senderId),
           language: languageName,
           isGroup: chat.isGroup,
@@ -3928,7 +3989,7 @@ async function handleIncomingMessage(msg, options = {}) {
           senderId,
           chatName: chat.isGroup
             ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
-            : chat.name,
+            : pickIncomingDisplayName(msg, chat),
           messageText: preview,
           language: dialogLanguage,
           languageLabel: languageName,
@@ -3947,7 +4008,7 @@ async function handleIncomingMessage(msg, options = {}) {
           preview,
           chatName: chat.isGroup
             ? `${chat.name || 'группа'} (${formatCustomerPhone(senderId)})`
-            : chat.name,
+            : pickIncomingDisplayName(msg, chat),
           phone: formatCustomerPhone(senderId),
           language: languageName,
           isGroup: chat.isGroup,

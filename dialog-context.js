@@ -306,6 +306,26 @@ function analyzeConversation(history, lang = 'ru') {
     stage = hasPurpose ? 'NEED_BUDGET' : 'NEED_PURPOSE';
   }
 
+  // Ссылка / «этот объект» / фото — не сбрасывать в воронку бюджета и не лить новую подборку
+  try {
+    const { userStartsFreshSearch } = require('./property-interest');
+    const freshSearch = userStartsFreshSearch(lastUser);
+    if (
+      !freshSearch &&
+      (wantsPhotos || continuingObject) &&
+      !wantsMoreLikeThese &&
+      (stage === 'SHOW_LISTINGS' ||
+        stage === 'NEED_BUDGET' ||
+        stage === 'NEED_PURPOSE' ||
+        stage === 'FIRST_CONTACT' ||
+        stage === 'NEED_TIMELINE')
+    ) {
+      stage = 'REFINE';
+    }
+  } catch {
+    /* ignore */
+  }
+
   // Правило 10: приветствие/small talk без ключевых слов — не в подборку
   if (offTopicChatter && !hasPurpose && !hasBudget && !hasType && !hasRegion) {
     stage = 'FIRST_CONTACT';

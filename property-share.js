@@ -167,7 +167,8 @@ function getShareUrl(item, lang) {
  * Обрезает хвост, который модель приклеила к URL (…/slugWhichonefeels).
  */
 function splitGluedUrlTail(rawUrl) {
-  const url = String(rawUrl || '').replace(/[.,;:!?)]+$/g, '');
+  const original = String(rawUrl || '');
+  const url = original.replace(/[.,;:!?)]+$/g, '');
 
   // …/objekt/11223Whichone → …/objekt/11223 + Whichone
   const gluedDigits = url.match(
@@ -177,13 +178,18 @@ function splitGluedUrlTail(rawUrl) {
     return { url: gluedDigits[1], tail: gluedDigits[2] };
   }
 
-  // …/property/some-slug + ExtraWord (только если хвост с заглавной — иначе ломает villa-391)
-  // …/property/some-slug)GluedWord  or …/slugWhichone
-  const prop = url.match(
-    /^(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[a-z0-9-]+\/?)\)?([A-ZА-ЯЁ][A-Za-zА-Яа-яЁё].*)$/
+  // …/property/some-slug)Wilje  or …/slugWhichone  or …/slug/)Word
+  const prop = original.match(
+    /^(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[a-z0-9-]+\/?)(?:\))([A-Za-zА-Яа-яЁё][\s\S]*)$/i
   );
   if (prop) {
     return { url: prop[1], tail: prop[2] };
+  }
+  const propCap = url.match(
+    /^(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[a-z0-9-]+\/?)\)?([A-ZА-ЯЁ][A-Za-zА-Яа-яЁё].*)$/
+  );
+  if (propCap) {
+    return { url: propCap[1], tail: propCap[2] };
   }
 
   return { url, tail: '' };
@@ -520,14 +526,16 @@ function hasMismatchedListingLabels(text) {
 function localizeUrlsInText(text, lang) {
   if (!text || typeof text !== 'string') return text;
   ensureIndex();
-  return repairKnownUrlSpacing(text).replace(new RegExp(PROPERTY_URL_RE.source, 'gi'), (match) => {
-    const { url, tail } = splitGluedUrlTail(match);
-    const item = findItemByUrl(url);
-    const suffix = formatUrlTail(tail);
-    if (item) return `${getShareUrl(item, lang)}${suffix}`;
-    // Не оставляем битые /property/… slug'и
-    return suffix.trimStart();
-  });
+  return repairKnownUrlSpacing(text).replace(
+    /(https?:\/\/(?:www\.)?housetenerife\.eu(?:\/(?:ru|es|en|de|fr|pl|nl))?\/property\/[^\s<>\])"'{}]+)(\)?[A-Za-zА-Яа-яЁё][^\n]*)?/gi,
+    (full, rawUrl, glued) => {
+      const { url, tail } = splitGluedUrlTail(glued ? `${rawUrl}${glued}` : rawUrl);
+      const item = findItemByUrl(url);
+      const suffix = formatUrlTail(tail || '');
+      if (item) return `${getShareUrl(item, lang)}${suffix}`;
+      return suffix ? `${url}${suffix}` : url;
+    }
+  );
 }
 
 function invalidateUrlIndex() {

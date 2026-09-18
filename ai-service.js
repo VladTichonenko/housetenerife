@@ -97,6 +97,11 @@ async function buildPromptParts(
     : limitedHistory;
   const lastUserMessage = limitedHistory.filter((msg) => msg.sender === 'user').pop();
   const userQuery = lastUserMessage ? lastUserMessage.text : '';
+  const fullHistoryForLinks = Array.isArray(runtimeContext.analysisHistory)
+    ? runtimeContext.analysisHistory
+    : Array.isArray(conversationHistory)
+      ? conversationHistory
+      : limitedHistory;
 
   const dialog = analyzeConversation(analysisHistory, userLanguage);
   const catalogQuery = buildCatalogSearchQuery(analysisHistory) || userQuery;
@@ -116,11 +121,14 @@ async function buildPromptParts(
   const maySearchCatalog =
     !dialog.hasPropertyInterest &&
     !dialog.offTopicChatter &&
+    !dialog.wantsPhotos &&
     dialog.hasType &&
     dialog.hasPurpose &&
     (dialog.hasBudget || dialog.ignoreBudget) &&
-    (dialog.financeReadyForListings || dialog.ignoreBudget) &&
-    (showingListings || (tier !== 'full' && (dialog.hasBudget || dialog.ignoreBudget)));
+    (dialog.financeReadyForListings || dialog.ignoreBudget || externalPortal) &&
+    (showingListings ||
+      externalPortal ||
+      (tier !== 'full' && (dialog.hasBudget || dialog.ignoreBudget)));
 
   const {
     extractPropertyItemsFromText,
@@ -131,13 +139,24 @@ async function buildPromptParts(
     userStartsFreshSearch,
     refersToCurrentProperty,
     clientTalksAboutLinkedProperty,
+    userMessageHasExternalListingLink,
   } = require('./property-interest');
+  const freshSearch = userStartsFreshSearch(userQuery);
+  if (freshSearch && runtimeContext.chatId) {
+    try {
+      const { clearChatPropertyInterest } = require('./property-interest');
+      clearChatPropertyInterest(runtimeContext.chatId);
+    } catch {
+      /* ignore */
+    }
+  }
   let linkedItems = extractPropertyItemsFromText(userQuery);
-  if (!linkedItems.length && !userStartsFreshSearch(userQuery)) {
-    linkedItems = resolveMentionedPropertyItems(userQuery, analysisHistory, {
+  if (!linkedItems.length && !freshSearch) {
+    linkedItems = resolveMentionedPropertyItems(userQuery, fullHistoryForLinks, {
       chatId: runtimeContext.chatId,
     });
   }
+  const externalPortal = userMessageHasExternalListingLink(userQuery);
   if (!linkedItems.length && userMessageHasPropertyLink(userQuery)) {
     try {
       const { resolvePropertyItemsFromText } = require('./property-live-fetch');
@@ -175,8 +194,8 @@ async function buildPromptParts(
       microDetection: dialog.microAreas,
       lang: userLanguage,
       contextText: dialog.allUserText,
-      allowBudgetFallback: showingListings,
-      allowTypeFamilyFallback: showingListings || dialog.wantsPropertyLinks
+      allowBudgetFallback: showingListings && !externalPortal,
+      allowTypeFamilyFallback: !externalPortal && (showingListings || dialog.wantsPropertyLinks)
     });
   } else {
     try {
@@ -209,7 +228,13 @@ async function buildPromptParts(
       };
       catalogBlock = missingLinkByLang[salesLang] || missingLinkByLang.en;
     }
-  } else if (!dialog.hasPurpose && tier === 'full') {
+  } else if (
+    !hasLinkedProperty &&
+    !dialog.wantsPhotos &&
+    !refersToCurrentProperty(userQuery) &&
+    !dialog.hasPurpose &&
+    tier === 'full'
+  ) {
     const noPurposeFallback = {
       ru: '\n\n(Цель покупки не ясна — сначала один вопрос: для жизни/переезда или инвестиция? Без объектов и ссылок.)\n',
       es: '\n\n(Objetivo de compra poco claro — una pregunta: ¿para vivir o invertir? Sin fichas ni enlaces.)\n',
@@ -220,7 +245,14 @@ async function buildPromptParts(
       nl: '\n\n(Aankoopdoel onduidelijk — eerst één vraag: wonen/verhuizen of investeren? Geen objecten of links.)\n',
     };
     catalogBlock = hints?.noPurpose || noPurposeFallback[salesLang] || noPurposeFallback.en;
-  } else if (!dialog.hasBudget && !dialog.ignoreBudget && tier === 'full') {
+  } else if (
+    !hasLinkedProperty &&
+    !dialog.wantsPhotos &&
+    !refersToCurrentProperty(userQuery) &&
+    !dialog.hasBudget &&
+    !dialog.ignoreBudget &&
+    tier === 'full'
+  ) {
     // Клиент просит объекты / любой этап без бюджета — каталог не даём, только запрос бюджета
     const noBudgetByLang = {
       ru: '\n\n(**БЮДЖЕТ НЕ ИЗВЕСТЕН — ЗАПРЕЩЕНО показывать объекты.** Клиент просит варианты или ещё не назвал бюджет. Поблагодари за интерес и спроси бюджет в €. Скажи, что после этого покажешь подходящие варианты. Без вилл, без цен 500k–9M, без ссылок, без фраз про «±26%» / коридор цен.)\n',
@@ -246,6 +278,11 @@ async function buildPromptParts(
     catalogBlock = `${header}${catalog.text}\n`;
     if (tier === 'full' && !showingListings && hints) {
       catalogBlock += hints.waitForShortlist;
+    }
+    if (externalPortal) {
+      catalogBlock =
+        `\n\n(Client sent an external portal link — Idealista/Fotocasa/etc. Do not scrape it. Show House Tenerife catalog matches for the CURRENT type, budget and area. Never switch to business/pub unless they asked for a business.)\n` +
+        catalogBlock;
     }
   } else if (showingListings || dialog.wantsPropertyLinks) {
     // Пустой каталог: запрет выдумывать объекты с ценами без URL
@@ -561,9 +598,9 @@ ${blocks.managerHandoff}`;
     ? userLanguage === 'es'
       ? '\n**FOTOS AHORA:** El cliente pide fotos de ESTE inmueble. No preguntes presupuesto ni hipoteca. En el texto: título, precio, enlace; el sistema envía las fotos por WhatsApp ahora.\n'
       : userLanguage === 'de'
-        ? '\n**FOTOS JETZT:** Der Kunde will Fotos DIESES Objekts. Kein Budget-/Hypothekenfrage. Im Text: Titel, Preis, Link; das System sendet die Fotos jetzt per WhatsApp.\n'
+        ? '\n**FOTOS JETZT:** Der Kunde will Fotos DIESES Objekts. Kein Budget-/Hypothekenfrage. VERBOTEN, eine neue Auswahl zu schicken. Im Text: Titel, Preis, Link DIESES Objekts; das System sendet die Fotos jetzt per WhatsApp.\n'
         : userLanguage === 'it'
-          ? '\n**FOTO ORA:** Il cliente chiede le foto di QUESTO immobile. Non chiedere budget o mutuo. Nel testo: titolo, prezzo, link; il sistema invia le foto su WhatsApp ora.\n'
+          ? '\n**FOTO ORA:** Il cliente chiede le foto di QUESTO immobile. Non chiedere budget o mutuo. VIETATO una nuova selezione. Nel testo: titolo, prezzo, link di QUESTO oggetto; il sistema invia le foto su WhatsApp ora.\n'
           : userLanguage === 'pt'
             ? '\n**FOTOS AGORA:** O cliente pede fotos DESTE imóvel. Não perguntes orçamento nem hipoteca. No texto: título, preço, link; o sistema envia as fotos no WhatsApp agora.\n'
             : userLanguage === 'fr'
@@ -574,7 +611,7 @@ ${blocks.managerHandoff}`;
                   ? '\n**FOTO’S NU:** De klant wil foto’s van DIT object. Geen budget-/hypotheekvraag. In de tekst: titel, prijs, link; het systeem stuurt de foto’s nu via WhatsApp.\n'
                   : userLanguage === 'ru'
                     ? '\n**ФОТО СЕЙЧАС:** Клиент просит фото ЭТОГО объекта. Не спрашивай бюджет и ипотеку. В тексте: название, цена, ссылка; система отправит фото в WhatsApp сейчас.\n'
-                    : '\n**PHOTOS NOW:** The client wants photos of THIS listing. Do not ask budget or mortgage. In text: title, price, link; the system sends the photos on WhatsApp now.\n'
+                    : '\n**PHOTOS NOW:** The client wants photos of THIS listing. Do not ask budget or mortgage. FORBIDDEN to dump a new shortlist or other objects. In text: title, price, link of THIS object only; the system sends the photos on WhatsApp now.\n'
     : '';
   const stageBlock = dialog.wantsPhotos
     ? `${linkedStageBlock}\n${photoAskBlock}`.trim()

@@ -36,6 +36,14 @@ function detectPropertyInterest(history, allUserText) {
   const userMsgs = (history || []).filter((m) => m.sender === 'user');
   const assistantMsgs = (history || []).filter((m) => m.sender !== 'user');
   const lastUser = String(userMsgs[userMsgs.length - 1]?.text || '').toLowerCase().trim();
+  const { userStartsFreshSearch, userMessageHasPropertyLink, userMessageHasExternalListingLink } =
+    require('./property-interest');
+  if (userStartsFreshSearch(lastUser) && !userMessageHasPropertyLink(lastUser)) {
+    return false;
+  }
+  if (userMessageHasExternalListingLink(lastUser) && !userMessageHasPropertyLink(lastUser)) {
+    return false;
+  }
 
   const listingsShown = assistantMsgs.some((m) => /housetenerife\.eu/i.test(m.text || ''));
   const userTurns = userMsgs.length;
@@ -54,36 +62,36 @@ function detectPropertyInterest(history, allUserText) {
     ordinalOnly ||
     shortPick ||
     /(?:вариант|объект|квартир|вилл|апартамент)\s*(?:№\s*)?[12345]|(?:первый|второй|третий|четвёрт|пятый)\s+вариант/i.test(
-      lower
+      lastUser
     ) ||
     /(?:^|[^\d])[1-5]\s*(?:-?й(?:\s+вариант)?|\s*вариант)/i.test(lastUser) ||
     /(?:перв(?:ый|ая|ое)?|1-?й|втор(?:ой|ая|ое)?|2-?й|трет(?:ий|ья|ье)?|3-?й)\s+(?:подходит|нрав|бер|выбира|интерес)/i.test(
-      lower
+      lastUser
     ) ||
-    /(?:этот|эту|это)\s+(?:объект|вариант|квартир|вилл|нрав|подходит|бер)/i.test(lower) ||
-    /(?:option|listing|property|apartment|villa)\s*(?:#|no\.?|number)?\s*[12345]/i.test(lower) ||
-    /(?:the\s+)?(?:first|second|third|fourth|fifth)\s+(?:one|option|listing|property)/i.test(lower) ||
-    /(?:opción|ficha|propiedad|apartamento|villa)\s*(?:#|n[ºo]\.?)?\s*[12345]/i.test(lower) ||
-    /(?:la\s+)?(?:primera|segunda|tercera|cuarta|quinta)\s+(?:opción|ficha|propiedad)/i.test(lower) ||
-    /(?:this|that)\s+(?:one|property|listing|apartment|villa)/i.test(lower) ||
-    /(?:esta|ese|esa)\s+(?:ficha|propiedad|opción|villa|apartamento)/i.test(lower) ||
-    /housetenerife\.eu\/[a-z]{0,3}\/?property\//i.test(lower) ||
-    /\bhz\d{2,5}\b/i.test(lower);
+    /(?:этот|эту|это)\s+(?:объект|вариант|квартир|вилл|нрав|подходит|бер)/i.test(lastUser) ||
+    /(?:option|listing|property|apartment|villa)\s*(?:#|no\.?|number)?\s*[12345]/i.test(lastUser) ||
+    /(?:the\s+)?(?:first|second|third|fourth|fifth)\s+(?:one|option|listing|property)/i.test(lastUser) ||
+    /(?:opción|ficha|propiedad|apartamento|villa)\s*(?:#|n[ºo]\.?)?\s*[12345]/i.test(lastUser) ||
+    /(?:la\s+)?(?:primera|segunda|tercera|cuarta|quinta)\s+(?:opción|ficha|propiedad)/i.test(lastUser) ||
+    /(?:this|that)\s+(?:one|property|listing|apartment|villa)/i.test(lastUser) ||
+    /(?:esta|ese|esa)\s+(?:ficha|propiedad|opción|villa|apartamento)/i.test(lastUser) ||
+    userMessageHasPropertyLink(lastUser) ||
+    /\bhz\d{2,5}\b/i.test(lastUser);
 
   const strongInterest =
     /(?:понравил|нравится|интересует|хочу\s+(?:его|эту|этот|смотреть|купить)|выбираю|остановлюсь|беру)/i.test(
-      lower
+      lastUser
     ) ||
     /(?:i\s+like|love\s+this|interested\s+in|want\s+to\s+(?:see|view|buy)|i(?:'ll| will)\s+take|this\s+one\s+works)/i.test(
-      lower
+      lastUser
     ) ||
-    /(?:me\s+gusta|me\s+interesa|quiero\s+(?:ver|comprar)|me\s+quedo\s+con|esta\s+me\s+encaja)/i.test(lower) ||
-    /(?:просмотр|посмотреть|запиш|бронир|связ.*менеджер|организуй.*просмотр)/i.test(lower) ||
-    /(?:viewing|schedule\s+a\s+view|book\s+a\s+view|arrange\s+a\s+visit)/i.test(lower) ||
-    /(?:visita|ver\s+en\s+persona|agendar\s+visita)/i.test(lower) ||
-    /(?:как\s+оформ|как\s+куп|что\s+дальше|следующий\s+шаг|как\s+проходит\s+сделк)/i.test(lower) ||
-    /(?:how\s+to\s+buy|next\s+step|what(?:'s|\s+is)\s+next|how\s+does\s+the\s+deal)/i.test(lower) ||
-    /(?:cómo\s+comprar|siguiente\s+paso|qué\s+sigue)/i.test(lower);
+    /(?:me\s+gusta|me\s+interesa|quiero\s+(?:ver|comprar)|me\s+quedo\s+con|esta\s+me\s+encaja)/i.test(lastUser) ||
+    /(?:просмотр|посмотреть|запиш|бронир|связ.*менеджер|организуй.*просмотр)/i.test(lastUser) ||
+    /(?:viewing|schedule\s+a\s+view|book\s+a\s+view|arrange\s+a\s+visit)/i.test(lastUser) ||
+    /(?:visita|ver\s+en\s+persona|agendar\s+visita)/i.test(lastUser) ||
+    /(?:как\s+оформ|как\s+куп|что\s+дальше|следующий\s+шаг|как\s+проходит\s+сделк)/i.test(lastUser) ||
+    /(?:how\s+to\s+buy|next\s+step|what(?:'s|\s+is)\s+next|how\s+does\s+the\s+deal)/i.test(lastUser) ||
+    /(?:cómo\s+comprar|siguiente\s+paso|qué\s+sigue)/i.test(lastUser);
 
   if (pickedObject) return true;
   if (listingsShown && strongInterest) return true;

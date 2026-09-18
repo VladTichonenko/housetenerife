@@ -2134,22 +2134,53 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
       { sender: 'assistant', text: 'Когда планируете покупку?' },
       { sender: 'user', text: 'Через 3 месяца, ипотека не нужна. Меня зовут Андрей.' },
     ],
-    properties: [{ title: 'Villa Adeje 12', price: '€790,000' }],
+    properties: [
+      {
+        title: 'Villa Adeje 12',
+        price: '€790,000',
+        siteUrl: 'https://housetenerife.eu/ru/property/villa-adeje-12/',
+      },
+    ],
+    discussedProperties: [
+      {
+        id: 'HZ741',
+        title: 'Apartamentos Adeje 741',
+        price: '€265,000',
+        siteUrl: 'https://housetenerife.eu/es/property/apartamentos-en-adeje-741/',
+      },
+    ],
     language: 'ru',
-    clientName: 'Андрей',
+    clientName: '',
+    waName: 'Андрей WA',
     contact: { display: '+34612345678', waLink: 'https://wa.me/34612345678' },
   });
   const reportText = buildWhatsAppReportText(reportFacts);
-  check('отчёт: имя', /^Имя: Андрей$/m.test(reportText));
+  check('отчёт: имя из WhatsApp если в чате не назвал', /^Имя: Андрей WA$/m.test(reportText));
+  const reportSpoken = collectDialogReportFacts({
+    history: [{ sender: 'user', text: 'Меня зовут Андрей' }],
+    properties: [{ title: 'Villa Adeje 12', price: '€790,000' }],
+    language: 'ru',
+    clientName: 'Андрей',
+    waName: 'Ханц',
+  });
+  check('отчёт: сказанное имя важнее WA', reportSpoken.name === 'Андрей');
   check('отчёт: язык', /^Язык: Русский$/m.test(reportText));
   check('отчёт: объект', /Объект: Villa Adeje 12 — €790,000/.test(reportText));
+  check(
+    'отчёт: ссылка выбранного объекта',
+    /housetenerife\.eu\/ru\/property\/villa-adeje-12/.test(reportText)
+  );
+  check(
+    'отчёт: обсуждаемый объект со ссылкой',
+    /Обсуждали:/.test(reportText) && /apartamentos-en-adeje-741/.test(reportText)
+  );
   check('отчёт: бюджет', /Бюджет:.*800,000/.test(reportText));
   check('отчёт: срок', /Срок: через 3 мес/.test(reportText));
   check('отчёт: ипотека не нужна', /Ипотека: не нужна/.test(reportText));
   check('отчёт: телефон', /Тел: \+34612345678/.test(reportText));
   check(
-    'отчёт короткий, без выжимки',
-    reportText.split('\n').length <= 8 && !/Что обсуждали|Причина отчёта|Открыть чат/.test(reportText)
+    'отчёт без старой выжимки',
+    !/Что обсуждали|Причина отчёта|Открыть чат/.test(reportText)
   );
   const prevReportWa = process.env.MANAGER_REPORT_WHATSAPP;
   delete process.env.MANAGER_REPORT_WHATSAPP;
@@ -2162,15 +2193,76 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
   else process.env.MANAGER_REPORT_WHATSAPP = prevReportWa;
 
   console.log('\n=== 23. Sticky объект / /start / фото / parking ===\n');
-  const { userStartsFreshSearch, refersToCurrentProperty, findItemsByNameMention, clearChatPropertyInterest } =
+  const { userStartsFreshSearch, refersToCurrentProperty, findItemsByNameMention, clearChatPropertyInterest, userMessageHasExternalListingLink } =
     require('../property-interest');
   const { splitGluedUrlTail } = require('../property-share');
 
+  check(
+    'fresh search PL после parking — новый поиск',
+    userStartsFreshSearch(
+      'Cześć, przechodzimy na polski. Szukam TERAZ nowego mieszkania w Adeje, budżet 350000 euro, gotówka. To NIE parking. Pokaż mieszkania, nie miejsca parkingowe.'
+    )
+  );
+  check(
+    'Idealista similar Adeje — fresh search, не sticky объект',
+    userStartsFreshSearch(
+      'Also this external listing: https://www.idealista.com/venta-viviendas/adeje-santa-cruz-de-tenerife/ Do you have something similar in Adeje around 350k?'
+    )
+  );
+
+  const parkingHist = [
+    {
+      sender: 'user',
+      text: 'https://housetenerife.eu/es/property/parking-a-vendre-317-2/',
+    },
+    {
+      sender: 'assistant',
+      text: 'Car Parking https://housetenerife.eu/property/car-parking-for-sale-317/',
+    },
+    {
+      sender: 'user',
+      text: 'Cześć, szukam TERAZ nowego mieszkania w Adeje, budżet 350000 euro. To NIE parking.',
+    },
+  ];
+  check(
+    'fresh search сбрасывает hasPropertyInterest от старого parking URL',
+    detectPropertyInterest(parkingHist, parkingHist.map((m) => m.text).join('\n')) === false
+  );
+
+  const gluedWilje = splitGluedUrlTail(
+    'https://housetenerife.eu/property/car-parking-for-sale-317/)Wilje'
+  );
+  check(
+    'URL glue )Wilje отделяется',
+    /car-parking-for-sale-317\/?$/i.test(gluedWilje.url) && /Wilje/i.test(gluedWilje.tail),
+    JSON.stringify(gluedWilje)
+  );
+
+  const { localizeUrlsInText } = require('../property-share');
+  const det = localizeUrlsInText(
+    'https://housetenerife.eu/property/car-parking-for-sale-317/)Wilje weten of deze',
+    'nl'
+  );
+  check(
+    'localizeUrls отклеивает )Wilje',
+    /car-parking-for-sale-317/.test(det) && /Wilje weten/.test(det) && !/317\/\)Wilje/.test(det),
+    det.slice(0, 180)
+  );
+
+  const { resolveReportClientName } = require('../manager-dialog-report');
+  check(
+    'WA имя вместо «не назвал»',
+    resolveReportClientName('', 'Ханц') === 'Ханц' && resolveReportClientName('не назвал', 'Ханц') === 'Ханц'
+  );
   check(
     'fresh search PL Los Cristianos не «этот объект»',
     userStartsFreshSearch(
       'Cześć, zmieńmy język na polski. Szukam mieszkania w Los Cristianos do 300000 euro, na życie'
     )
+  );
+  check(
+    'external listing helper',
+    userMessageHasExternalListingLink('https://www.idealista.com/inmueble/123/')
   );
   check(
     'fresh search NL Adeje',

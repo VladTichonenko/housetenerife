@@ -135,6 +135,18 @@ function loadFullHistory(chatId) {
   return [];
 }
 
+function propertyUrlOf(p) {
+  return String(p?.siteUrl || p?.url || p?.link || '').trim();
+}
+
+function formatPropertyBullet(p) {
+  if (!p) return '';
+  const title = String(p.title || p.id || 'объект').trim();
+  const price = p.price ? ` — ${p.price}` : '';
+  const url = propertyUrlOf(p);
+  return url ? `• ${title}${price}\n  ${url}` : `• ${title}${price}`;
+}
+
 function formatObjectLine(properties, dialog) {
   const list = (properties || []).filter(Boolean);
   if (list.length) {
@@ -150,6 +162,41 @@ function formatObjectLine(properties, dialog) {
   return hint || 'ещё не выбран';
 }
 
+function formatPropertyLinkLines(properties = [], discussedProperties = []) {
+  const selected = (properties || []).filter(Boolean);
+  const selectedIds = new Set(selected.map((p) => String(p.id || p.siteUrl || p.title || '').toUpperCase()));
+  const discussed = (discussedProperties || []).filter((p) => {
+    const key = String(p.id || p.siteUrl || p.title || '').toUpperCase();
+    return key && !selectedIds.has(key);
+  });
+  const lines = [];
+  const mainUrl = selected[0] ? propertyUrlOf(selected[0]) : '';
+  if (mainUrl) lines.push(mainUrl);
+  if (selected.length) {
+    lines.push('Выбрали:');
+    for (const p of selected.slice(0, 6)) {
+      const bullet = formatPropertyBullet(p);
+      if (bullet) lines.push(bullet);
+    }
+  }
+  if (discussed.length) {
+    lines.push('Обсуждали:');
+    for (const p of discussed.slice(0, 6)) {
+      const bullet = formatPropertyBullet(p);
+      if (bullet) lines.push(bullet);
+    }
+  }
+  return lines;
+}
+
+function resolveReportClientName(clientName, waName) {
+  const spoken = String(clientName || '').trim();
+  if (spoken && spoken !== 'не назвал') return spoken;
+  const wa = String(waName || '').trim();
+  if (wa && wa !== 'не назвал') return wa;
+  return spoken || wa || 'не назвал';
+}
+
 function formatMortgageLine(dialog) {
   if (dialog?.hasMortgageAnswered) {
     if (dialog.needsMortgage === true) return 'нужна';
@@ -161,8 +208,10 @@ function formatMortgageLine(dialog) {
 function collectDialogReportFacts({
   history = [],
   properties = [],
+  discussedProperties = [],
   language = 'ru',
   clientName = '',
+  waName = '',
   contact = null,
 } = {}) {
   const dialog = analyzeConversation(history || [], language || 'ru');
@@ -180,13 +229,25 @@ function collectDialogReportFacts({
       ? 'без ограничения'
       : String(dialog.budgetLabel || '').trim() || 'не указан';
 
-  const name = String(clientName || '').trim() || 'не назвал';
+  let waFromStore = String(waName || '').trim();
+  if (!waFromStore && contact?.chatId) {
+    try {
+      const { getClient } = require('./clients-store');
+      waFromStore = String(getClient(contact.chatId)?.name || '').trim();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const name = resolveReportClientName(clientName, waFromStore);
   const languageLabel = getLanguageName(language) || language || 'не определён';
+  const objectLinks = formatPropertyLinkLines(properties, discussedProperties);
 
   return {
     name,
     languageLabel,
     objectLine: formatObjectLine(properties, dialog),
+    objectLinks,
     budget,
     timeline,
     mortgage: formatMortgageLine(dialog),
@@ -200,6 +261,7 @@ function buildWhatsAppReportText(facts = {}) {
     `Имя: ${facts.name || 'не назвал'}`,
     `Язык: ${facts.languageLabel || 'не определён'}`,
     `Объект: ${facts.objectLine || 'ещё не выбран'}`,
+    ...(Array.isArray(facts.objectLinks) ? facts.objectLinks : []),
     `Бюджет: ${facts.budget || 'не указан'}`,
     `Срок: ${facts.timeline || 'не указан'}`,
     `Ипотека: ${facts.mortgage || 'не уточнено'}`,
@@ -207,7 +269,7 @@ function buildWhatsAppReportText(facts = {}) {
   ].filter((x) => x != null);
 
   const text = lines.join('\n');
-  return text.length > 1500 ? `${text.slice(0, 1480)}…` : text;
+  return text.length > 2500 ? `${text.slice(0, 2480)}…` : text;
 }
 
 /**
@@ -231,6 +293,7 @@ async function queueManagerDialogReport(payload = {}) {
     preview = '',
     clientName = '',
     properties = [],
+    discussedProperties = [],
     conversationHistory = null,
     force = false,
   } = payload;
@@ -242,16 +305,38 @@ async function queueManagerDialogReport(payload = {}) {
   }
 
   const contact = formatContactDisplay(chatId);
+  contact.chatId = chatId;
+  let waName = '';
+  try {
+    const { getClient } = require('./clients-store');
+    waName = String(getClient(chatId)?.name || '').trim();
+  } catch {
+    waName = '';
+  }
   const history =
     Array.isArray(conversationHistory) && conversationHistory.length
       ? conversationHistory.slice(-200)
       : loadFullHistory(chatId);
 
+  const discussed =
+    Array.isArray(discussedProperties) && discussedProperties.length
+      ? discussedProperties
+      : (() => {
+          try {
+            const { getDiscussedProperties } = require('./property-interest');
+            return getDiscussedProperties(chatId, language);
+          } catch {
+            return [];
+          }
+        })();
+
   const facts = collectDialogReportFacts({
     history,
     properties,
+    discussedProperties: discussed,
     language,
     clientName,
+    waName,
     contact,
   });
   const waText = buildWhatsAppReportText(facts);
@@ -327,6 +412,7 @@ module.exports = {
   queueManagerDialogReport,
   collectDialogReportFacts,
   buildWhatsAppReportText,
+  resolveReportClientName,
   loadFullHistory,
   reportsEnabled,
 };

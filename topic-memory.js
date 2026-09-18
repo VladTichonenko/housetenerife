@@ -288,6 +288,12 @@ function findLatestPausedDealTopic(chat, gate) {
 
 function shouldUseTurnOnlySeed(active, gate) {
   if (!active || !gate) return false;
+  try {
+    const { refersToCurrentProperty } = require('./property-interest');
+    if (refersToCurrentProperty(gate.lastUserText || '')) return false;
+  } catch {
+    /* ignore */
+  }
   if (gate.reason === 'region_changed') return true;
   if (gate.action === 'scenario_change' && gate.scenario === 'support_other') return true;
   return false;

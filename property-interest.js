@@ -239,6 +239,7 @@ OBLIGATORIO: quédate EN ESTE objeto. No envíes otra selección ni llames parki
 Si el cliente YA preguntó (parking, mascotas, visita, fotos, precio, comparación, pago a plazos) — responde ESO primero. No sustituyas por «¿efectivo o hipoteca?».
 Cifras (mesas, community, rentabilidad, m² extra) SOLO si están en el bloque. Si no están: «no figura en la ficha, lo consulto» — no inventes.
 Fotos: di que se envían ahora las de ESTE objeto; no mandes otros listings.
+PROHIBIDO: «¿cuál te encaja?», otra terna de opciones, preguntar presupuesto. Responde parking / mascotas / precio. Si no está en la ficha — dilo.
 Si no hay pregunta concreta: 3–6 líneas (título, precio, tipo, zona) + UNA pregunta útil sobre ESTE inmueble.
 Idioma del diálogo, estilo WhatsApp.`;
   }
@@ -248,6 +249,7 @@ MUST: stay on THIS property. Do not dump other listings. Do not call a parking a
 If they ALREADY asked (parking, pets, viewing, photos, price, compare, instalments) — answer THAT first. Do not replace it with cash vs mortgage.
 Numbers (tables, community fees, yield, extra m²) ONLY if they are in the block. If missing: “not in the listing, I’ll check” — never invent.
 Photos: say THIS object’s photos are being sent now; no other listings.
+FORBIDDEN: “which option is closer”, a new shortlist, asking budget. Answer parking / pets / price. If not in the card — say so.
 If no specific question: 3–6 lines (title, price, type, area) + ONE useful question about THIS object.
 Dialog language, WhatsApp style.`;
   }
@@ -257,6 +259,7 @@ PFLICHT: bei DIESEM Objekt bleiben. Keine andere Auswahl. Parking nicht als Wohn
 Wenn der Kunde SCHON gefragt hat (Parkplatz, Haustiere, Besichtigung, Fotos, Preis, Vergleich, Ratenzahlung) — ZUERST das beantworten. Nicht durch Eigenkapital/Hypothek ersetzen.
 Zahlen (Tische, Community, Rendite, Extra-m²) NUR aus dem Block. Fehlt es: «steht nicht in der Anzeige, ich prüfe» — nichts erfinden.
 Fotos: sag, dass die Fotos DIESES Objekts jetzt kommen; keine anderen Listings.
+VERBOTEN: «welcher passt besser», neue Auswahl, Budgetfrage. Antworte Parkplatz / Haustiere / Preis. Fehlt in der Karte — sag es.
 Ohne konkrete Frage: 3–6 Zeilen + EINE sinnvolle Frage zu DIESEM Objekt.
 Dialogsprache, WhatsApp-Stil.`;
   }
@@ -266,6 +269,7 @@ OBLIGATOIRE: rester sur CE bien. Pas d’autre sélection. Ne pas appeler un par
 S’il a DÉJÀ posé une question (parking, animaux, visite, photos, prix, comparaison, paiement) — répondre À CELA d’abord. Ne pas remplacer par cash/hypothèque.
 Chiffres (tables, charges, rendement, m² extra) UNIQUEMENT s’ils sont dans le bloc. Sinon: « pas dans l’annonce, je vérifie » — n’invente pas.
 Photos: dis que les photos de CE bien partent maintenant; pas d’autres listings.
+INTERDIT: « laquelle convient », nouvelle sélection, question budget. Réponds parking / animaux / prix. Absent de la fiche — dis-le.
 Sans question précise: 3–6 lignes + UNE question utile sur CE bien.
 Langue du dialogue, style WhatsApp.`;
   }
@@ -275,6 +279,7 @@ OBOWIĄZKOWO: zostań przy TYM obiekcie. Bez innej selekcji. Parkingu nie nazywa
 Jeśli JUŻ zadał pytanie (parking, pies, oględziny, zdjęcia, cena, porównanie, raty) — odpowiedz NA TO najpierw. Nie zastępuj pytaniem o gotówkę/hipotekę.
 Liczby (stoliki, czynsz, rentowność, extra m²) TYLKO z bloku. Brak: «nie ma w ofercie, sprawdzę» — nie wymyślaj.
 Zdjęcia: powiedz, że wysyłasz zdjęcia TEGO obiektu; bez innych ofert.
+ZAKAZ: «która bliższa», nowa selekcja, pytanie o budżet. Odpowiedz parking / zwierzęta / cena. Brak w karcie — powiedz.
 Bez konkretnego pytania: 3–6 linii + JEDNO pytanie o TEN obiekt.
 Język dialogu, styl WhatsApp.`;
   }
@@ -284,6 +289,7 @@ VERPLICHT: blijf bij DIT object. Geen andere selectie. Noem parking geen apparte
 Als hij AL een vraag stelde (parkeren, huisdier, bezichtiging, foto’s, prijs, vergelijking, termijn) — beantwoord DÁT eerst. Niet vervangen door cash/hypotheek.
 Cijfers (tafels, servicekosten, yield, extra m²) ALLEEN uit het blok. Ontbreekt: «staat niet in de listing, ik check het» — niets verzinnen.
 Foto’s: zeg dat de foto’s van DIT object nu komen; geen andere listings.
+VERBODEN: «welke past beter», nieuwe selectie, budgetvraag. Beantwoord parkeren / huisdier / prijs. Staat niet op de kaart — zeg dat.
 Zonder specifieke vraag: 3–6 regels + ÉÉN nuttige vraag over DIT object.
 Dialoogtaal, WhatsApp-stijl.`;
   }
@@ -292,6 +298,7 @@ Dialoogtaal, WhatsApp-stijl.`;
 Если клиент УЖЕ задал вопрос (парковка, собака, просмотр, фото, цена, сравнение, рассрочка) — сначала ответь НА НЕГО. Не подменяй вопросом «нал или ипотека».
 Цифры (столики, коммуналка, доходность, лишние м²) ТОЛЬКО если они есть в блоке. Если нет: «в карточке этого нет, уточню» — не выдумывай.
 Фото: напиши, что сейчас уходят фото ИМЕННО этого объекта; другие объявления не предлагай.
+ЗАПРЕЩЕНО: «какой вариант ближе», новая подборка, вопрос про бюджет. Ответь про парковку / животных / цену. Нет в карточке — так и скажи.
 Если отдельного вопроса нет: 3–6 строк (название, цена, тип, район) + ОДИН полезный вопрос про ЭТОТ объект.
 Язык диалога, стиль WhatsApp.`;
 }
@@ -299,26 +306,65 @@ Dialoogtaal, WhatsApp-stijl.`;
 function refersToCurrentProperty(text) {
   const raw = String(text || '');
   if (/(?:фото|fotos?|photos?|bilder|zdj[eę]c|immagin|imagens?)/i.test(raw)) return true;
-  return /(?:этот|этого|этой|данного|этим|this\s+(?:one|property|listing|object|apartment|flat|piso)|este(?:\s+(?:piso|apartamento|objeto|inmueble))?|diese[smn]?(?:\s+\w+)?|ce bien|cet appartement|dit object|tego obiektu|ten apartament|dieze|seguimos con|continue with|volv[ií]|wróci[łl]?|torna|yesterday|ayer|wczoraj|gestern)/i.test(
+  return /(?:этот|этого|этой|данного|этим|\bthis\s+(?:one|property|listing|object|apartment|flat|piso)\b|\beste(?:\s+(?:piso|apartamento|objeto|inmueble))?\b|\bdiese[smn]?(?:\s+\w+)?\b|ce bien|cet appartement|dit object|tego obiektu|\bten apartament\b|dieze|seguimos con|continue with|volv[ií]|wróci[łl]?|torna|yesterday|ayer|wczoraj|gestern|island\s*village)/i.test(
     raw
+  );
+}
+
+function userMessageHasExternalListingLink(text) {
+  return /(?:idealista\.com|fotocasa\.es|habitaclia\.com|kyero\.com|thinkspain|rightmove\.|immowelt\.|seloger\.|zoopla\.|james-edition)/i.test(
+    String(text || '')
   );
 }
 
 function userStartsFreshSearch(text) {
   const raw = String(text || '');
   if (userMessageHasPropertyLink(raw)) return false;
-  if (refersToCurrentProperty(raw)) return false;
+  if (refersToCurrentProperty(raw) && !userMessageHasExternalListingLink(raw)) return false;
+  if (userMessageHasExternalListingLink(raw)) {
+    return /similar|parecid|похож|vergleich|vergelijk|podobn|autre|altro|outro|adeje|cristianos|350|apartment|appart|mieszkan|piso/i.test(
+      raw
+    );
+  }
   const looksNew =
-    /(?:szukam|zoek|cherche|suche|cerco|procuro|busco|looking for|ищу|шукаю|zmieńmy język|passons au|passiamo all|agora em|now in )/i.test(
+    /(?:szukam|zoek|cherche|suche|cerco|procuro|busco|looking for|ищу|шукаю|zmieńmy język|passons au|passiamo all|agora em|now in |szukam\s+teraz|zoek\s+nu|nowe(?:go)?\s+mieszkan|nieuw\s+appartement|nuevo\s+(?:piso|apartamento)|neues?\s+(?:apartment|wohnung)|nouvel\s+appart)/i.test(
       raw
     ) ||
-    /(?:na życie|para vivir|om te wonen|zum wohnen|per viverci|para viver|to live|zum leben)/i.test(raw);
+    /(?:na życie|para vivir|om te wonen|zum wohnen|per viverci|para viver|to live|zum leben)/i.test(raw) ||
+    /(?:to\s+nie\s+parking|geen\s+parkeerplaats|nie\s+miejsca\s+parkingowe|not\s+parking|pas\s+un\s+parking|kein\s+parkplatz)/i.test(
+      raw
+    );
   const hasPlaceOrType =
-    /(?:adeje|cristianos|tenerife|ibiza|marbella|dubai|mieszkan|apart|wohnung|appartement|villa|costa)/i.test(
+    /(?:adeje|cristianos|tenerife|ibiza|marbella|dubai|mieszkan|apart|wohnung|appartement|villa|costa|piso)/i.test(
       raw
     );
   return looksNew && hasPlaceOrType;
 }
+
+const NAME_STOP_WORDS = new Set([
+  'apart',
+  'apartment',
+  'apartments',
+  'apartamento',
+  'apartamentos',
+  'villa',
+  'villas',
+  'house',
+  'houses',
+  'casa',
+  'casas',
+  'adeje',
+  'tenerife',
+  'property',
+  'listing',
+  'object',
+  'venta',
+  'vendre',
+  'sale',
+  'charming',
+  'modern',
+  'complex',
+]);
 
 function distinctiveNameTokens(name) {
   return String(name || '')
@@ -326,11 +372,7 @@ function distinctiveNameTokens(name) {
     .replace(/https?:\/\/\S+/g, ' ')
     .replace(/[^a-zа-яё0-9]+/gi, ' ')
     .split(/\s+/)
-    .filter(
-      (w) =>
-        w.length >= 5 &&
-        !/apart|villa|house|casa|adeje|tenerife|property|listing|object|venta|vendre|sale/.test(w)
-    );
+    .filter((w) => w.length >= 4 && !NAME_STOP_WORDS.has(w));
 }
 
 function itemMatchesNameMention(item, compactText) {
@@ -353,8 +395,12 @@ function itemMatchesNameMention(item, compactText) {
   });
   for (const name of [...titles, ...slugs]) {
     const tokens = distinctiveNameTokens(name);
-    if (tokens.length && tokens.every((t) => compactText.includes(t))) return true;
-    if (tokens.some((t) => t.length >= 6 && compactText.includes(t))) return true;
+    if (!tokens.length) continue;
+    const phrase = tokens.join(' ');
+    if (phrase.length >= 8 && compactText.includes(phrase)) return true;
+    const hits = tokens.filter((t) => compactText.includes(t));
+    if (tokens.length >= 2 && hits.length >= 2) return true;
+    if (hits.some((t) => t.length >= 7)) return true;
   }
   return false;
 }
@@ -387,6 +433,49 @@ function findItemsByNameMention(text, extraItems = []) {
     /* ignore */
   }
   return hits.slice(0, 3);
+}
+
+function findItemsByLocationMention(text) {
+  const compact = String(text || '').toLowerCase();
+  if (!/island\s*village|[a-z]{5,}/i.test(compact)) return [];
+  let needles = [];
+  if (/island\s*village/i.test(compact)) needles.push('island village');
+  try {
+    const { detectMicroAreas } = require('./location-matching');
+    const micro = detectMicroAreas(text, 'en');
+    if (micro.hasSpecific && micro.label) needles.push(String(micro.label).toLowerCase());
+  } catch {
+    /* ignore */
+  }
+  needles = [...new Set(needles.filter((n) => n && n.length >= 8))];
+  if (!needles.length) return [];
+  const hits = [];
+  const seen = new Set();
+  try {
+    const { load } = require('./property-catalog');
+    for (const item of load().items || []) {
+      const blob = [
+        item.title,
+        item.location,
+        item.area,
+        ...Object.values(item.titles || {}),
+        ...Object.values(item.urls || {}),
+        item.url,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      if (!needles.some((n) => blob.includes(n))) continue;
+      const key = String(item.id || item.url || '').toUpperCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      hits.push(item);
+      if (hits.length >= 3) break;
+    }
+  } catch {
+    /* ignore */
+  }
+  return hits;
 }
 
 function catalogItemsFromStore(chatId) {
@@ -424,14 +513,19 @@ function resolveMentionedPropertyItems(text, history = [], opts = {}) {
 
   const blob = String(text || '');
   if (userStartsFreshSearch(blob)) return [];
+  if (userMessageHasExternalListingLink(blob) && !userMessageHasPropertyLink(blob)) return [];
 
   const storeItems = catalogItemsFromStore(opts.chatId);
   const named = findItemsByNameMention(blob, storeItems);
   if (named.length) return named.slice(0, 3);
+  const located = findItemsByLocationMention(blob);
+  if (located.length && (refersToCurrentProperty(blob) || opts.forceLast)) {
+    return located.slice(0, 3);
+  }
 
   const stay = refersToCurrentProperty(blob);
   const hist = Array.isArray(history) ? history : [];
-  const histWindow = stay ? 24 : 8;
+  const histWindow = stay || opts.forceLast ? Math.max(hist.length, 24) : 8;
   for (let i = hist.length - 1; i >= 0 && i >= hist.length - histWindow; i--) {
     const items = extractPropertyItemsFromText(hist[i]?.text || '');
     if (!items.length) continue;
@@ -602,6 +696,22 @@ function getInterestedProperties(chatId, lang = 'ru') {
   });
 }
 
+function getDiscussedProperties(chatId, lang = 'ru') {
+  const state = getChatState(chatId);
+  const map = new Map();
+  const add = (p, source) => {
+    if (!p) return;
+    const item = p.id ? findItemByPropertyId(p.id) : null;
+    const pub = item ? propertyToPublic(item, lang, source || p.source) : { ...p, source: source || p.source };
+    const key = String(pub.id || pub.siteUrl || pub.title || '').toUpperCase();
+    if (!key || map.has(key)) return;
+    map.set(key, pub);
+  };
+  for (const p of state.interested || []) add(p, p.source || 'selected');
+  for (const p of state.recentSent || []) add(p, p.source || 'discussed');
+  return [...map.values()];
+}
+
 function syncHandoffProperties(chatId) {
   try {
     const { updateHandoffProperties } = require('./handoff-leads');
@@ -614,6 +724,7 @@ function syncHandoffProperties(chatId) {
 module.exports = {
   onConversationMessage,
   getInterestedProperties,
+  getDiscussedProperties,
   extractPropertyIdsFromText,
   extractPropertyItemsFromText,
   formatLinkedPropertiesForPrompt,
@@ -625,6 +736,7 @@ module.exports = {
   userStartsFreshSearch,
   refersToCurrentProperty,
   findItemsByNameMention,
+  userMessageHasExternalListingLink,
   clearChatPropertyInterest,
   STORE_PATH
 };
