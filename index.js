@@ -29,6 +29,7 @@ const {
 const { getSearchingListingsMessage } = require('./sales-localization');
 const { registerAdminRoutes } = require('./admin-api');
 const { setupAdminPanel, getAdminPanelStatus } = require('./admin-panel');
+const { registerWebchatRoutes } = require('./webchat-api');
 const {
   resolveMessageText,
   isPermanentNonText,
@@ -4405,6 +4406,50 @@ client.on('message_ack', () => {
 });
 
 // ========== API ENDPOINTS ==========
+
+async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHint }) {
+  if (isAiDisabled(chatId)) {
+    const lang = languageHint || 'en';
+    return { text: getTranslation(lang, 'error'), language: lang };
+  }
+
+  ensureHistoryHydrated(chatId);
+  const dialogLanguage = resolveDialogLanguage(chatId, text, languageHint || null);
+  const existing = getHistory(chatId);
+
+  if (pageUrl && existing.length === 0) {
+    const safeTitle = String(pageTitle || '').trim();
+    const context = safeTitle
+      ? `I'm looking at this property: [${safeTitle}] ${pageUrl}`
+      : `I'm looking at this property: ${pageUrl}`;
+    addToHistory(chatId, 'user', context, { language: dialogLanguage });
+  }
+
+  try {
+    recordClientMessage({
+      chatId,
+      senderId: chatId,
+      chatName: 'Website chat',
+      messageText: String(text).slice(0, 500),
+      language: dialogLanguage,
+      languageLabel: getLanguageName(dialogLanguage),
+      country: 'web',
+      isGroup: false,
+      kind: 'web',
+    });
+  } catch (e) {
+    console.warn('webchat client store:', e.message);
+  }
+
+  addToHistory(chatId, 'user', text, { language: dialogLanguage });
+  const history = getHistory(chatId).slice();
+  const aiResponse = await askAI(history, dialogLanguage, { chatId });
+  const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
+  addToHistory(chatId, 'assistant', outgoing);
+  return { text: outgoing, language: dialogLanguage };
+}
+
+registerWebchatRoutes(app, { processWebMessage });
 
 /**
  * GET /health — healthcheck Railway (синхронный, без Puppeteer)
