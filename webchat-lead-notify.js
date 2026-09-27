@@ -163,7 +163,7 @@ function extractWebchatLead(text, history = []) {
   return { name, phone, channel };
 }
 
-function buildWebchatLeadMessage({ name, phone, channel, pageTitle, pageUrl, language }) {
+function buildWebchatLeadMessage({ name, phone, channel, pageTitle, pageUrl, language, brief }) {
   const lines = [
     '🌐 Заявка с сайта (webchat)',
     `Имя: ${name || 'не назвал'}`,
@@ -172,6 +172,7 @@ function buildWebchatLeadMessage({ name, phone, channel, pageTitle, pageUrl, lan
     `Объект: ${String(pageTitle || '').trim() || 'не указан'}`,
     pageUrl ? String(pageUrl).trim() : null,
     language ? `Язык: ${language}` : null,
+    brief ? `\nО разговоре:\n${String(brief).trim()}` : null,
   ].filter(Boolean);
   return lines.join('\n');
 }
@@ -196,6 +197,19 @@ async function maybeNotifyWebchatLead({
   const lead = extractWebchatLead(text, history);
   if (!lead?.phone) return null;
 
+  let brief = '';
+  try {
+    const { generateDialogBrief } = require('./handoff-summary');
+    brief = await generateDialogBrief(history, {
+      clientName: lead.name || '',
+      language,
+      pageTitle,
+      source: 'webchat',
+    });
+  } catch (e) {
+    console.warn('⚠️ webchat dialog brief:', e.message);
+  }
+
   const waText = buildWebchatLeadMessage({
     name: lead.name,
     phone: lead.phone,
@@ -203,6 +217,7 @@ async function maybeNotifyWebchatLead({
     pageTitle,
     pageUrl,
     language,
+    brief,
   });
 
   try {

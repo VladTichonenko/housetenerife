@@ -284,10 +284,13 @@ function buildWhatsAppReportText(facts = {}) {
     `Срок: ${facts.timeline || 'не указан'}`,
     `Ипотека: ${facts.mortgage || 'не уточнено'}`,
     facts.phone ? `Тел: ${facts.phone}` : null,
+    facts.brief
+      ? `\nО разговоре:\n${String(facts.brief).trim()}`
+      : null,
   ].filter((x) => x != null);
 
   const text = lines.join('\n');
-  return text.length > 2500 ? `${text.slice(0, 2480)}…` : text;
+  return text.length > 2800 ? `${text.slice(0, 2780)}…` : text;
 }
 
 /**
@@ -357,6 +360,24 @@ async function queueManagerDialogReport(payload = {}) {
     waName,
     contact,
   });
+
+  let brief = String(payload.dialogBrief || '').trim();
+  if (!brief) {
+    try {
+      const { generateDialogBrief } = require('./handoff-summary');
+      brief = await generateDialogBrief(history, {
+        clientName: facts.name !== 'не назвал' ? facts.name : clientName,
+        language,
+        pageTitle: facts.objectLine || '',
+        source: String(chatId).startsWith('web:') ? 'webchat' : 'whatsapp',
+      });
+    } catch (e) {
+      console.warn('⚠️ dialog brief for report:', e.message);
+      brief = '';
+    }
+  }
+  if (brief) facts.brief = brief;
+
   const waText = buildWhatsAppReportText(facts);
   const summary = waText;
 

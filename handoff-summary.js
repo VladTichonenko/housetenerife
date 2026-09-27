@@ -87,7 +87,7 @@ async function generateHandoffSummary(conversationHistory, meta = {}) {
 
   const isReport = mode === 'manager_report';
   const systemPrompt = isReport
-    ? `Ты помощник риелтора House Tenerife. По переписке составь КОРОТКИЙ отчёт менеджеру на русском, строго 6 строк:
+    ? `Ты помощник риелтора House Tenerife. По переписке составь КОРОТКИЙ отчёт менеджеру на русском:
 
 Имя: …
 Язык: …
@@ -96,9 +96,12 @@ async function generateHandoffSummary(conversationHistory, meta = {}) {
 Срок: … (когда хочет купить: сейчас / через N мес. / позже)
 Ипотека: нужна / не нужна / не уточнено
 
+О разговоре:
+2–4 предложения — о чём говорил клиент с ботом, что хочет, какие вопросы задавал. Не выдумывай.
+
 ${clientName ? `Имя клиента: ${clientName}.` : ''}
 Язык клиента в WhatsApp: ${language}.
-Не выдумывай факты. Если поля нет в переписке — пиши «не указан» / «не уточнено». Без вступления и без выжимки чата.`
+Не выдумывай факты. Если поля нет в переписке — пиши «не указан» / «не уточнено». Без вступления.`
     : `Ты помощник риелтора House Tenerife. По переписке клиента с ботом составь КРАТКУЮ выжимку для менеджера на русском языке (5–8 коротких пунктов или абзацев).
 
 ${clientName ? `Имя клиента (уже известно): ${clientName}.` : ''}
@@ -128,7 +131,7 @@ ${clientName ? `Имя клиента (уже известно): ${clientName}.`
           { role: 'user', content: userContent },
         ],
         temperature: 0.35,
-        max_tokens: isReport ? 250 : 600,
+        max_tokens: isReport ? 420 : 600,
       },
       { purpose: 'background', label: isReport ? 'manager-dialog-report' : 'handoff-summary', maxAttempts: 4, timeout: 60000 }
     );
@@ -146,4 +149,132 @@ ${clientName ? `Имя клиента (уже известно): ${clientName}.`
   return buildFallbackSummary(history, reasonKey, preview, clientName);
 }
 
-module.exports = { generateHandoffSummary, buildFallbackSummary };
+/**
+ * Короткое пояснение для менеджера: о чём был разговор (2–4 предложения).
+ * Используется в WhatsApp-отчётах и в webchat-лидах.
+ */
+function buildFallbackDialogBrief(conversationHistory, meta = {}) {
+  const history = conversationHistory || [];
+  const dialog = analyzeConversation(history, meta.language || 'ru');
+  const parts = [];
+  const title = String(meta.pageTitle || '').trim();
+  const userTurns = history.filter((m) => m.sender === 'user').length;
+
+  if (title) {
+    parts.push(`Клиент смотрел объект «${title}».`);
+  } else if (dialog.hasPropertyInterest) {
+    parts.push('Клиент интересовался конкретным объектом из переписки.');
+  }
+
+  if (dialog.hasPurpose) {
+    parts.push('Уточняли цель: жизнь или инвестиция.');
+  }
+  if (dialog.hasBudget || dialog.budgetLabel) {
+    parts.push(`Бюджет: ${dialog.budgetLabel || 'упоминался'}.`);
+  }
+  if (dialog.hasMortgageAnswered) {
+    parts.push(dialog.needsMortgage ? 'Нужна ипотека.' : 'Покупка без ипотеки.');
+  }
+
+  const lastUser = String(dialog.lastUser || '').trim();
+  if (lastUser) {
+    parts.push(
+      `Последний запрос: «${lastUser.length > 160 ? `${lastUser.slice(0, 160)}…` : lastUser}».`
+    );
+  }
+
+  if (!parts.length) {
+    if (userTurns <= 1) {
+      return 'Разговор только начался — клиент оставил контакты, деталей по запросу пока мало.';
+    }
+    return 'Клиент общался с ботом; деталей для краткой выжимки недостаточно.';
+  }
+
+  if (userTurns <= 2 && !dialog.hasBudget && !dialog.hasPurpose) {
+    parts.push('Диалог короткий — деталей пока немного.');
+  }
+
+  return parts.join(' ');
+}
+
+async function generateDialogBrief(conversationHistory, meta = {}) {
+  const {
+    clientName = '',
+    language = 'ru',
+    pageTitle = '',
+    source = 'whatsapp',
+  } = meta;
+  const history = (conversationHistory || []).slice(-100);
+
+  if (!AI_API_KEY || !String(AI_API_KEY).trim()) {
+    return buildFallbackDialogBrief(history, meta);
+  }
+
+  const transcript = history
+    .map((m) => `${m.sender === 'user' ? 'Клиент' : 'Бот'}: ${String(m.text || '').slice(0, 600)}`)
+    .join('\n');
+
+  const sourceLabel =
+    source === 'webchat' ? 'чат на сайте (webchat)' : 'WhatsApp-бот';
+
+  const systemPrompt = `Ты помощник риелтора House Tenerife. По переписке клиента с ботом напиши КОРОТКОЕ пояснение для менеджера на русском языке.
+
+Требования:
+- 2–4 предложения, максимум ~450 символов;
+- объясни, о чём был разговор и что хочет клиент;
+- упомяни ключевые вопросы (цена, локация, ипотека, жизнь/инвестиция), если они реально были;
+- не выдумывай факты, которых нет в переписке;
+- не повторяй шаблонные поля вроде «Имя:», «Тел:», «Объект:»;
+- без приветствий, списков и markdown.
+
+Канал: ${sourceLabel}.
+${clientName ? `Имя клиента: ${clientName}.` : ''}
+${pageTitle ? `Объект со страницы: ${pageTitle}.` : ''}
+Язык клиента: ${language}.`;
+
+  const userContent = transcript.trim()
+    ? `Переписка (${history.length} сообщ.):\n${transcript}`
+    : `Переписки почти нет.${pageTitle ? ` Клиент на странице: ${pageTitle}.` : ''}`;
+
+  try {
+    const response = await chatCompletions(
+      {
+        model: AI_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent },
+        ],
+        temperature: 0.3,
+        max_tokens: 220,
+      },
+      {
+        purpose: 'background',
+        label: 'dialog-brief',
+        maxAttempts: 3,
+        timeout: 45000,
+      }
+    );
+
+    let text = response.data?.choices?.[0]?.message?.content || '';
+    while (text.includes('</think>')) {
+      text = text.split('</think>').pop().trim();
+    }
+    text = text.replace(/<\/?redacted_reasoning>/g, '').trim();
+    text = text.replace(/^["«]|["»]$/g, '').trim();
+    if (text) {
+      if (text.length > 500) text = `${text.slice(0, 480).trim()}…`;
+      return text;
+    }
+  } catch (e) {
+    console.warn('⚠️ dialog-brief AI:', e.message);
+  }
+
+  return buildFallbackDialogBrief(history, meta);
+}
+
+module.exports = {
+  generateHandoffSummary,
+  generateDialogBrief,
+  buildFallbackSummary,
+  buildFallbackDialogBrief,
+};
