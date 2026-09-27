@@ -95,6 +95,7 @@ const {
   managerWhatsAppChatId,
   reportsEnabled,
 } = require('./manager-dialog-report');
+const { maybeNotifyWebchatLead } = require('./webchat-lead-notify');
 
 try {
   getDb();
@@ -4443,6 +4444,20 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
 
   addToHistory(chatId, 'user', text, { language: dialogLanguage });
   const history = getHistory(chatId).slice();
+
+  try {
+    maybeNotifyWebchatLead({
+      chatId,
+      text,
+      pageUrl,
+      pageTitle,
+      language: dialogLanguage,
+      history,
+    }).catch((e) => console.warn('webchat lead notify:', e.message));
+  } catch (e) {
+    console.warn('webchat lead notify:', e.message);
+  }
+
   const aiResponse = await askAI(history, dialogLanguage, { chatId });
   const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
   addToHistory(chatId, 'assistant', outgoing);

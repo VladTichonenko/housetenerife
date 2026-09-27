@@ -36,6 +36,24 @@ function setManagerWhatsAppSender(fn) {
   sendWhatsAppFn = typeof fn === 'function' ? fn : null;
 }
 
+/**
+ * Отправить произвольный текст на номер отчётов (MANAGER_REPORT_WHATSAPP).
+ * Используется webchat-лидами и другими короткими уведомлениями.
+ */
+async function sendManagerReportWhatsApp(text) {
+  const target = managerWhatsAppChatId();
+  if (!target) {
+    console.warn('⚠️ Не задан номер для отчёта менеджеру');
+    return { ok: false, reason: 'no_target' };
+  }
+  if (!sendWhatsAppFn) {
+    console.warn('⚠️ WhatsApp sender для отчёта ещё не готов');
+    return { ok: false, reason: 'no_sender' };
+  }
+  await sendWhatsAppFn(target, String(text || ''));
+  return { ok: true, target };
+}
+
 function reportsEnabled() {
   const flag = String(process.env.MANAGER_DIALOG_REPORTS || '1').toLowerCase();
   return flag !== '0' && flag !== 'false' && flag !== 'off';
@@ -407,6 +425,7 @@ module.exports = {
   STATE_PATH,
   DEFAULT_REPORT_WHATSAPP,
   setManagerWhatsAppSender,
+  sendManagerReportWhatsApp,
   managerWhatsAppChatId,
   shouldSendDialogReport,
   queueManagerDialogReport,
