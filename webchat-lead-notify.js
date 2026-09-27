@@ -52,14 +52,32 @@ function alreadyNotified(chatId) {
   return Boolean(prev?.sentAt);
 }
 
+function alreadySentBrief(chatId) {
+  const prev = loadState().chats[String(chatId)];
+  return Boolean(prev?.briefSentAt);
+}
+
 function markNotified(chatId, meta = {}) {
   const state = loadState();
+  const prev = state.chats[String(chatId)] || {};
   state.chats[String(chatId)] = {
-    sentAt: new Date().toISOString(),
-    name: String(meta.name || '').slice(0, 80),
-    phone: String(meta.phone || '').slice(0, 40),
-    channel: String(meta.channel || '').slice(0, 40),
-    pageTitle: String(meta.pageTitle || '').slice(0, 120),
+    ...prev,
+    sentAt: prev.sentAt || new Date().toISOString(),
+    name: String(meta.name || prev.name || '').slice(0, 80),
+    phone: String(meta.phone || prev.phone || '').slice(0, 40),
+    channel: String(meta.channel || prev.channel || '').slice(0, 40),
+    pageTitle: String(meta.pageTitle || prev.pageTitle || '').slice(0, 120),
+  };
+  saveState(state);
+}
+
+function markBriefSent(chatId, meta = {}) {
+  const state = loadState();
+  const prev = state.chats[String(chatId)] || {};
+  state.chats[String(chatId)] = {
+    ...prev,
+    briefSentAt: new Date().toISOString(),
+    briefPreview: String(meta.briefPreview || '').slice(0, 200),
   };
   saveState(state);
 }
@@ -163,6 +181,48 @@ function extractWebchatLead(text, history = []) {
   return { name, phone, channel };
 }
 
+/**
+ * Есть ли уже о чём писать выжимку (не только имя+телефон с первого сообщения).
+ * Имя/телефон спрашиваем сразу → первый отчёт без выжимки; brief — после реального диалога.
+ */
+function hasSubstanceForBrief(history = [], leadPhone = null) {
+  const msgs = Array.isArray(history) ? history : [];
+  const userMsgs = msgs.filter((m) => m.sender === 'user');
+  const botMsgs = msgs.filter((m) => m.sender === 'assistant' || m.sender === 'bot');
+
+  // Нужен хотя бы один ответ бота после контактов и ещё одно содержательное сообщение клиента.
+  if (botMsgs.length < 1) return false;
+  if (userMsgs.length < 2) return false;
+
+  const phoneDigits = String(leadPhone?.digits || leadPhone?.e164 || '').replace(/\D/g, '');
+  let substantive = 0;
+  for (const m of userMsgs) {
+    let t = String(m.text || '').trim();
+    if (!t) continue;
+    if (phoneDigits) {
+      t = t.replace(new RegExp(phoneDigits.replace(/(\d)/g, '$1\\D*'), 'g'), ' ');
+    }
+    t = t
+      .replace(/(?:\+|00)?\d[\d\s().\-]{6,22}\d/g, ' ')
+      .replace(
+        /whats?\s*app|ват[сc]ап|вацап|telegram|телеграм|\bтг\b|\btg\b|звонк\w*|позвон\w*|созвон\w*|\bcall\b/gi,
+        ' '
+      )
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Короткое «Андрей» / «ок» — не тема для выжимки.
+    if (t.length < 18 && !/[?]/.test(t)) continue;
+    if (/^(привет|здравствуй|добрый|hi|hello|hola|ok|ок|да|нет|yes|no)\b/i.test(t) && t.length < 25) {
+      continue;
+    }
+    substantive += 1;
+  }
+
+  // Минимум одно содержательное сообщение клиента сверх контактов.
+  return substantive >= 1 && msgs.length >= 3;
+}
+
 function buildWebchatLeadMessage({ name, phone, channel, pageTitle, pageUrl, language, brief }) {
   const lines = [
     '🌐 Заявка с сайта (webchat)',
@@ -177,10 +237,44 @@ function buildWebchatLeadMessage({ name, phone, channel, pageTitle, pageUrl, lan
   return lines.join('\n');
 }
 
+function buildWebchatBriefMessage({ name, phone, channel, pageTitle, pageUrl, language, brief }) {
+  const lines = [
+    '🌐 Выжимка по webchat',
+    `Имя: ${name || 'не назвал'}`,
+    `Тел: ${phone?.display || phone?.e164 || phone || '—'}`,
+    channel ? `Связь: ${channel}` : null,
+    `Объект: ${String(pageTitle || '').trim() || 'не указан'}`,
+    pageUrl ? String(pageUrl).trim() : null,
+    language ? `Язык: ${language}` : null,
+    brief ? `\nО разговоре:\n${String(brief).trim()}` : null,
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
+async function sendWebchatTelegramMirror({ phone, name, pageTitle, pageUrl, language, trigger, summary }) {
+  try {
+    const { notifyDialogReport } = require('./telegram-notify');
+    const digits = String(phone?.digits || String(phone || '').replace(/\D/g, ''));
+    notifyDialogReport({
+      phoneDisplay: phone?.display || phone || '',
+      waLink: digits ? `https://wa.me/${digits}` : '',
+      languageLabel: language,
+      trigger,
+      clientName: name || '',
+      properties: pageTitle || pageUrl ? [{ title: pageTitle, siteUrl: pageUrl }] : [],
+      summary,
+      waSent: true,
+    });
+  } catch {
+    /* optional */
+  }
+}
+
 /**
- * Если в webchat появились телефон (+ опционально имя/канал) — один раз
- * переслать на MANAGER_REPORT_WHATSAPP через ту же WhatsApp-сессию бота.
- * WP-чат и WhatsApp-чат остаются отдельными; общая только сессия для исходящих.
+ * Два шага:
+ * 1) Как только в webchat появился телефон — сразу лид (имя/тел/объект), БЕЗ AI-выжимки
+ *    (имя и телефон просим в первом сообщении, говорить ещё не о чем).
+ * 2) Когда диалог уже содержательный — один раз досылаем «О разговоре» с AI-brief.
  */
 async function maybeNotifyWebchatLead({
   chatId,
@@ -192,29 +286,86 @@ async function maybeNotifyWebchatLead({
 } = {}) {
   if (!chatId || !String(chatId).startsWith('web:')) return null;
   if (!reportsEnabled()) return null;
-  if (alreadyNotified(chatId)) return null;
 
   const lead = extractWebchatLead(text, history);
-  if (!lead?.phone) return null;
+  const state = loadState().chats[String(chatId)] || {};
+
+  // --- Step 1: contact lead (once) ---
+  if (!alreadyNotified(chatId)) {
+    if (!lead?.phone) return null;
+
+    const waText = buildWebchatLeadMessage({
+      name: lead.name,
+      phone: lead.phone,
+      channel: lead.channel,
+      pageTitle,
+      pageUrl,
+      language,
+      brief: '', // специально пусто: диалог ещё не начался
+    });
+
+    try {
+      const result = await sendManagerReportWhatsApp(waText);
+      if (!result?.ok) return null;
+
+      markNotified(chatId, {
+        name: lead.name,
+        phone: lead.phone.display,
+        channel: lead.channel,
+        pageTitle,
+      });
+      console.log(`📋 Webchat lead → WhatsApp ${result.target}: ${lead.phone.display}`);
+      await sendWebchatTelegramMirror({
+        phone: lead.phone,
+        name: lead.name,
+        pageTitle,
+        pageUrl,
+        language,
+        trigger: 'webchat_lead',
+        summary: waText,
+      });
+      return { kind: 'lead', waText, phone: lead.phone.display, name: lead.name };
+    } catch (e) {
+      console.warn('⚠️ Webchat lead WhatsApp send failed:', e.message);
+      return null;
+    }
+  }
+
+  // --- Step 2: AI brief after real conversation (once) ---
+  if (alreadySentBrief(chatId)) return null;
+
+  const phoneMeta =
+    lead?.phone ||
+    (state.phone
+      ? {
+          display: state.phone,
+          e164: state.phone,
+          digits: String(state.phone).replace(/\D/g, ''),
+        }
+      : null);
+
+  if (!hasSubstanceForBrief(history, phoneMeta)) return null;
 
   let brief = '';
   try {
     const { generateDialogBrief } = require('./handoff-summary');
     brief = await generateDialogBrief(history, {
-      clientName: lead.name || '',
+      clientName: lead?.name || state.name || '',
       language,
-      pageTitle,
+      pageTitle: pageTitle || state.pageTitle || '',
       source: 'webchat',
     });
   } catch (e) {
     console.warn('⚠️ webchat dialog brief:', e.message);
   }
 
-  const waText = buildWebchatLeadMessage({
-    name: lead.name,
-    phone: lead.phone,
-    channel: lead.channel,
-    pageTitle,
+  if (!String(brief || '').trim()) return null;
+
+  const waText = buildWebchatBriefMessage({
+    name: lead?.name || state.name || '',
+    phone: phoneMeta,
+    channel: lead?.channel || state.channel || '',
+    pageTitle: pageTitle || state.pageTitle || '',
     pageUrl,
     language,
     brief,
@@ -224,33 +375,20 @@ async function maybeNotifyWebchatLead({
     const result = await sendManagerReportWhatsApp(waText);
     if (!result?.ok) return null;
 
-    markNotified(chatId, {
-      name: lead.name,
-      phone: lead.phone.display,
-      channel: lead.channel,
-      pageTitle,
+    markBriefSent(chatId, { briefPreview: brief });
+    console.log(`📋 Webchat brief → WhatsApp ${result.target}`);
+    await sendWebchatTelegramMirror({
+      phone: phoneMeta,
+      name: lead?.name || state.name || '',
+      pageTitle: pageTitle || state.pageTitle || '',
+      pageUrl,
+      language,
+      trigger: 'webchat_brief',
+      summary: waText,
     });
-    console.log(`📋 Webchat lead → WhatsApp ${result.target}: ${lead.phone.display}`);
-
-    try {
-      const { notifyDialogReport } = require('./telegram-notify');
-      notifyDialogReport({
-        phoneDisplay: lead.phone.display,
-        waLink: `https://wa.me/${lead.phone.digits}`,
-        languageLabel: language,
-        trigger: 'webchat_lead',
-        clientName: lead.name || '',
-        properties: pageTitle || pageUrl ? [{ title: pageTitle, siteUrl: pageUrl }] : [],
-        summary: waText,
-        waSent: true,
-      });
-    } catch {
-      /* optional */
-    }
-
-    return { waText, phone: lead.phone.display, name: lead.name };
+    return { kind: 'brief', waText, brief };
   } catch (e) {
-    console.warn('⚠️ Webchat lead WhatsApp send failed:', e.message);
+    console.warn('⚠️ Webchat brief WhatsApp send failed:', e.message);
     return null;
   }
 }
@@ -260,6 +398,8 @@ module.exports = {
   extractWebchatLead,
   detectContactChannel,
   buildWebchatLeadMessage,
+  buildWebchatBriefMessage,
+  hasSubstanceForBrief,
   maybeNotifyWebchatLead,
   STATE_PATH,
 };

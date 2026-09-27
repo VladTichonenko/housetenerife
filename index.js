@@ -4469,6 +4469,15 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
   addToHistory(chatId, 'user', text, { language: dialogLanguage });
   const history = getHistory(chatId).slice();
 
+  const aiResponse = await askAI(history, dialogLanguage, {
+    chatId,
+    pagePropertyUrl: pagePropertyUrl || pageUrl || '',
+  });
+  const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
+  addToHistory(chatId, 'assistant', outgoing);
+
+  // Лид (телефон) — сразу; AI-выжимка — когда в диалоге уже есть смысл
+  // (после ответа бота история полнее).
   try {
     maybeNotifyWebchatLead({
       chatId,
@@ -4476,18 +4485,12 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
       pageUrl: pagePropertyUrl || pageUrl,
       pageTitle,
       language: dialogLanguage,
-      history,
+      history: getHistory(chatId).slice(),
     }).catch((e) => console.warn('webchat lead notify:', e.message));
   } catch (e) {
     console.warn('webchat lead notify:', e.message);
   }
 
-  const aiResponse = await askAI(history, dialogLanguage, {
-    chatId,
-    pagePropertyUrl: pagePropertyUrl || pageUrl || '',
-  });
-  const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
-  addToHistory(chatId, 'assistant', outgoing);
   return { text: outgoing, language: dialogLanguage };
 }
 
