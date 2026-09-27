@@ -45,10 +45,15 @@ function resolveGptModel(raw, label = 'AI_MODEL') {
 const AI_MODEL = resolveModel(process.env.AI_MODEL || DEFAULT_GPT_MODEL);
 
 const MAX_ATTEMPTS = Math.min(15, Math.max(1, parseInt(process.env.AI_MAX_RETRIES, 10) || 8));
-const CHAT_MAX_ATTEMPTS = Math.min(3, Math.max(1, parseInt(process.env.AI_CHAT_MAX_RETRIES, 10) || 1));
-const RETRY_BASE_MS = Math.max(400, parseInt(process.env.AI_RETRY_BASE_MS, 10) || 1800);
-const MIN_INTERVAL_MS = Math.max(0, parseInt(process.env.AI_MIN_INTERVAL_MS, 10) || 400);
+// Chat: several tries — OpenRouter/GPT иногда отваливаются по timeout/502 даже на paid.
+const CHAT_MAX_ATTEMPTS = Math.min(5, Math.max(1, parseInt(process.env.AI_CHAT_MAX_RETRIES, 10) || 3));
+const RETRY_BASE_MS = Math.max(400, parseInt(process.env.AI_RETRY_BASE_MS, 10) || 1200);
+const MIN_INTERVAL_MS = Math.max(0, parseInt(process.env.AI_MIN_INTERVAL_MS, 10) || 300);
 const MAX_CONCURRENT = Math.min(12, Math.max(1, parseInt(process.env.AI_CONCURRENCY, 10) || 6));
+const CHAT_TIMEOUT_MS = Math.max(
+  30000,
+  parseInt(process.env.AI_CHAT_TIMEOUT_MS, 10) || 120000
+);
 
 let lastRequestAt = 0;
 let inFlight = 0;
@@ -135,12 +140,26 @@ function isRateLimited(err) {
 function isRetryable(err, allow429) {
   const status = err.response?.status;
   if (status === 429) return allow429;
-  if (status === 502 || status === 503 || status === 504) return true;
-  if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET') {
+  if (status === 408 || status === 500 || status === 502 || status === 503 || status === 504) {
+    return true;
+  }
+  if (
+    err.code === 'ECONNABORTED' ||
+    err.code === 'ETIMEDOUT' ||
+    err.code === 'ECONNRESET' ||
+    err.code === 'EAI_AGAIN' ||
+    err.code === 'ENOTFOUND' ||
+    err.code === 'AI_EMPTY_REPLY'
+  ) {
     return true;
   }
   const msg = String(err.message || '');
-  return msg.includes('timeout') || msg.includes('socket hang up');
+  return (
+    msg.includes('timeout') ||
+    msg.includes('socket hang up') ||
+    msg.includes('empty model reply') ||
+    msg.includes('Network Error')
+  );
 }
 
 async function waitMinInterval() {
@@ -267,8 +286,9 @@ async function postWithRetries(payload, opts) {
 async function chatCompletions(payload, options = {}) {
   const isChat = options.purpose === 'chat';
   const maxAttempts = options.maxAttempts ?? (isChat ? CHAT_MAX_ATTEMPTS : MAX_ATTEMPTS);
-  const allow429Retry = !isChat;
-  const timeout = options.timeout ?? 90000;
+  // Chat тоже ретраим на 429 — paid OpenRouter всё равно иногда отстреливает
+  const allow429Retry = options.allow429Retry != null ? Boolean(options.allow429Retry) : true;
+  const timeout = options.timeout ?? (isChat ? CHAT_TIMEOUT_MS : 90000);
   const label = options.label || (isChat ? 'chat' : 'api');
   const providers = getProviders();
 
@@ -285,9 +305,13 @@ async function chatCompletions(payload, options = {}) {
       } catch (err) {
         lastError = err;
         if (err.code === 'AI_KEY_MISSING') throw err;
-        const hasNext = providers.indexOf(provider) < providers.length - 1;
-        if (isRateLimited(err) && hasNext) {
-          console.warn(`ai-client [${label}]: 429 на ${provider.name} → сразу ${providers[providers.indexOf(provider) + 1].name}`);
+        const idx = providers.indexOf(provider);
+        const hasNext = idx >= 0 && idx < providers.length - 1;
+        // При timeout/5xx/429 — пробуем запасной ключ/провайдер, если есть
+        if (hasNext && isRetryable(err, true)) {
+          console.warn(
+            `ai-client [${label}]: ${provider.name} failed (${err.response?.status || err.code || err.message}) → ${providers[idx + 1].name}`
+          );
           continue;
         }
         throw err;
@@ -309,5 +333,7 @@ module.exports = {
   AI_API_URL,
   AI_API_KEY,
   AI_MODEL,
-  DEFAULT_GPT_MODEL
+  DEFAULT_GPT_MODEL,
+  CHAT_TIMEOUT_MS,
+  CHAT_MAX_ATTEMPTS
 };

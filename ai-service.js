@@ -959,18 +959,59 @@ async function callAI(messages, tierLabel) {
     1,
     Math.max(0, parseFloat(process.env.AI_TEMPERATURE || '0.55') || 0.55)
   );
-  const response = await chatCompletions(
-    {
-      model,
-      messages,
-      max_tokens: 2048,
-      temperature
-    },
-    { purpose: 'chat', label: tierLabel, maxAttempts: 1 }
+  const outerAttempts = Math.min(
+    4,
+    Math.max(1, parseInt(process.env.AI_CHAT_OUTER_RETRIES, 10) || 2)
   );
-  const text = formatModelReply(response.data);
-  if (!text) throw new Error('empty model reply');
-  return text;
+  let lastError;
+
+  for (let attempt = 1; attempt <= outerAttempts; attempt++) {
+    try {
+      const response = await chatCompletions(
+        {
+          model,
+          messages,
+          // На повторе чуть короче — быстрее проходит при загруженном провайдере
+          max_tokens: attempt === 1 ? 2048 : 1400,
+          temperature
+        },
+        {
+          purpose: 'chat',
+          label: attempt === 1 ? tierLabel : `${tierLabel}-r${attempt}`,
+          // Внутренние ретраи провайдера уже есть; здесь ловим empty reply
+          maxAttempts: attempt === 1 ? undefined : 2,
+        }
+      );
+      const text = formatModelReply(response.data);
+      if (!text) {
+        const emptyErr = new Error('empty model reply');
+        emptyErr.code = 'AI_EMPTY_REPLY';
+        throw emptyErr;
+      }
+      return text;
+    } catch (err) {
+      lastError = err;
+      const status = err.response?.status;
+      const retryable =
+        err.code === 'AI_EMPTY_REPLY' ||
+        err.code === 'AI_RATE_LIMIT' ||
+        err.code === 'ECONNABORTED' ||
+        err.code === 'ETIMEDOUT' ||
+        status === 429 ||
+        status === 500 ||
+        status === 502 ||
+        status === 503 ||
+        status === 504 ||
+        /timeout|socket hang up|empty model|Network Error/i.test(String(err.message || ''));
+      if (!retryable || attempt >= outerAttempts) break;
+      const waitMs = Math.min(6000, 700 * attempt + Math.floor(Math.random() * 500));
+      console.warn(
+        `⚠️ callAI [${tierLabel}] retry ${attempt}/${outerAttempts} in ${waitMs}ms (${err.code || status || err.message})`
+      );
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
+  throw lastError;
 }
 
 function listingCopyLang(lang) {
@@ -1858,14 +1899,20 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
           : 'Лимит запросов к ИИ (429). Подождите минуту или проверьте баланс OpenRouter (GPT).';
     }
 
-    // Только при таймауте/сети — один компактный повтор
+    // При таймауте / сети / 5xx / пустом ответе — один компактный повтор
     const msg = String(error.message || '');
+    const statusRetry = status === 500 || status === 502 || status === 503 || status === 504;
     if (
       error.code === 'ECONNABORTED' ||
       error.code === 'ETIMEDOUT' ||
-      msg.includes('timeout')
+      error.code === 'AI_EMPTY_REPLY' ||
+      statusRetry ||
+      msg.includes('timeout') ||
+      msg.includes('empty model') ||
+      msg.includes('socket hang up')
     ) {
       try {
+        console.warn('⚠️ ai-service: compact retry after transient failure');
         const { messages, catalogUrls } = await buildPromptParts(
           conversationHistory,
           userLanguage,
