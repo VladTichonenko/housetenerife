@@ -535,6 +535,7 @@ function resolveMentionedPropertyItems(text, history = [], opts = {}) {
     if (opts.forceLast) return items.slice(0, 1);
   }
   if (stay && storeItems.length) return storeItems.slice(0, 1);
+  if (opts.forceLast && storeItems.length) return storeItems.slice(0, 1);
   return [];
 }
 
@@ -545,6 +546,100 @@ function clearChatPropertyInterest(chatId) {
   if (!store.chats[id]) return;
   delete store.chats[id];
   saveStore(store);
+}
+
+/**
+ * Нормализовать URL объекта со страницы сайта (в т.ч. .com → .eu).
+ */
+function normalizeWebsitePropertyUrl(rawUrl) {
+  let s = String(rawUrl || '').trim();
+  if (!s) return '';
+  s = s.replace(/housetenerife\.com/gi, 'housetenerife.eu');
+  try {
+    const u = new URL(s);
+    if (!/housetenerife\.eu$/i.test(u.hostname.replace(/^www\./, ''))) {
+      return s.replace(/\/+$/, '');
+    }
+    u.hash = '';
+    u.search = '';
+    let path = u.pathname.replace(/\/+$/, '');
+    if (path.startsWith('/en/property/')) {
+      path = path.replace(/^\/en\/property\//, '/property/');
+    }
+    return `https://housetenerife.eu${path}`;
+  } catch {
+    return s.replace(/\/+$/, '');
+  }
+}
+
+/**
+ * Привязать объект со страницы webchat к чату и вернуть карточку + текст контекста.
+ * Бот должен сразу понимать, о каком листинге говорит клиент.
+ */
+async function bindWebchatPageProperty(chatId, { pageUrl = '', pageTitle = '', language = 'ru' } = {}) {
+  const url = normalizeWebsitePropertyUrl(pageUrl);
+  if (!chatId || !url) {
+    return { item: null, url: '', contextText: '', publicProp: null };
+  }
+
+  let item = findItemByUrl(url);
+  if (!item) {
+    try {
+      const { resolvePropertyItemsFromText } = require('./property-live-fetch');
+      const live = await resolvePropertyItemsFromText(url);
+      item = live?.[0] || findItemByUrl(url);
+    } catch (e) {
+      console.warn('⚠️ bindWebchatPageProperty live-fetch:', e.message);
+    }
+  }
+
+  const lang = normalizeLang(language);
+  let publicProp = null;
+  if (item) {
+    publicProp = propertyToPublic(item, lang, 'webchat_page');
+    if (publicProp) {
+      upsertInterested(chatId, publicProp, 'webchat_page');
+      addRecentSent(chatId, publicProp);
+    }
+  }
+
+  const loc = item ? getLocalizedItem(item, lang) : null;
+  const title =
+    (loc && loc.title) ||
+    (item && item.title) ||
+    String(pageTitle || '').trim() ||
+    'property';
+  const price = (loc && loc.price) || (item && item.price) || '';
+  const overview = String((loc && (loc.overview || loc.factsLine)) || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 280);
+  const share =
+    (item && (() => {
+      try {
+        return require('./property-share').getShareUrl(item, lang) || url;
+      } catch {
+        return url;
+      }
+    })()) ||
+    url;
+
+  const lines = [
+    '[Website page property — current listing]',
+    `Title: ${title}`,
+    item?.id ? `ID: ${item.id}` : null,
+    price ? `Price: ${price}` : null,
+    overview ? `Overview: ${overview}` : null,
+    `URL: ${share}`,
+    'The client opened the website chat on THIS property page. Treat it as the selected listing unless they clearly ask for other options.',
+  ].filter(Boolean);
+
+  return {
+    item: item || null,
+    url: share,
+    contextText: lines.join('\n'),
+    publicProp,
+  };
 }
 
 function hasInterestSignal(text) {
@@ -738,5 +833,7 @@ module.exports = {
   findItemsByNameMention,
   userMessageHasExternalListingLink,
   clearChatPropertyInterest,
+  bindWebchatPageProperty,
+  normalizeWebsitePropertyUrl,
   STORE_PATH
 };

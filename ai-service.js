@@ -151,9 +151,21 @@ async function buildPromptParts(
     }
   }
   let linkedItems = extractPropertyItemsFromText(userQuery);
+  if (!linkedItems.length && runtimeContext.pagePropertyUrl && !freshSearch) {
+    linkedItems = extractPropertyItemsFromText(runtimeContext.pagePropertyUrl);
+    if (!linkedItems.length) {
+      try {
+        const { resolvePropertyItemsFromText } = require('./property-live-fetch');
+        linkedItems = await resolvePropertyItemsFromText(runtimeContext.pagePropertyUrl);
+      } catch (e) {
+        console.warn('⚠️ pagePropertyUrl live-fetch:', e.message);
+      }
+    }
+  }
   if (!linkedItems.length && !freshSearch) {
     linkedItems = resolveMentionedPropertyItems(userQuery, fullHistoryForLinks, {
       chatId: runtimeContext.chatId,
+      forceLast: Boolean(runtimeContext.pagePropertyUrl),
     });
   }
   const externalPortal = userMessageHasExternalListingLink(userQuery);
@@ -169,6 +181,14 @@ async function buildPromptParts(
     } catch (e) {
       console.warn('⚠️ resolvePropertyItemsFromText:', e.message);
     }
+  }
+  // Webchat: даже при «свежем» поиске не теряем объект страницы, пока клиент явно не ушёл в подбор
+  if (
+    runtimeContext.pagePropertyUrl &&
+    !linkedItems.length &&
+    !userStartsFreshSearch(userQuery)
+  ) {
+    linkedItems = extractPropertyItemsFromText(runtimeContext.pagePropertyUrl);
   }
   const hasLinkedProperty = linkedItems.length > 0;
 
@@ -1373,7 +1393,14 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       conversationHistory,
       userLanguage,
       'full',
-      { userProfile, intentGate, topicSummary, analysisHistory, chatId: options.chatId }
+      {
+        userProfile,
+        intentGate,
+        topicSummary,
+        analysisHistory,
+        chatId: options.chatId,
+        pagePropertyUrl: options.pagePropertyUrl || '',
+      }
     );
     let reply = await callAI(messages, 'chat');
     if (dialog.stage === 'NEED_BUSINESS_SECTOR') {
@@ -1806,7 +1833,14 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
           conversationHistory,
           userLanguage,
           'compact',
-          { userProfile, intentGate, topicSummary, analysisHistory, chatId: options.chatId }
+          {
+            userProfile,
+            intentGate,
+            topicSummary,
+            analysisHistory,
+            chatId: options.chatId,
+            pagePropertyUrl: options.pagePropertyUrl || '',
+          }
         );
         const retryReply = await callAI(messages, 'chat-retry');
         const salesLangRetry = normalizeSalesLang(userLanguage);

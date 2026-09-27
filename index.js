@@ -4418,12 +4418,36 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
   const dialogLanguage = resolveDialogLanguage(chatId, text, languageHint || null);
   const existing = getHistory(chatId);
 
-  if (pageUrl && existing.length === 0) {
-    const safeTitle = String(pageTitle || '').trim();
-    const context = safeTitle
-      ? `I'm looking at this property: [${safeTitle}] ${pageUrl}`
-      : `I'm looking at this property: ${pageUrl}`;
-    addToHistory(chatId, 'user', context, { language: dialogLanguage });
+  let pagePropertyUrl = '';
+  try {
+    const { bindWebchatPageProperty } = require('./property-interest');
+    const bound = await bindWebchatPageProperty(chatId, {
+      pageUrl,
+      pageTitle,
+      language: dialogLanguage,
+    });
+    pagePropertyUrl = bound.url || pageUrl || '';
+    const alreadyHasPageContext = existing.some((m) =>
+      /\[Website page property|I'm looking at this property:/i.test(String(m?.text || ''))
+    );
+    if (pagePropertyUrl && !alreadyHasPageContext) {
+      addToHistory(chatId, 'user', bound.contextText || `I'm looking at this property: ${pagePropertyUrl}`, {
+        language: dialogLanguage,
+      });
+      console.log(
+        `🏠 Webchat page property: ${bound.item?.id || 'unknown'} | ${pagePropertyUrl}`
+      );
+    }
+  } catch (e) {
+    console.warn('webchat page property bind:', e.message);
+    if (pageUrl && existing.length === 0) {
+      const safeTitle = String(pageTitle || '').trim();
+      const context = safeTitle
+        ? `I'm looking at this property: [${safeTitle}] ${pageUrl}`
+        : `I'm looking at this property: ${pageUrl}`;
+      addToHistory(chatId, 'user', context, { language: dialogLanguage });
+      pagePropertyUrl = pageUrl;
+    }
   }
 
   try {
@@ -4449,7 +4473,7 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
     maybeNotifyWebchatLead({
       chatId,
       text,
-      pageUrl,
+      pageUrl: pagePropertyUrl || pageUrl,
       pageTitle,
       language: dialogLanguage,
       history,
@@ -4458,7 +4482,10 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
     console.warn('webchat lead notify:', e.message);
   }
 
-  const aiResponse = await askAI(history, dialogLanguage, { chatId });
+  const aiResponse = await askAI(history, dialogLanguage, {
+    chatId,
+    pagePropertyUrl: pagePropertyUrl || pageUrl || '',
+  });
   const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
   addToHistory(chatId, 'assistant', outgoing);
   return { text: outgoing, language: dialogLanguage };
