@@ -4408,53 +4408,20 @@ client.on('message_ack', () => {
 // ========== API ENDPOINTS ==========
 
 async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHint }) {
-  const hint = String(languageHint || '')
-    .toLowerCase()
-    .replace(/[^a-z]/g, '')
-    .slice(0, 2);
-
   if (isAiDisabled(chatId)) {
-    const lang = hint || 'en';
+    const lang = languageHint || 'en';
     return { text: getTranslation(lang, 'error'), language: lang };
   }
 
   ensureHistoryHydrated(chatId);
+  const dialogLanguage = resolveDialogLanguage(chatId, text, languageHint || null);
   const existing = getHistory(chatId);
-
-  // Website language is authoritative for a fresh web chat.
-  if (hint && existing.length === 0) {
-    setStickyDialogLanguage(chatId, hint);
-  }
-
-  let dialogLanguage = resolveDialogLanguage(chatId, text, hint || null);
-  if (hint && existing.length === 0) {
-    dialogLanguage = hint;
-    setStickyDialogLanguage(chatId, hint);
-  }
 
   if (pageUrl && existing.length === 0) {
     const safeTitle = String(pageTitle || '').trim();
-    const contextByLang = {
-      ru: safeTitle
-        ? `Я смотрю этот объект: [${safeTitle}] ${pageUrl}`
-        : `Я смотрю этот объект: ${pageUrl}`,
-      es: safeTitle
-        ? `Estoy viendo esta propiedad: [${safeTitle}] ${pageUrl}`
-        : `Estoy viendo esta propiedad: ${pageUrl}`,
-      fr: safeTitle
-        ? `Je consulte ce bien : [${safeTitle}] ${pageUrl}`
-        : `Je consulte ce bien : ${pageUrl}`,
-      de: safeTitle
-        ? `Ich schaue mir dieses Objekt an: [${safeTitle}] ${pageUrl}`
-        : `Ich schaue mir dieses Objekt an: ${pageUrl}`,
-      pl: safeTitle
-        ? `Oglądam tę nieruchomość: [${safeTitle}] ${pageUrl}`
-        : `Oglądam tę nieruchomość: ${pageUrl}`,
-      en: safeTitle
-        ? `I'm looking at this property: [${safeTitle}] ${pageUrl}`
-        : `I'm looking at this property: ${pageUrl}`,
-    };
-    const context = contextByLang[dialogLanguage] || contextByLang.en;
+    const context = safeTitle
+      ? `I'm looking at this property: [${safeTitle}] ${pageUrl}`
+      : `I'm looking at this property: ${pageUrl}`;
     addToHistory(chatId, 'user', context, { language: dialogLanguage });
   }
 
