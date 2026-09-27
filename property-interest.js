@@ -321,6 +321,7 @@ function userStartsFreshSearch(text) {
   const raw = String(text || '');
   if (userMessageHasPropertyLink(raw)) return false;
   if (refersToCurrentProperty(raw) && !userMessageHasExternalListingLink(raw)) return false;
+  if (userAsksForOtherListings(raw)) return true;
   if (userMessageHasExternalListingLink(raw)) {
     return /similar|parecid|похож|vergleich|vergelijk|podobn|autre|altro|outro|adeje|cristianos|350|apartment|appart|mieszkan|piso/i.test(
       raw
@@ -339,6 +340,64 @@ function userStartsFreshSearch(text) {
       raw
     );
   return looksNew && hasPlaceOrType;
+}
+
+/**
+ * Клиент явно просит другие варианты / сравнение / подбор — не только текущий объект страницы.
+ */
+function userAsksForOtherListings(text) {
+  const raw = String(text || '');
+  if (!raw.trim()) return false;
+  return /подбер|подборк|похож|сравн|альтернатив|другие\s+(?:вариант|объект|квартир|апартамент|опци)|друг(?:ой|ие)\s+(?:вариант|объект)|еще\s+(?:вариант|объект|опци)|ещё\s+(?:вариант|объект|опци)|покажи\s+(?:ещё|еще|другие|варианты)|similar|compare|comparison|other\s+(?:options?|listings?|apartments?|properties|villas?|flats?)|more\s+(?:options?|listings?|apartments?|properties)|alternatives?|shortlist|show\s+me\s+(?:other|more|similar)|find\s+me\s+(?:other|similar|more)|otras?\s+opcion|otros?\s+(?:pisos?|apartamentos?|inmuebles?|opciones?)|parecid|comparar|muéstrame|muestrame|vergleich|andere\s+(?:option|wohn|objekt|angebote)|ähnliche|montre[rz]?\s+(?:d['']?autres|plus)|autres?\s+(?:biens?|options?|appartements?)|porówn|podobn|inne\s+(?:oferty|opcje|mieszkania)|andere\s+(?:opties|objecten|woningen)/i.test(
+    raw
+  );
+}
+
+function getWebchatPagePropertyInstruction(lang = 'ru') {
+  const code = String(lang || 'ru').slice(0, 2).toLowerCase();
+  if (code === 'es') {
+    return `CHAT DEL SITIO (ficha abierta): el cliente abrió el chat EN ESTA página de inmueble.
+OBLIGATORIO: habla SOLO de ESTE inmueble (precio, gastos, hipoteca, vivir/inversión, visita).
+PROHIBIDO: selección de 3–5 opciones, «¿cuál te encaja?», sugerir otros pisos/villas, cambiar de zona.
+SOLO si pide claramente comparar / ver similares / otras opciones — entonces busca en el catálogo.
+Idioma del diálogo, estilo WhatsApp, sin inventar cifras ausentes en la ficha.`;
+  }
+  if (code === 'en') {
+    return `WEBSITE CHAT (open listing page): the client opened chat ON THIS property page.
+MUST: discuss ONLY this listing (price, fees, mortgage, living vs investment, viewing).
+FORBIDDEN: a 3–5 option shortlist, “which is closer?”, suggesting other apartments/villas, switching area.
+ONLY if they clearly ask to compare / see similar / other options — then search the catalog.
+Dialog language, WhatsApp style; never invent missing figures.`;
+  }
+  if (code === 'de') {
+    return `WEBSITE-CHAT (offene Objektseite): Der Kunde öffnete den Chat AUF DIESER Objektseite.
+PFLICHT: nur DIESES Objekt besprechen. VERBOTEN: 3–5er Auswahl, andere Objekte vorschlagen.
+NUR wenn klar nach Vergleich / ähnlichen Optionen gefragt wird — dann Katalogsuche.
+Dialogsprache, WhatsApp-Stil.`;
+  }
+  if (code === 'fr') {
+    return `CHAT SITE (fiche ouverte): le client a ouvert le chat SUR CETTE fiche.
+OBLIGATOIRE: parler UNIQUEMENT de ce bien. INTERDIT: sélection 3–5, suggérer d’autres biens.
+SEULEMENT s’il demande clairement à comparer / voir des similaires — alors chercher au catalogue.
+Langue du dialogue, style WhatsApp.`;
+  }
+  if (code === 'pl') {
+    return `CZAT NA STRONIE (otwarta oferta): klient otworzył czat NA TEJ stronie obiektu.
+OBOWIĄZKOWO: mów TYLKO o tym obiekcie. ZAKAZ: selekcja 3–5, inne oferty.
+TYLKO gdy wyraźnie prosi o porównanie / podobne — wtedy katalog.
+Język dialogu, styl WhatsApp.`;
+  }
+  if (code === 'nl') {
+    return `WEBSITECHAT (open listing): de klant opende de chat OP DEZE objectpagina.
+VERPLICHT: alleen DIT object. VERBODEN: selectie van 3–5, andere objecten voorstellen.
+ALLEEN bij duidelijke vraag om te vergelijken / soortgelijke opties — dan catalogus.
+Dialoogtaal, WhatsApp-stijl.`;
+  }
+  return `ЧАТ НА САЙТЕ (открыта карточка объекта): клиент открыл чат ИМЕННО на этой странице объекта.
+ОБЯЗАТЕЛЬНО: говори ТОЛЬКО про этот объект (цена, расходы, ипотека, жизнь/инвестиция, просмотр).
+ЗАПРЕЩЕНО: подборка 3–5 вариантов, «какой ближе?», предлагать другие квартиры/виллы, менять район.
+ТОЛЬКО если клиент ЯВНО просит сравнить / подобрать похожие / другие варианты — тогда ищи в каталоге.
+Язык диалога, стиль WhatsApp; цифры не из карточки не выдумывай.`;
 }
 
 const NAME_STOP_WORDS = new Set([
@@ -829,6 +888,8 @@ module.exports = {
   resolveMentionedPropertyItems,
   pickByOrdinal,
   userStartsFreshSearch,
+  userAsksForOtherListings,
+  getWebchatPagePropertyInstruction,
   refersToCurrentProperty,
   findItemsByNameMention,
   userMessageHasExternalListingLink,

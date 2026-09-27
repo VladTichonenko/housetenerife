@@ -116,19 +116,6 @@ async function buildPromptParts(
       (dialog.stage === 'REFINE' &&
         (dialog.hasBudget || dialog.ignoreBudget) &&
         Boolean(dialog.readyForListings || dialog.wantsListings || dialog.wantsMoreLikeThese)));
-  // Правило: без бюджета каталог не подмешиваем (кроме «любой бюджет»)
-  // После выбора объекта каталог не подмешиваем — иначе модель снова шлёт подборку
-  const maySearchCatalog =
-    !dialog.hasPropertyInterest &&
-    !dialog.offTopicChatter &&
-    !dialog.wantsPhotos &&
-    dialog.hasType &&
-    dialog.hasPurpose &&
-    (dialog.hasBudget || dialog.ignoreBudget) &&
-    (dialog.financeReadyForListings || dialog.ignoreBudget || externalPortal) &&
-    (showingListings ||
-      externalPortal ||
-      (tier !== 'full' && (dialog.hasBudget || dialog.ignoreBudget)));
 
   const {
     extractPropertyItemsFromText,
@@ -137,11 +124,15 @@ async function buildPromptParts(
     userMessageHasPropertyLink,
     resolveMentionedPropertyItems,
     userStartsFreshSearch,
+    userAsksForOtherListings,
+    getWebchatPagePropertyInstruction,
     refersToCurrentProperty,
     clientTalksAboutLinkedProperty,
     userMessageHasExternalListingLink,
   } = require('./property-interest');
-  const freshSearch = userStartsFreshSearch(userQuery);
+  const freshSearch =
+    userStartsFreshSearch(userQuery) || userAsksForOtherListings(userQuery);
+  const pageFocus = Boolean(runtimeContext.pagePropertyUrl) && !freshSearch;
   if (freshSearch && runtimeContext.chatId) {
     try {
       const { clearChatPropertyInterest } = require('./property-interest');
@@ -182,15 +173,40 @@ async function buildPromptParts(
       console.warn('⚠️ resolvePropertyItemsFromText:', e.message);
     }
   }
-  // Webchat: даже при «свежем» поиске не теряем объект страницы, пока клиент явно не ушёл в подбор
-  if (
-    runtimeContext.pagePropertyUrl &&
-    !linkedItems.length &&
-    !userStartsFreshSearch(userQuery)
-  ) {
+  // Webchat: не теряем объект страницы, пока клиент явно не ушёл в подбор
+  if (runtimeContext.pagePropertyUrl && !linkedItems.length && !freshSearch) {
     linkedItems = extractPropertyItemsFromText(runtimeContext.pagePropertyUrl);
   }
+  // Страница объекта на сайте: если карточки нет в локальном каталоге — синтетическая,
+  // чтобы бот не ушёл в подборку «3–5 вариантов».
+  if (pageFocus && !linkedItems.length && runtimeContext.pagePropertyUrl) {
+    linkedItems = [
+      {
+        id: 'WEBCHAT_PAGE',
+        title: String(runtimeContext.pagePropertyTitle || '').trim() || 'Property',
+        price: '',
+        url: runtimeContext.pagePropertyUrl,
+        urls: { en: runtimeContext.pagePropertyUrl },
+      },
+    ];
+  }
   const hasLinkedProperty = linkedItems.length > 0;
+
+  // Правило: без бюджета каталог не подмешиваем (кроме «любой бюджет»)
+  // После выбора объекта / webchat на карточке — каталог не подмешиваем
+  const maySearchCatalog =
+    !pageFocus &&
+    !dialog.hasPropertyInterest &&
+    !hasLinkedProperty &&
+    !dialog.offTopicChatter &&
+    !dialog.wantsPhotos &&
+    dialog.hasType &&
+    dialog.hasPurpose &&
+    (dialog.hasBudget || dialog.ignoreBudget) &&
+    (dialog.financeReadyForListings || dialog.ignoreBudget || externalPortal) &&
+    (showingListings ||
+      externalPortal ||
+      (tier !== 'full' && (dialog.hasBudget || dialog.ignoreBudget)));
 
   const catalogLimit =
     tier === 'minimal'
@@ -502,12 +518,18 @@ ${blocks.conversation}`;
     tier === 'full' ? getSalesPlaybookBlock(salesLang) : '';
 
   const catalogRules =
-    hasLinkedProperty
+    pageFocus || hasLinkedProperty
       ? salesLang === 'ru'
-        ? `**ОБЪЕКТ ПО ССЫЛКЕ:** В блоке ниже — карточка из каталога по ссылке клиента. Расскажи по этим данным (цена, тип, район, 2–3 факта). Не выдумывай. Не предлагай другие объекты, пока клиент не попросит похожие. URL копируй из блока.`
+        ? pageFocus
+          ? `**ЧАТ НА СТРАНИЦЕ ОБЪЕКТА:** Клиент открыл чат на карточке ЭТОГО объекта. В блоке ниже — данные карточки. Отвечай только про него. ЗАПРЕЩЕНО слать подборку других объектов / «какой ближе?». Другие варианты — только если клиент ЯВНО попросил сравнить или подобрать похожие. URL копируй из блока.`
+          : `**ОБЪЕКТ ПО ССЫЛКЕ:** В блоке ниже — карточка из каталога по ссылке клиента. Расскажи по этим данным (цена, тип, район, 2–3 факта). Не выдумывай. Не предлагай другие объекты, пока клиент не попросит похожие. URL копируй из блока.`
         : salesLang === 'es'
-          ? `**ENLACE DEL CLIENTE:** El bloque inferior es la ficha del catálogo. Descríbela (precio, tipo, zona, 2–3 datos). No inventes. No ofrezcas otros inmuebles hasta que pida similares. Copia el URL del bloque.`
-          : `**CLIENT LINK:** Block below is the catalog card. Describe it (price, type, area, 2–3 facts). Do not invent. Do not offer other listings until they ask for similar. Copy URL from the block.`
+          ? pageFocus
+            ? `**CHAT EN FICHA:** El cliente abrió el chat en ESTA ficha. Responde solo sobre ella. PROHIBIDO enviar selección de otros inmuebles. Otras opciones solo si pide comparar/similares. Copia el URL del bloque.`
+            : `**ENLACE DEL CLIENTE:** El bloque inferior es la ficha del catálogo. Descríbela (precio, tipo, zona, 2–3 datos). No inventes. No ofrezcas otros inmuebles hasta que pida similares. Copia el URL del bloque.`
+          : pageFocus
+            ? `**WEBSITE LISTING CHAT:** Client opened chat on THIS property page. Answer only about it. FORBIDDEN to send a shortlist of other listings. Other options only if they clearly ask to compare/similar. Copy URL from the block.`
+            : `**CLIENT LINK:** Block below is the catalog card. Describe it (price, type, area, 2–3 facts). Do not invent. Do not offer other listings until they ask for similar. Copy URL from the block.`
       : salesLang === 'ru'
       ? `**КАТАЛОГ ОБЪЕКТОВ:**
 Поиск идёт по всей базе (${catalog.totalInDb || 'все'} объектов на сайте); в блоке ниже — лучшие совпадения по критериям переписки. Если блок каталога не пустой — ЗАПРЕЩЕНО писать «нет объектов / ничего нет / в этом районе нет». Показывай то, что есть; если мало — предложи соседний бюджет/зону или сайт. Не утверждай, что «других нет» — предложи уточнить бюджет/район или каталог на сайте.
@@ -595,14 +617,17 @@ ${blocks.managerHandoff}`;
     : '';
 
   const stayOnObject =
-    hasLinkedProperty &&
-    (clientTalksAboutLinkedProperty(lastRaw) ||
-      refersToCurrentProperty(lastRaw) ||
-      userMessageHasPropertyLink(lastRaw) ||
-      dialog.wantsPhotos);
-  const linkedStageBlock = hasLinkedProperty
-    ? getLinkedPropertyStageInstruction(userLanguage)
-    : '';
+    pageFocus ||
+    (hasLinkedProperty &&
+      (clientTalksAboutLinkedProperty(lastRaw) ||
+        refersToCurrentProperty(lastRaw) ||
+        userMessageHasPropertyLink(lastRaw) ||
+        dialog.wantsPhotos));
+  const linkedStageBlock = pageFocus
+    ? getWebchatPagePropertyInstruction(userLanguage)
+    : hasLinkedProperty
+      ? getLinkedPropertyStageInstruction(userLanguage)
+      : '';
   const funnelGlueByLang = {
     ru: `(Дальше по воронке, после описания объекта: ${dialog.stageInstruction})`,
     es: `(Después, siguiendo el embudo tras describir el objeto: ${dialog.stageInstruction})`,
@@ -635,11 +660,13 @@ ${blocks.managerHandoff}`;
     : '';
   const stageBlock = dialog.wantsPhotos
     ? `${linkedStageBlock}\n${photoAskBlock}`.trim()
-    : stayOnObject && linkedStageBlock
+    : pageFocus && linkedStageBlock
       ? linkedStageBlock
-      : linkedStageBlock
-        ? `${linkedStageBlock}\n\n${funnelGlueByLang[salesLang] || funnelGlueByLang.en}`
-        : dialog.stageInstruction;
+      : stayOnObject && linkedStageBlock
+        ? linkedStageBlock
+        : linkedStageBlock
+          ? `${linkedStageBlock}\n\n${funnelGlueByLang[salesLang] || funnelGlueByLang.en}`
+          : dialog.stageInstruction;
 
   const hasVisionNote = /\[описание фото\]|\[foto\]|\[photo description\]/i.test(lastRaw) ||
     /\[фото/i.test(lastRaw);
@@ -1400,6 +1427,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         analysisHistory,
         chatId: options.chatId,
         pagePropertyUrl: options.pagePropertyUrl || '',
+        pagePropertyTitle: options.pagePropertyTitle || '',
       }
     );
     let reply = await callAI(messages, 'chat');
@@ -1428,7 +1456,16 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         'chat-no-delay-rewrite'
       );
     }
+    const { userAsksForOtherListings, userStartsFreshSearch } = require('./property-interest');
+    const lastUserForFocus = String(
+      [...conversationHistory].reverse().find((m) => m.sender === 'user')?.text || ''
+    );
+    const pageFocusAsk =
+      Boolean(options.pagePropertyUrl) &&
+      !userStartsFreshSearch(lastUserForFocus) &&
+      !userAsksForOtherListings(lastUserForFocus);
     const listingStage =
+      !pageFocusAsk &&
       !dialog.hasPropertyInterest &&
       !dialog.wantsPhotos &&
       (dialog.stage === 'SHOW_LISTINGS' ||
@@ -1840,6 +1877,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
             analysisHistory,
             chatId: options.chatId,
             pagePropertyUrl: options.pagePropertyUrl || '',
+            pagePropertyTitle: options.pagePropertyTitle || '',
           }
         );
         const retryReply = await callAI(messages, 'chat-retry');

@@ -4472,6 +4472,7 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
   const aiResponse = await askAI(history, dialogLanguage, {
     chatId,
     pagePropertyUrl: pagePropertyUrl || pageUrl || '',
+    pagePropertyTitle: String(pageTitle || '').trim(),
   });
   const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
   addToHistory(chatId, 'assistant', outgoing);
