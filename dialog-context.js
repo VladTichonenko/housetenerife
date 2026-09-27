@@ -526,15 +526,55 @@ function analyzeConversation(history, lang = 'ru') {
     userTurns <= 1 ||
     clientGreetedNow;
   if (needsGreetingReply) {
-    const greetingMustByLang = {
-      ru: `**ПРИВЕТСТВИЕ (обязательно в ЭТОМ ответе — приоритет выше памяти/воронки):** Клиент${clientGreetedNow ? ' поздоровался («привет» / «здравствуйте»…)' : ' пишет первое сообщение'}. ОБЯЗАТЕЛЬНО начни ответ ТОЧНО в духе: «Приветствую! Максим, House Tenerife.» Затем — вопрос текущего этапа (для инвестиций: «Какой у вас размер инвестиций?»). ЗАПРЕЩЕНО: «Спасибо за интерес», «Отлично» / «Понял» без представления, вопрос без приветствия. Всегда на «Вы».`,
-      en: `**GREETING (mandatory in THIS reply — overrides memory/funnel):** The client${clientGreetedNow ? ' greeted you («hi» / «hello»…)' : ' is on the first message'}. You MUST open like: “Hi! Maxim, House Tenerife.” Then the current-stage question (investments: investment size in €). FORBIDDEN: “Thanks for the interest”, “Great” / “Got it” without intro, or a question with no greeting.`,
-      es: `**SALUDO (obligatorio en ESTA respuesta — prioridad sobre memoria/embudo):** El cliente${clientGreetedNow ? ' saludó («hola»…)' : ' está en el primer mensaje'}. DEBES empezar: «¡Hola! Maxim, House Tenerife.» Luego la pregunta de la etapa. PROHIBIDO: «Gracias por el interés», «Perfecto» / «Entendido» sin presentación.`,
-      de: `**BEGRÜSSUNG (pflicht in DIESER Antwort — Vorrang vor Gedächtnis/Trichter):** Der Kunde${clientGreetedNow ? ' hat gegrüßt («hallo»…)' : ' schreibt die erste Nachricht'}. Du MUSST öffnen mit: «Hallo! Maxim, House Tenerife.» Dann die Stufenfrage. VERBOTEN: «Danke für Ihr Interesse», «Super» / «Verstanden» ohne Vorstellung.`,
-      fr: `**SALUTATION (obligatoire dans CETTE réponse — priorité sur mémoire/entonnoir):** Le client${clientGreetedNow ? ' a salué («bonjour» / «salut»…)' : ' est au premier message'}. Tu DOIS commencer: «Bonjour! Maxim, House Tenerife.» Puis la question d’étape. INTERDIT: «Merci pour votre intérêt», «Parfait» / «Compris» sans présentation.`,
-      pl: `**POWITANIE (obowiązkowe w TEJ odpowiedzi — priorytet nad pamięcią/lejkiem):** Klient${clientGreetedNow ? ' się przywitał («cześć» / «dzień dobry»…)' : ' pisze pierwszą wiadomość'}. MUSISZ zacząć: «Dzień dobry! Maxim, House Tenerife.» Potem pytanie etapu. ZAKAZ: «Dziękuję za zainteresowanie», «Świetnie» / «Rozumiem» bez przedstawienia.`,
-      nl: `**BEGROETING (verplicht in DIT antwoord — voorrang op geheugen/trechter):** De klant${clientGreetedNow ? ' groette («hallo»…)' : ' stuurt het eerste bericht'}. Je MOET openen met: «Hallo! Maxim, House Tenerife.» Daarna de fasevraag. VERBODEN: «Bedankt voor uw interesse», «Top» / «Begrepen» zonder voorstelling.`,
-    };
+    const onListingPage =
+      /\[Контекст сайта\]|\[Website context\]|\[Contexto web\]|\[Contexte site\]|\[Website-Kontext\]|\[Kontekst strony\]/i.test(
+        allUserText
+      ) ||
+      /открыл чат со страницы объекта|opened chat from the listing|abrió el chat desde la ficha|ouvert le chat depuis la fiche|Chat von der Objektseite|otworzył czat ze strony oferty/i.test(
+        allUserText
+      );
+
+    const greetingMustByLang = onListingPage
+      ? {
+          ru: `**ПРИВЕТСТВИЕ С КАРТОЧКИ ОБЪЕКТА (обязательно в ЭТОМ ответе):** Клиент уже на странице конкретного объекта и открыл чат — интерес к ЭТОМУ объекту подтверждён.
+ОБЯЗАТЕЛЬНО:
+1) Начни: «Приветствую! Максим, House Tenerife.»
+2) Коротко признай интерес к этому объекту (без «спасибо за интерес»).
+3) Предложи помощь по НЕМУ: сильные стороны, локация, нюансы сделки, сравнение с похожими.
+4) Задай ОДИН мягкий вопрос: что важнее узнать в первую очередь (разбор объекта / сравнение / как проходит сделка).
+ЗАПРЕЩЕНО: спрашивать «интересен ли объект», «хотите узнать про объект?», сразу «для себя или инвестиции?» как главный вопрос без предложения помощи по карточке. Без ссылок и подборок.`,
+          en: `**LISTING-PAGE GREETING (mandatory in THIS reply):** The client is already on a specific property page and opened chat — interest in THIS listing is confirmed.
+MUST:
+1) Open: “Hi! Maxim, House Tenerife.”
+2) Briefly acknowledge interest in this property (no “thanks for your interest”).
+3) Offer help on THIS listing: strengths, location, deal nuances, or compare similar ones.
+4) Ask ONE soft question: what matters first (property breakdown / comparison / how the deal works).
+FORBIDDEN: asking if they are interested, “want to hear about this property?”, or leading with live-vs-invest without offering help on this card. No links or shortlists.`,
+          es: `**SALUDO DESDE FICHA (obligatorio en ESTA respuesta):** El cliente ya está en la ficha y abrió el chat — el interés en ESTA propiedad está confirmado.
+DEBES: 1) «¡Hola! Maxim, House Tenerife.» 2) Reconocer el interés en esta ficha. 3) Ofrecer ayuda sobre ELLA (puntos fuertes, zona, operación, comparar). 4) UNA pregunta suave: qué quiere saber primero.
+PROHIBIDO preguntar si le interesa la propiedad. Sin enlaces ni listados.`,
+          de: `**BEGRÜSSUNG VON DER OBJEKTSEITE (pflicht):** Interesse an DIESEM Objekt steht fest.
+MUSST: 1) «Hallo! Maxim, House Tenerife.» 2) Interesse am Objekt anerkennen. 3) Hilfe zu DIESEM Objekt anbieten. 4) EINE sanfte Frage: was zuerst wichtig ist.
+VERBOTEN zu fragen, ob das Objekt interessiert. Keine Links/Listen.`,
+          fr: `**SALUTATION DEPUIS LA FICHE (obligatoire):** L’intérêt pour CE bien est déjà confirmé.
+TU DOIS: 1) «Bonjour! Maxim, House Tenerife.» 2) Reconnaître l’intérêt. 3) Proposer de l’aide sur CE bien. 4) UNE question douce: que voulez-vous savoir en premier.
+INTERDIT de demander si le bien intéresse. Pas de liens ni de sélection.`,
+          pl: `**POWITANIE ZE STRONY OFERTY (obowiązkowe):** Zainteresowanie TĄ ofertą jest już potwierdzone.
+MUSISZ: 1) «Dzień dobry! Maxim, House Tenerife.» 2) Uznać zainteresowanie ofertą. 3) Zaproponować pomoc przy TEJ ofercie. 4) JEDNO miękkie pytanie: co ważniejsze na start.
+ZAKAZ pytać, czy oferta interesuje. Bez linków i listy.`,
+          nl: `**BEGROETING VAN DE LISTINGPAGINA (verplicht):** Interesse in DIT object staat vast.
+JE MOET: 1) «Hallo! Maxim, House Tenerife.» 2) Interesse erkennen. 3) Hulp bij DIT object aanbieden. 4) ÉÉN zachte vraag: wat eerst belangrijk is.
+VERBODEN te vragen of het object interesseert. Geen links/lijsten.`,
+        }
+      : {
+          ru: `**ПРИВЕТСТВИЕ (обязательно в ЭТОМ ответе — приоритет выше памяти/воронки):** Клиент${clientGreetedNow ? ' поздоровался («привет» / «здравствуйте»…)' : ' пишет первое сообщение'}. ОБЯЗАТЕЛЬНО начни ответ ТОЧНО в духе: «Приветствую! Максим, House Tenerife.» Затем — вопрос текущего этапа (для инвестиций: «Какой у вас размер инвестиций?»). ЗАПРЕЩЕНО: «Спасибо за интерес», «Отлично» / «Понял» без представления, вопрос без приветствия. Всегда на «Вы».`,
+          en: `**GREETING (mandatory in THIS reply — overrides memory/funnel):** The client${clientGreetedNow ? ' greeted you («hi» / «hello»…)' : ' is on the first message'}. You MUST open like: “Hi! Maxim, House Tenerife.” Then the current-stage question (investments: investment size in €). FORBIDDEN: “Thanks for the interest”, “Great” / “Got it” without intro, or a question with no greeting.`,
+          es: `**SALUDO (obligatorio en ESTA respuesta — prioridad sobre memoria/embudo):** El cliente${clientGreetedNow ? ' saludó («hola»…)' : ' está en el primer mensaje'}. DEBES empezar: «¡Hola! Maxim, House Tenerife.» Luego la pregunta de la etapa. PROHIBIDO: «Gracias por el interés», «Perfecto» / «Entendido» sin presentación.`,
+          de: `**BEGRÜSSUNG (pflicht in DIESER Antwort — Vorrang vor Gedächtnis/Trichter):** Der Kunde${clientGreetedNow ? ' hat gegrüßt («hallo»…)' : ' schreibt die erste Nachricht'}. Du MUSST öffnen mit: «Hallo! Maxim, House Tenerife.» Dann die Stufenfrage. VERBOTEN: «Danke für Ihr Interesse», «Super» / «Verstanden» ohne Vorstellung.`,
+          fr: `**SALUTATION (obligatoire dans CETTE réponse — priorité sur mémoire/entonnoir):** Le client${clientGreetedNow ? ' a salué («bonjour» / «salut»…)' : ' est au premier message'}. Tu DOIS commencer: «Bonjour! Maxim, House Tenerife.» Puis la question d’étape. INTERDIT: «Merci pour votre intérêt», «Parfait» / «Compris» sans présentation.`,
+          pl: `**POWITANIE (obowiązkowe w TEJ odpowiedzi — priorytet nad pamięcią/lejkiem):** Klient${clientGreetedNow ? ' się przywitał («cześć» / «dzień dobry»…)' : ' pisze pierwszą wiadomość'}. MUSISZ zacząć: «Dzień dobry! Maxim, House Tenerife.» Potem pytanie etapu. ZAKAZ: «Dziękuję za zainteresowanie», «Świetnie» / «Rozumiem» bez przedstawienia.`,
+          nl: `**BEGROETING (verplicht in DIT antwoord — voorrang op geheugen/trechter):** De klant${clientGreetedNow ? ' groette («hallo»…)' : ' stuurt het eerste bericht'}. Je MOET openen met: «Hallo! Maxim, House Tenerife.» Daarna de fasevraag. VERBODEN: «Bedankt voor uw interesse», «Top» / «Begrepen» zonder voorstelling.`,
+        };
     stageInstruction = `${greetingMustByLang[salesLang] || greetingMustByLang.en}\n\n${stageInstruction}`;
   }
 

@@ -4436,23 +4436,23 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
     const safeTitle = String(pageTitle || '').trim();
     const contextByLang = {
       ru: safeTitle
-        ? `Я смотрю этот объект: [${safeTitle}] ${pageUrl}`
-        : `Я смотрю этот объект: ${pageUrl}`,
+        ? `[Контекст сайта] Клиент открыл чат со страницы объекта «${safeTitle}» (${pageUrl}). Он уже интересуется именно этим объектом — не спрашивай, интересен ли объект.`
+        : `[Контекст сайта] Клиент открыл чат со страницы объекта (${pageUrl}). Он уже интересуется этим объектом — не спрашивай, интересен ли объект.`,
       es: safeTitle
-        ? `Estoy viendo esta propiedad: [${safeTitle}] ${pageUrl}`
-        : `Estoy viendo esta propiedad: ${pageUrl}`,
+        ? `[Contexto web] El cliente abrió el chat desde la ficha «${safeTitle}» (${pageUrl}). Ya está interesado en esta propiedad — no preguntes si le interesa.`
+        : `[Contexto web] El cliente abrió el chat desde la ficha (${pageUrl}). Ya está interesado — no preguntes si le interesa.`,
       fr: safeTitle
-        ? `Je consulte ce bien : [${safeTitle}] ${pageUrl}`
-        : `Je consulte ce bien : ${pageUrl}`,
+        ? `[Contexte site] Le client a ouvert le chat depuis la fiche «${safeTitle}» (${pageUrl}). Il s’intéresse déjà à ce bien — ne demande pas s’il l’intéresse.`
+        : `[Contexte site] Le client a ouvert le chat depuis la fiche (${pageUrl}). Il s’intéresse déjà à ce bien — ne demande pas s’il l’intéresse.`,
       de: safeTitle
-        ? `Ich schaue mir dieses Objekt an: [${safeTitle}] ${pageUrl}`
-        : `Ich schaue mir dieses Objekt an: ${pageUrl}`,
+        ? `[Website-Kontext] Der Kunde hat den Chat von der Objektseite «${safeTitle}» (${pageUrl}) geöffnet. Interesse am Objekt steht fest — nicht fragen, ob es interessiert.`
+        : `[Website-Kontext] Der Kunde hat den Chat von der Objektseite (${pageUrl}) geöffnet. Interesse steht fest — nicht fragen, ob es interessiert.`,
       pl: safeTitle
-        ? `Oglądam tę nieruchomość: [${safeTitle}] ${pageUrl}`
-        : `Oglądam tę nieruchomość: ${pageUrl}`,
+        ? `[Kontekst strony] Klient otworzył czat ze strony oferty «${safeTitle}» (${pageUrl}). Już interesuje go ta nieruchomość — nie pytaj, czy jest zainteresowany.`
+        : `[Kontekst strony] Klient otworzył czat ze strony oferty (${pageUrl}). Już interesuje go ta oferta — nie pytaj, czy jest zainteresowany.`,
       en: safeTitle
-        ? `I'm looking at this property: [${safeTitle}] ${pageUrl}`
-        : `I'm looking at this property: ${pageUrl}`,
+        ? `[Website context] The client opened chat from the listing page “${safeTitle}” (${pageUrl}). They are already interested in this property — do not ask if they like it.`
+        : `[Website context] The client opened chat from the listing page (${pageUrl}). They are already interested — do not ask if they like it.`,
     };
     const context = contextByLang[dialogLanguage] || contextByLang.en;
     addToHistory(chatId, 'user', context, { language: dialogLanguage });
