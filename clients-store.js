@@ -180,6 +180,23 @@ function recordClientMessage(payload = {}) {
   return mapUserRow(database.prepare('SELECT * FROM users WHERE id = ?').get(id));
 }
 
+function updateClientLanguage(chatId, language) {
+  const id = String(chatId || '');
+  const lang = String(language || '').trim().toLowerCase().slice(0, 2);
+  if (!id || !lang) return null;
+  const database = getDb();
+  const existing = database.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!existing) return null;
+  const languages = parseLanguages(existing.languages);
+  if (!languages.includes(lang)) languages.push(lang);
+  database
+    .prepare(
+      `UPDATE users SET last_language = ?, languages = ? WHERE id = ?`
+    )
+    .run(lang, JSON.stringify(languages), id);
+  return mapUserRow(database.prepare('SELECT * FROM users WHERE id = ?').get(id));
+}
+
 function listClients({ page = 1, limit = 50, q = '' } = {}) {
   const database = getDb();
   const query = String(q || '').trim().toLowerCase();
@@ -235,6 +252,7 @@ function getClient(id) {
 module.exports = {
   CLIENTS_PATH,
   recordClientMessage,
+  updateClientLanguage,
   listClients,
   getClient,
   resolveClientsPath,

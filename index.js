@@ -2795,18 +2795,22 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
           continue;
         }
 
+        const detectedLang = detectLanguageFromText(text) || 'en';
+        const languageName = getLanguageName(detectedLang);
+
         try {
           recordClientMessage({
             chatId,
             senderId: chatId,
             chatName: snap.notifyName || '',
             messageText: text.slice(0, 500),
-            language: 'ru',
-            languageLabel: '',
+            language: detectedLang,
+            languageLabel: languageName,
             country: '',
             isGroup: false,
             kind: snap.type && snap.type !== 'chat' ? snap.type : 'text',
           });
+          setStickyDialogLanguage(chatId, detectedLang);
         } catch (e) {
           console.warn('⚠️ syncMissed client:', e.message);
         }
@@ -2816,20 +2820,21 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
             role: 'user',
             text,
             kind: snap.type && snap.type !== 'chat' ? snap.type : 'text',
+            language: detectedLang,
             waMessageId,
           });
           // Выровнять created_at под реальное время WA (persistMessage ставит now)
           try {
             getDb()
               .prepare(
-                `UPDATE messages SET created_at = ? WHERE wa_message_id = ?`
+                `UPDATE messages SET created_at = ?, language = ? WHERE wa_message_id = ?`
               )
-              .run(atIso, waMessageId);
+              .run(atIso, detectedLang, waMessageId);
             getDb()
               .prepare(
-                `UPDATE users SET last_seen_at = ?, last_message = ? WHERE id = ?`
+                `UPDATE users SET last_seen_at = ?, last_message = ?, last_language = ? WHERE id = ?`
               )
-              .run(atIso, text.slice(0, 500), chatId);
+              .run(atIso, text.slice(0, 500), detectedLang, chatId);
           } catch {
             /* ignore timestamp patch errors */
           }
@@ -2841,12 +2846,19 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
         processedMessageIds.set(waMessageId, Date.now());
         imported += 1;
 
-        const prev = touched.get(chatId) || { count: 0, lastText: '', lastAt: atIso, name: '' };
+        const prev = touched.get(chatId) || {
+          count: 0,
+          lastText: '',
+          lastAt: atIso,
+          name: '',
+          language: detectedLang,
+        };
         touched.set(chatId, {
           count: prev.count + 1,
           lastText: text,
           lastAt: atIso,
           name: snap.notifyName || prev.name || '',
+          language: detectedLang,
         });
       }
 
@@ -2857,6 +2869,13 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
           importedDelta: info.count,
           chatName: info.name,
         });
+        if (info.language) {
+          try {
+            setStickyDialogLanguage(chatId, info.language);
+          } catch {
+            /* ignore */
+          }
+        }
         // История в памяти может быть пустой после рестарта — сбросим, чтобы гидратация взяла SQLite
         if (conversationHistory.has(chatId)) {
           conversationHistory.delete(chatId);
@@ -3063,13 +3082,29 @@ function listCatchUpInbox({ page = 1, limit = 50, q = '', filter = 'pending' } =
 
   items = items.map((item) => {
     const clientInfo = getClient(item.chatId);
+    const lastText = String(item.lastMessage || clientInfo?.lastMessage || '').trim();
+    let language = clientInfo?.language || '';
+    // Sync раньше писал language=ru по умолчанию — чиним по тексту последнего сообщения
+    if (lastText && (!language || language === 'ru')) {
+      const detected = detectLanguageFromText(lastText);
+      if (detected && detected !== 'ru') {
+        language = detected;
+        try {
+          const { updateClientLanguage } = require('./clients-store');
+          updateClientLanguage(item.chatId, detected);
+          setStickyDialogLanguage(item.chatId, detected);
+        } catch {
+          /* ignore repair errors */
+        }
+      }
+    }
     return {
       ...item,
       phoneDisplay: clientInfo?.phoneDisplay || '',
       name: clientInfo?.name || item.chatName || '',
       chatName: clientInfo?.name || item.chatName || '',
-      language: clientInfo?.language || '',
-      languageLabel: clientInfo?.languageLabel || '',
+      language,
+      languageLabel: language ? getLanguageName(language) : clientInfo?.languageLabel || '',
       aiDisabled: isAiDisabled(item.chatId),
     };
   });
