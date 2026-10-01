@@ -32,7 +32,6 @@ export default function ChatsSection({ showToast }) {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [catchingUpId, setCatchingUpId] = useState('');
   const [error, setError] = useState('');
   const [selectedChatId, setSelectedChatId] = useState(null);
 
@@ -89,24 +88,6 @@ export default function ChatsSection({ showToast }) {
     }
   };
 
-  const handleCatchUp = async (chatId, e) => {
-    e?.stopPropagation?.();
-    if (!chatId || catchingUpId) return;
-    setCatchingUpId(chatId);
-    setError('');
-    try {
-      const data = await api.catchUpChat(chatId);
-      showToast?.(data.message || 'Ответ бота отправлен', 'success');
-      await load();
-    } catch (err) {
-      const msg = err.message || 'Не удалось догнать клиента';
-      setError(msg);
-      showToast?.(msg, 'error');
-    } finally {
-      setCatchingUpId('');
-    }
-  };
-
   const selected = items.find((i) => i.chatId === selectedChatId);
 
   return (
@@ -114,8 +95,7 @@ export default function ChatsSection({ showToast }) {
       <div className="card chats-section__intro">
         <p className="card__desc">
           Если сервер был выключен и клиенты писали в WhatsApp — соберите пропущенные сообщения,
-          откройте чат и нажмите «Догнать ботом». Бот ответит по истории, без ожидания нового
-          сообщения.
+          откройте нужный чат и нажмите «Включить ИИ и ответить».
         </p>
         <div className="chats-section__actions">
           <button
@@ -203,7 +183,6 @@ export default function ChatsSection({ showToast }) {
                   <th>Клиент</th>
                   <th>Последнее сообщение</th>
                   <th>Когда</th>
-                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -232,25 +211,6 @@ export default function ChatsSection({ showToast }) {
                     </td>
                     <td className="lead-table__reason">{previewText(item.lastMessage)}</td>
                     <td className="lead-table__date">{formatDate(item.lastMessageAt)}</td>
-                    <td className="lead-table__actions" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        className="lead-table__action"
-                        onClick={() => setSelectedChatId(item.chatId)}
-                      >
-                        Чат
-                      </button>
-                      {item.needsCatchUp && (
-                        <button
-                          type="button"
-                          className="lead-table__action lead-table__action--on"
-                          disabled={Boolean(catchingUpId)}
-                          onClick={(e) => handleCatchUp(item.chatId, e)}
-                        >
-                          {catchingUpId === item.chatId ? '…' : 'Догнать ботом'}
-                        </button>
-                      )}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -288,7 +248,13 @@ export default function ChatsSection({ showToast }) {
           chatId={selectedChatId}
           title={contactLabel(selected || { chatId: selectedChatId })}
           subtitle={selected?.phoneDisplay || selectedChatId}
-          onClose={() => setSelectedChatId(null)}
+          needsCatchUp={Boolean(selected?.needsCatchUp || selected?.aiDisabled)}
+          showToast={showToast}
+          onCatchUpDone={() => load()}
+          onClose={() => {
+            setSelectedChatId(null);
+            load();
+          }}
         />
       )}
     </div>

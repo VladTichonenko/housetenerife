@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { formatContactDisplay } = require('./manager-handoff');
+const { formatContactDisplay, isTestChatId } = require('./manager-handoff');
 const { getLanguageName } = require('./language-detector');
 
 function resolvePurchaseRequestsPath() {
@@ -91,10 +91,36 @@ function deriveStatus(financeStage, handoffId) {
 }
 
 function publicItem(item) {
+  const contact = formatContactDisplay(item.chatId || item.phone || '');
   return {
     ...item,
+    isLid: contact.isLid,
+    isTest: Boolean(contact.isTest),
+    phone: contact.phone,
+    phoneDisplay: contact.display,
+    waLink: contact.waLink,
     statusLabel: STATUS_LABELS[item.status] || item.status,
   };
+}
+
+function removePurchaseRequestsByChatId(chatId) {
+  if (!chatId) return 0;
+  const store = loadStore();
+  const id = String(chatId);
+  const before = store.items.length;
+  store.items = store.items.filter((x) => x.chatId !== id);
+  const removed = before - store.items.length;
+  if (removed > 0) saveStore(store);
+  return removed;
+}
+
+function purgeTestPurchaseRequests() {
+  const store = loadStore();
+  const before = store.items.length;
+  store.items = store.items.filter((x) => !isTestChatId(x.chatId));
+  const removed = before - store.items.length;
+  if (removed > 0) saveStore(store);
+  return removed;
 }
 
 function findOpenByChatId(chatId) {
@@ -368,10 +394,14 @@ function getPurchaseRequest(id) {
   return item ? publicItem(item) : null;
 }
 
-function listPurchaseRequests({ page = 1, limit = 24, q = '', filter = 'open' } = {}) {
+function listPurchaseRequests({ page = 1, limit = 24, q = '', filter = 'open', includeTest = false } = {}) {
   const store = loadStore();
   const query = String(q || '').trim().toLowerCase();
   let items = [...store.items];
+
+  if (!includeTest) {
+    items = items.filter((item) => !isTestChatId(item.chatId));
+  }
 
   if (query) {
     items = items.filter((item) =>
@@ -431,4 +461,6 @@ module.exports = {
   getPurchaseRequest,
   listPurchaseRequests,
   findOpenByChatId,
+  removePurchaseRequestsByChatId,
+  purgeTestPurchaseRequests,
 };

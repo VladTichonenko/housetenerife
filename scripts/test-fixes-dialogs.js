@@ -1869,6 +1869,7 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
     upsertPurchaseRequestFromDialog,
     linkHandoffToPurchaseRequest,
     listPurchaseRequests,
+    removePurchaseRequestsByChatId,
   } = require('../purchase-requests');
 
   const listingBot =
@@ -1931,11 +1932,12 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
   });
   check('purchase request: создаётся заявка', pr && ['draft', 'ready'].includes(pr.status));
   linkHandoffToPurchaseRequest(testChatId, 'handoff-test-id');
-  const listed = listPurchaseRequests({ filter: 'handed_off', q: 'Villa A' });
+  const listed = listPurchaseRequests({ filter: 'handed_off', q: 'Villa A', includeTest: true });
   check(
     'purchase request: после handoff → handed_off',
     listed.items.some((x) => x.handoffId === 'handoff-test-id' && x.chatId === testChatId)
   );
+  removePurchaseRequestsByChatId(testChatId);
 
   check(
     'pick: «мне понравился 3 вариант» → не wantsListings, этап покупки',

@@ -41,6 +41,16 @@ function bubbleLabel(m) {
   return 'Клиент';
 }
 
+function lastMessageNeedsBotReply(messages) {
+  if (!messages?.length) return false;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const role = messages[i]?.role;
+    if (role === 'user') return true;
+    if (role === 'assistant' || role === 'manager') return false;
+  }
+  return false;
+}
+
 function PropertyLinks({ properties, compact = false }) {
   if (!properties?.length) return null;
   return (
@@ -73,7 +83,15 @@ function PropertyLinks({ properties, compact = false }) {
   );
 }
 
-export default function ChatPanel({ chatId, title, subtitle, onClose }) {
+export default function ChatPanel({
+  chatId,
+  title,
+  subtitle,
+  onClose,
+  needsCatchUp = false,
+  onCatchUpDone,
+  showToast,
+}) {
   const [messages, setMessages] = useState([]);
   const [interestedProperties, setInterestedProperties] = useState([]);
   const [settings, setSettings] = useState({ aiDisabled: false });
@@ -81,8 +99,9 @@ export default function ChatPanel({ chatId, title, subtitle, onClose }) {
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [togglingAi, setTogglingAi] = useState(false);
+  const [catchingUp, setCatchingUp] = useState(false);
   const [error, setError] = useState('');
+  const [catchUpDone, setCatchUpDone] = useState(false);
   const messagesEndRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -124,6 +143,9 @@ export default function ChatPanel({ chatId, title, subtitle, onClose }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  const awaitingBot =
+    !catchUpDone && (needsCatchUp || lastMessageNeedsBotReply(messages));
+
   const handleSend = async (e) => {
     e.preventDefault();
     const trimmed = text.trim();
@@ -141,15 +163,26 @@ export default function ChatPanel({ chatId, title, subtitle, onClose }) {
     }
   };
 
-  const toggleAi = async () => {
-    setTogglingAi(true);
+  const handleEnableAiAndReply = async () => {
+    if (catchingUp || sending) return;
+    setCatchingUp(true);
+    setError('');
     try {
-      const data = await api.setAiDisabled(chatId, !settings.aiDisabled);
-      setSettings(data.settings);
+      if (settings.aiDisabled) {
+        const s = await api.setAiDisabled(chatId, false);
+        setSettings(s.settings || { aiDisabled: false });
+      }
+      const data = await api.catchUpChat(chatId);
+      setCatchUpDone(true);
+      showToast?.(data.message || 'ИИ ответил клиенту', 'success');
+      await load();
+      onCatchUpDone?.(chatId);
     } catch (err) {
-      setError(err.message || 'Не удалось изменить настройку ИИ');
+      const msg = err.message || 'Не удалось включить ИИ и ответить';
+      setError(msg);
+      showToast?.(msg, 'error');
     } finally {
-      setTogglingAi(false);
+      setCatchingUp(false);
     }
   };
 
@@ -167,14 +200,6 @@ export default function ChatPanel({ chatId, title, subtitle, onClose }) {
             </h2>
             {subtitle && <p className="chat-panel__topbar-sub">{subtitle}</p>}
           </div>
-          <button
-            type="button"
-            className={`btn btn--sm chat-panel__ai-btn ${settings.aiDisabled ? 'btn--primary' : 'btn--outline'}`}
-            onClick={toggleAi}
-            disabled={togglingAi}
-          >
-            {togglingAi ? '…' : settings.aiDisabled ? 'ИИ вкл' : 'ИИ выкл'}
-          </button>
         </header>
 
         <button type="button" className="modal__close modal__close--chat" onClick={onClose} aria-label="Закрыть">
@@ -182,10 +207,6 @@ export default function ChatPanel({ chatId, title, subtitle, onClose }) {
         </button>
 
         <div className="chat-panel__body">
-          {settings.aiDisabled && (
-            <p className="chat-panel__ai-hint">ИИ не отвечает — только менеджер.</p>
-          )}
-
           <PropertyLinks properties={interestedProperties} />
 
           {error && <p className="form-error">{error}</p>}
@@ -211,6 +232,24 @@ export default function ChatPanel({ chatId, title, subtitle, onClose }) {
           </div>
         </div>
 
+        {awaitingBot && (
+          <div className="chat-panel__catchup">
+            <p className="chat-panel__catchup-text">
+              {settings.aiDisabled
+                ? 'ИИ выключен — клиент ждёт ответа.'
+                : 'Клиент написал, пока бот не отвечал.'}
+            </p>
+            <button
+              type="button"
+              className="btn btn--primary chat-panel__catchup-btn"
+              onClick={handleEnableAiAndReply}
+              disabled={catchingUp}
+            >
+              {catchingUp ? 'Отвечаю…' : 'Включить ИИ и ответить'}
+            </button>
+          </div>
+        )}
+
         <form className="chat-panel__composer" onSubmit={handleSend}>
           <textarea
             className="chat-panel__input"
@@ -218,9 +257,13 @@ export default function ChatPanel({ chatId, title, subtitle, onClose }) {
             onChange={(e) => setText(e.target.value)}
             placeholder="Написать клиенту…"
             rows={2}
-            disabled={sending}
+            disabled={sending || catchingUp}
           />
-          <button type="submit" className="btn btn--primary" disabled={sending || !text.trim()}>
+          <button
+            type="submit"
+            className="btn btn--primary"
+            disabled={sending || catchingUp || !text.trim()}
+          >
             {sending ? '…' : 'Отправить'}
           </button>
         </form>

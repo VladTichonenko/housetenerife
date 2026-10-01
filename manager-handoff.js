@@ -365,10 +365,20 @@ function formatCustomerPhone(chatId) {
     .replace(/@g\.us$/i, '');
 }
 
+/** Служебные chatId из скриптов/тестов — не показывать как телефон. */
+function isTestChatId(chatIdOrPhone) {
+  const raw = String(chatIdOrPhone || '');
+  if (/@test\./i.test(raw)) return true;
+  if (/^test[-_]/i.test(raw)) return true;
+  if (/test-purchase-/i.test(raw)) return true;
+  return false;
+}
+
 /** WhatsApp Linked Device ID — не MSISDN, нельзя показывать как +телефон / wa.me */
 function isWhatsAppLid(chatIdOrPhone) {
   const raw = String(chatIdOrPhone || '');
   if (/@lid$/i.test(raw)) return true;
+  if (isTestChatId(raw)) return false;
   const digits = raw.replace(/\D/g, '');
   // LID обычно ≥14 цифр и не парсится как обычный международный номер
   if (digits.length >= 14) {
@@ -384,9 +394,23 @@ function isWhatsAppLid(chatIdOrPhone) {
 }
 
 /**
- * @returns {{ display: string, phone: string|null, isLid: boolean, waLink: string|null, rawId: string }}
+ * @returns {{ display: string, phone: string|null, isLid: boolean, waLink: string|null, rawId: string, isTest?: boolean }}
  */
 function formatContactDisplay(chatId) {
+  const raw = String(chatId || '');
+  if (isTestChatId(raw)) {
+    const digits = raw.replace(/\D/g, '');
+    const tail = (digits || raw).slice(-6);
+    return {
+      display: `Тест …${tail}`,
+      phone: null,
+      isLid: false,
+      isTest: true,
+      waLink: null,
+      rawId: raw,
+    };
+  }
+
   const rawId = formatCustomerPhone(chatId);
   const lid = isWhatsAppLid(chatId) || isWhatsAppLid(rawId);
   if (lid) {
@@ -494,6 +518,7 @@ module.exports = {
   formatCustomerPhone,
   formatContactDisplay,
   isWhatsAppLid,
+  isTestChatId,
   getManagerContact,
   isVoiceMessage,
   isImageMessage,
