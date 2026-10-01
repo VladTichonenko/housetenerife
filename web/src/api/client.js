@@ -147,6 +147,27 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ disabled }),
     }),
+  getCatchUpInbox: ({ page = 1, limit = 50, q = '', filter = 'pending' } = {}) => {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+      filter,
+    });
+    if (q) params.set('q', q);
+    return request(`/api/admin/chats/catch-up?${params}`);
+  },
+  syncMissedChats: (body = {}) =>
+    request('/api/admin/chats/sync-missed', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      timeoutMs: 90000,
+    }),
+  catchUpChat: (chatId) =>
+    request(`/api/admin/chats/${encodeURIComponent(chatId)}/catch-up`, {
+      method: 'POST',
+      body: '{}',
+      timeoutMs: 120000,
+    }),
   getHandoffs: ({ page = 1, limit = 24, q = '', filter = 'all', managerId = '' } = {}) => {
     const params = new URLSearchParams({
       page: String(page),

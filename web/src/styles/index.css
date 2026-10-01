@@ -1594,6 +1594,36 @@ body.chat-fullscreen-open {
   border-color: rgba(13, 110, 110, 0.35);
 }
 
+.chats-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.chats-section__intro .card__desc {
+  margin-bottom: 12px;
+}
+
+.chats-section__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.chats-section__sync-meta {
+  margin: 10px 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.chats-section__ai-off {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+
 .lead-status {
   display: inline-block;
   font-size: 0.6875rem;

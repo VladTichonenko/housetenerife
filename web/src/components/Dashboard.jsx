@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api/client';
 import Logo from './Logo';
-import { IconBot, IconBook, IconCatalog, IconClose, IconDatabase, IconGuide, IconMenu, IconPhone, IconPurchase, IconUsers } from './Icons';
+import { IconBot, IconBook, IconCatalog, IconChat, IconClose, IconDatabase, IconGuide, IconMenu, IconPhone, IconPurchase, IconUsers } from './Icons';
 import SessionSection from './SessionSection';
 import AssistantSection from './AssistantSection';
 import KnowledgeSection from './KnowledgeSection';
@@ -10,6 +10,7 @@ import CatalogSection from './CatalogSection';
 import GuideSection from './GuideSection';
 import ManagerHandoffsSection from './ManagerHandoffsSection';
 import PurchaseRequestsSection from './PurchaseRequestsSection';
+import ChatsSection from './ChatsSection';
 import DatabaseSection from './DatabaseSection';
 
 const SECTIONS = {
@@ -18,6 +19,7 @@ const SECTIONS = {
   assistant: { title: 'Умный помощник', id: 'assistant' },
   knowledge: { title: 'База знаний', id: 'knowledge' },
   catalog: { title: 'Каталог объектов', id: 'catalog' },
+  chats: { title: 'Чаты', id: 'chats' },
   handoffs: { title: 'Связь с менеджером', id: 'handoffs' },
   purchases: { title: 'Запрос покупки', id: 'purchases' },
   database: { title: 'База данных', id: 'database' },
@@ -27,6 +29,7 @@ const NAV_ITEMS = [
   { id: 'guide', label: 'Инструкция', Icon: IconGuide },
   { id: 'session', label: 'Сессия WhatsApp', Icon: IconPhone },
   { id: 'assistant', label: 'Умный помощник', Icon: IconBot },
+  { id: 'chats', label: 'Чаты', Icon: IconChat },
   { id: 'handoffs', label: 'Связь с менеджером', Icon: IconUsers },
   { id: 'purchases', label: 'Запрос покупки', Icon: IconPurchase },
   { id: 'knowledge', label: 'База знаний', Icon: IconBook },
@@ -194,6 +197,7 @@ export default function Dashboard({ showToast }) {
           {section === 'knowledge' && <KnowledgeSection showToast={showToast} />}
           {section === 'catalog' && <CatalogSection />}
           {section === 'handoffs' && <ManagerHandoffsSection />}
+          {section === 'chats' && <ChatsSection showToast={showToast} />}
           {section === 'purchases' && <PurchaseRequestsSection />}
           {section === 'database' && <DatabaseSection />}
         </div>

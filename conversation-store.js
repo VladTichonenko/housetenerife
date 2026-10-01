@@ -125,6 +125,105 @@ function getLastActivityAt(chatId) {
   return row?.last_activity_at || null;
 }
 
+function hasWaMessageId(waMessageId) {
+  const id = String(waMessageId || '').trim();
+  if (!id) return false;
+  const row = getDb()
+    .prepare(`SELECT 1 AS ok FROM messages WHERE wa_message_id = ? LIMIT 1`)
+    .get(id);
+  return Boolean(row);
+}
+
+/** Дубликат входящего без wa_message_id (старые записи) — по тексту и времени ±2 мин. */
+function hasSimilarUserMessage(chatId, text, atIso) {
+  const id = String(chatId || '');
+  const body = String(text || '').trim().slice(0, 4000);
+  if (!id || !body) return false;
+  const atMs = Date.parse(atIso || '');
+  if (!Number.isFinite(atMs)) return false;
+  const from = new Date(atMs - 2 * 60 * 1000).toISOString();
+  const to = new Date(atMs + 2 * 60 * 1000).toISOString();
+  const row = getDb()
+    .prepare(
+      `SELECT 1 AS ok FROM messages
+       WHERE user_id = ? AND role = 'user' AND body = ?
+         AND created_at >= ? AND created_at <= ?
+       LIMIT 1`
+    )
+    .get(id, body, from, to);
+  return Boolean(row);
+}
+
+/**
+ * Чаты, где последнее сообщение от клиента (бот ещё не ответил).
+ */
+function listChatsAwaitingBotReply({ page = 1, limit = 50, q = '' } = {}) {
+  const database = getDb();
+  const query = String(q || '').trim().toLowerCase();
+
+  const rows = database
+    .prepare(
+      `SELECT
+         m.user_id AS chatId,
+         MAX(m.created_at) AS lastActivityAt,
+         COUNT(*) AS messageCount
+       FROM messages m
+       GROUP BY m.user_id
+       ORDER BY MAX(m.created_at) DESC`
+    )
+    .all();
+
+  const getLast = database.prepare(
+    `SELECT body, created_at, role FROM messages
+     WHERE user_id = ?
+     ORDER BY created_at DESC, rowid DESC
+     LIMIT 1`
+  );
+  const getLastUser = database.prepare(
+    `SELECT body, created_at FROM messages
+     WHERE user_id = ? AND role = 'user'
+     ORDER BY created_at DESC, rowid DESC
+     LIMIT 1`
+  );
+
+  let items = [];
+  for (const row of rows) {
+    const last = getLast.get(row.chatId);
+    if (!last || last.role !== 'user') continue;
+    const lastUser = getLastUser.get(row.chatId);
+    items.push({
+      id: row.chatId,
+      chatId: row.chatId,
+      lastActivityAt: row.lastActivityAt || null,
+      messageCount: row.messageCount || 0,
+      lastMessage: lastUser?.body || last.body || '',
+      lastMessageAt: lastUser?.created_at || last.created_at || row.lastActivityAt,
+      needsCatchUp: true,
+    });
+  }
+
+  if (query) {
+    items = items.filter((item) =>
+      [item.chatId, item.lastMessage].filter(Boolean).join(' ').toLowerCase().includes(query)
+    );
+  }
+
+  const p = Math.max(1, parseInt(page, 10) || 1);
+  const lim = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / lim));
+  const start = (p - 1) * lim;
+
+  return {
+    items: items.slice(start, start + lim),
+    total,
+    page: p,
+    totalPages,
+    limit: lim,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function listConversationChats({ page = 1, limit = 24, q = '' } = {}) {
   const database = getDb();
   const query = String(q || '').trim().toLowerCase();
@@ -203,7 +302,10 @@ module.exports = {
   recordMessage,
   getMessages,
   getLastActivityAt,
+  hasWaMessageId,
+  hasSimilarUserMessage,
   listConversationChats,
+  listChatsAwaitingBotReply,
   clearMessages,
   resolveConversationPath,
 };

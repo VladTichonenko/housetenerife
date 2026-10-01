@@ -1,0 +1,384 @@
+{
+  "at": "2026-09-17T13:02:44.645Z",
+  "model": "openai/gpt-4.1-mini",
+  "quick": false,
+  "pass": 20,
+  "fail": 2,
+  "total": 22,
+  "urls": {
+    "es": "https://housetenerife.eu/es/property/10-villas-de-lujo-en-tenerife-758/",
+    "de": "https://housetenerife.eu/es/property/10-villas-de-lujo-en-tenerife-758/",
+    "ru": "https://housetenerife.eu/ru/property/1-komnatnaya-kvartira-v-kosta-adehe-1229/",
+    "bar": "https://housetenerife.eu/es/property/barra-en-venta-361/",
+    "id": "HZ758",
+    "barId": "HZ361"
+  },
+  "results": [
+    {
+      "id": "lang-de-umlaut",
+      "title": "DE: umlaut + investment (бывший баг → ES)",
+      "ok": true,
+      "issues": [],
+      "langUsed": "de",
+      "langName": "Немецкий",
+      "turns": [
+        "Ich würde es gerne für ein Investment nutzen. Eventuell für Airbnb."
+      ],
+      "replies": [
+        "Hallo! Ich bin Maxim, House Tenerife. Welche Investitionshöhe in € haben Sie?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "lang-es-spanish",
+      "title": "ES: обычный интерес",
+      "ok": true,
+      "issues": [],
+      "langUsed": "es",
+      "langName": "Испанский",
+      "turns": [
+        "Hola, busco un apartamento en Adeje para vivir, presupuesto 350000 euros"
+      ],
+      "replies": [
+        "¡Hola! Maksim, House Tenerife.\n\nPerfecto, 350.000 €\n\n¿Cuánto efectivo tienes ahora mismo para la compra? Contado total o parte ahora + hipoteca después?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "lang-pl",
+      "title": "PL: поиск квартиры",
+      "ok": true,
+      "issues": [],
+      "langUsed": "pl",
+      "langName": "Польский",
+      "turns": [
+        "Cześć, szukam mieszkania na Teneryfie, budżet około 350000 euro"
+      ],
+      "replies": [
+        "Dzień dobry! Nazywam się Maxim, House Tenerife\n\nCel zakupu — dla siebie na życie czy inwestycja pod wynajem/wzrost wartości?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "lang-fr",
+      "title": "FR: поиск",
+      "ok": true,
+      "issues": [],
+      "langUsed": "fr",
+      "langName": "Французский",
+      "turns": [
+        "Bonjour, je cherche un appartement à Adeje pour vivre, budget 350000 euros"
+      ],
+      "replies": [
+        "Bonjour! Maxim, House Tenerife.\nGreat, jusqu’à 350000 euros.\nCombien de liquidités avez-vous disponibles maintenant? Tout comptant ou partie + hypothèque?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "lang-nl",
+      "title": "NL: поиск",
+      "ok": false,
+      "issues": [
+        "язык: ожидали nl, детект ответа≈en"
+      ],
+      "langUsed": "en",
+      "langName": "Английский",
+      "turns": [
+        "Goedemorgen, ik zoek een appartement in Adeje, budget 350000 euro"
+      ],
+      "replies": [
+        "Hi! I’m Maxim from House Tenerife.\n\nIs this apartment for you to live in, or are you looking for an investment?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "lang-ru",
+      "title": "RU: классика воронки",
+      "ok": true,
+      "issues": [],
+      "langUsed": "ru",
+      "langName": "Русский",
+      "turns": [
+        "Здравствуйте, ищу апартаменты в Costa Adeje для жизни, бюджет до 400000"
+      ],
+      "replies": [
+        "Приветствую! Максим, House Tenerife. Отлично, апартаменты в Costa Adeje до 400 000 евро — есть. Скажите, сколько у Вас сейчас есть денег на руках для покупки — всё сразу, часть или ипотека планируете?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "lang-en",
+      "title": "EN: investment",
+      "ok": true,
+      "issues": [],
+      "langUsed": "en",
+      "langName": "Английский",
+      "turns": [
+        "Hi, looking for an investment property in Tenerife, budget around 500000 euros"
+      ],
+      "replies": [
+        "Hi! Maxim, House Tenerife. Great — €500,000.\n\nWhen do you plan to make the purchase? In 2 months, 3 months, or later?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "link-es-known",
+      "title": "Ссылка ES из каталога — должен описать объект",
+      "ok": true,
+      "issues": [],
+      "langUsed": "es",
+      "langName": "Испанский",
+      "turns": [
+        "Me interesa este objeto: https://housetenerife.eu/es/property/10-villas-de-lujo-en-tenerife-758/"
+      ],
+      "replies": [
+        "¡Hola! Maksim, House Tenerife\n\nEsta propiedad son 10 villas de lujo en Tenerife por €1,900,000 cada una\nVillas modernas con 4 habitaciones y 4 baños\nDiseño del arquitecto Leonardo Omar, materiales de alta calidad\nZona con centro comercial, parque acuático, campo de golf y playas cerca\n\n¿Para vivir o para invertir?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "link-de-after-german",
+      "title": "DE пишет + кидает ссылку",
+      "ok": true,
+      "issues": [],
+      "langUsed": "de",
+      "langName": "Немецкий",
+      "turns": [
+        "Hallo, ich interessiere mich für dieses Objekt.",
+        "https://housetenerife.eu/es/property/10-villas-de-lujo-en-tenerife-758/"
+      ],
+      "replies": [
+        "Hallo! Ich bin Maxim von House Tenerife 🙂\nWelches Ziel verfolgen Sie mit dem Objekt? Möchten Sie dort wohnen oder investieren?",
+        "Die 10 luxuriösen Villen auf Tenerife kosten je €1.900.000.\nModerne Villen mit 4 Schlafzimmern und 4 Bädern, entworfen vom Architekten Leonardo Omar.\nTop Lage mit Einkaufszentrum, Wasserpark, Golfplatz und Stränden in der Nähe\n\nWohnen oder Investition? Und wie sieht es mit dem Budget aus?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "link-then-switch-lang",
+      "title": "Ссылка (нейтрально) → затем немецкий текст",
+      "ok": true,
+      "issues": [],
+      "langUsed": "de",
+      "langName": "Немецкий",
+      "turns": [
+        "https://housetenerife.eu/es/property/10-villas-de-lujo-en-tenerife-758/",
+        "Ich würde es gerne für ein Investment nutzen. Schöne Grüße."
+      ],
+      "replies": [
+        "Hallo! Ich bin Maxim von House Tenerife.\n\nDu hast Interesse an den 10 luxuriösen Villen auf Tenerife, Preis €1.900.000, 4 Zimmer, 4 Bäder. Die Villen sind modern, entworfen vom Architekten Leonardo Omar, mit hochwertigen Materialien. Lage top: Nähe Einkaufszentrum, Wasserpark, Golf und Strände.\n\nSag mal, suchst du zum Wohnen oder als Investition?",
+        "Perfekt, Investment also\n\nKannst du mir sagen, welches Budget du für die Investition in Villen auf Tenerife ungefähr eingeplant hast?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "offtopic-hi",
+      "title": "Оффтоп: приветствие без темы",
+      "ok": true,
+      "issues": [],
+      "langUsed": "ru",
+      "langName": "Русский",
+      "turns": [
+        "Привет, как дела?"
+      ],
+      "replies": [
+        "Приветствую! Максим, House Tenerife. Помогаю с недвижимостью и инвестициями. Скажите, для себя или под инвестиции планируете? :)"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "offtopic-es",
+      "title": "Оффтоп ES: ¿qué tal?",
+      "ok": true,
+      "issues": [],
+      "langUsed": "es",
+      "langName": "Испанский",
+      "turns": [
+        "Hola, ¿qué tal?"
+      ],
+      "replies": [
+        "¡Hola! Soy Maksim, analista de inversiones de House Tenerife :)\n\nDime, ¿buscas para vivir o para invertir?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "confused-user",
+      "title": "Клиент не понял ответ",
+      "ok": false,
+      "issues": [
+        "язык: ожидали es, детект ответа≈pl"
+      ],
+      "langUsed": "es",
+      "langName": "Испанский",
+      "turns": [
+        "Busco un bar en Los Cristianos",
+        "No entiendo lo que escribiste.",
+        "????"
+      ],
+      "replies": [
+        "¡Hola! Soy Maksim de House Tenerife\n\nPara entender mejor, ¿buscas el bar para vivir y gestionar tú mismo o como inversión para alquilar o vender?",
+        "Claro, te lo pongo más simple\n\n¿Quieres comprar el bar para trabajar tú mismo o solo como inversión?",
+        "Buscas un bar para vivir y trabajar en él o solo como inversión para alquilar o vender después?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "budget-only",
+      "title": "Только сумма бюджета",
+      "ok": true,
+      "issues": [],
+      "langUsed": "en",
+      "langName": "Английский",
+      "turns": [
+        "Looking for apartment in Adeje to live",
+        "350000 euros"
+      ],
+      "replies": [
+        "Hi! I’m Maxim from House Tenerife\n\nYou want an apartment in Costa Adeje to live, great choice :) What’s your budget in €?",
+        "Great, €350,000 noted for Costa Adeje apartment to live\n\nDo you have the full cash available now or will you need a mortgage?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "place-name-only",
+      "title": "Только топоним Puerto de la Cruz",
+      "ok": true,
+      "issues": [],
+      "langUsed": "en",
+      "langName": "Английский",
+      "turns": [
+        "I want property for living",
+        "Puerto de la Cruz"
+      ],
+      "replies": [
+        "Hi! :) Maxim, House Tenerife.\n\nGreat, looking for a place to live. Which region are you interested in? Tenerife, Dubai, Ibiza, Marbella, Málaga, or Barcelona?",
+        "Perfect, Puerto de la Cruz it is.\n\nWhat type of property are you thinking about? Apartment, villa, house, or something else?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "mortgage-question",
+      "title": "Вопрос про ипотеку",
+      "ok": true,
+      "issues": [],
+      "langUsed": "es",
+      "langName": "Испанский",
+      "turns": [
+        "Quiero comprar un apartamento en Adeje para vivir, presupuesto 400000",
+        "¿Puedo pedir hipoteca siendo extranjero?"
+      ],
+      "replies": [
+        "¡Hola! Soy Maksim de House Tenerife\n\nPerfecto, 400.000 € para apartamento en Costa Adeje\n\n¿Cuánto efectivo tienes ahora mismo? Contado total o parte ahora + hipoteca después",
+        "Sí, claro\n\nHouse Tenerife ayuda con todo el proceso: NIE, cuenta en España, documentos, banco, preaprobación, tasación y notario — todo en un paquete completo de 3.000 €\n\nPara no residentes, suelen financiar hasta un 70% del valor; residentes UE hasta un 80%\n\nEl tipo final suele ser Euríbor (ahora 2,957%) + margen del banco; la oferta oficial tarda mínimo 10 días (FEIN + notario según Ley 5/2019)\n\n¿Ya tienes NIE y cuenta en España?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "investment-airbnb",
+      "title": "Инвестиции + Airbnb DE",
+      "ok": true,
+      "issues": [],
+      "langUsed": "de",
+      "langName": "Немецкий",
+      "turns": [
+        "Hallo, ich suche eine Immobilie als Investment.",
+        "Budget etwa 450000 Euro.",
+        "Am besten etwas für Airbnb geeignet."
+      ],
+      "replies": [
+        "Hallo! Ich bin Maxim, House Tenerife. Welche Investitionshöhe in € haben Sie?",
+        "Great — €450,000. When do you plan to make the purchase? In 2 months, 3 months, or later?",
+        "Verstanden, Airbnb-Investment. Wann genau möchten Sie investieren? In 2 Monaten, 3 Monaten oder später?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "multi-turn-funnel-ru",
+      "title": "Полная воронка RU (цель→бюджет)",
+      "ok": true,
+      "issues": [],
+      "langUsed": "ru",
+      "langName": "Русский",
+      "turns": [
+        "Хочу купить недвижимость",
+        "Для жизни",
+        "Тенерифе, Costa Adeje",
+        "Апартаменты",
+        "Бюджет до 350000 евро"
+      ],
+      "replies": [
+        "Приветствую! Максим, House Tenerife. Для себя покупаете или рассматриваете инвестиции? :)",
+        "Отлично! В каком городе или регионе рассматриваете покупку? Тенерифе, Дубай, Ибица, Марбелья, Малага или Барселона? Если не определились — подскажу сильные зоны под вашу цель и бюджет.",
+        "Понял, Costa Adeje — отличный выбор для жизни. Какой тип недвижимости интересует — апартаменты, вилла, дом, земля, коммерция, готовый бизнес или инвест-проект?",
+        "Отлично, апартаменты в Costa Adeje. Чтобы подобрать подходящие варианты, скажите, пожалуйста, на какую вилку по бюджету ориентируемся?",
+        "Отлично, 350 тысяч евро. Скажите, сколько у вас сейчас есть денег на руках — весь бюджет или часть, планируете ипотеку?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "unexpected-emoji",
+      "title": "Только эмодзи / ок",
+      "ok": true,
+      "issues": [],
+      "langUsed": "ru",
+      "langName": "Русский",
+      "turns": [
+        "Ищу виллу на Ибице для инвестиций, бюджет 2 млн",
+        "👍",
+        "ок"
+      ],
+      "replies": [
+        "Приветствую! Максим, House Tenerife.\n\nОтлично, 2 миллиона евро.\n\nКогда вы планируете совершить покупку? Через 2 месяца, 3 месяца или позже?",
+        "👍 Понял, когда планируете инвестировать? Через 2 месяца, 3 месяца или позже?",
+        "Отлично Скажите, сколько у вас сейчас есть денег на руках для покупки — весь бюджет или часть, возможно ипотека?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "mixed-spam",
+      "title": "Неожиданное: политика / оффтоп",
+      "ok": true,
+      "issues": [],
+      "langUsed": "en",
+      "langName": "Английский",
+      "turns": [
+        "What do you think about the elections?"
+      ],
+      "replies": [
+        "Hi! :) Maxim, House Tenerife here. I’m all about real estate and investments — what’s your goal? Looking to live or invest in property?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "hz-id-bare",
+      "title": "Голый ID объекта HZ",
+      "ok": true,
+      "issues": [],
+      "langUsed": "es",
+      "langName": "Испанский",
+      "turns": [
+        "Interesado en HZ758"
+      ],
+      "replies": [
+        "¡Hola! Maksim, House Tenerife.\n\nHas elegido las 10 villas de lujo en Tenerife (ID HZ758) a 1,900,000 €. Son villas modernas con diseño del arquitecto Leonardo Omar, 4 habitaciones y 4 baños. La ubicación es excelente, cerca de centro comercial, parque acuático, campo de golf y playas.\n\n¿Cuánto tienes disponible ahora para esta compra o prefieres que organicemos una llamada o visita?"
+      ],
+      "linkCount": 0
+    },
+    {
+      "id": "bar-business",
+      "title": "Бизнес/бар по ссылке",
+      "ok": true,
+      "issues": [],
+      "langUsed": "es",
+      "langName": "Испанский",
+      "turns": [
+        "Quiero ver este negocio: https://housetenerife.eu/es/property/barra-en-venta-361/",
+        "Sí, ya tengo dinero. No necesito hipoteca. ¿Pueden confirmar visita a las 18:00?"
+      ],
+      "replies": [
+        "¡Hola! Maksim, House Tenerife.\n\nEl negocio es un bar estilo alemán en Los Cristianos, sur de Tenerife, con derecho a arrendamiento. Está en una zona muy popular, con flujo constante de clientes y buen ambiente. El negocio es rentable y elegido por residentes como su lugar favorito. Precio 75.000 €.\n\n¿Inversión o para vivir? Y si inversión, ¿cuánto tienes disponible ahora o prefieres una llamada para detalles?",
+        "Perfecto, confirmo que tienes todo el dinero para el bar en Los Cristianos.\n\nHouse Tenerife puede organizar la visita a las 18:00 sin problema.\n\n¿Quieres que te ponga en contacto con el manager para coordinar la visita y resolver dudas?"
+      ],
+      "linkCount": 0
+    }
+  ]
+}

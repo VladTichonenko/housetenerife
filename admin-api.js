@@ -321,6 +321,57 @@ function registerAdminRoutes(app, state) {
     }
   });
 
+  app.get('/api/admin/chats/catch-up', requireAdmin, (req, res) => {
+    try {
+      if (typeof state.listCatchUpInbox !== 'function') {
+        return res.status(501).json({ success: false, message: 'Список догона недоступен' });
+      }
+      const result = state.listCatchUpInbox({
+        page: req.query.page,
+        limit: req.query.limit,
+        q: req.query.q,
+        filter: req.query.filter || 'pending',
+      });
+      res.json({ success: true, ...result });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.post('/api/admin/chats/sync-missed', requireAdmin, async (req, res) => {
+    try {
+      if (typeof state.syncMissedChatsFromWhatsApp !== 'function') {
+        return res.status(501).json({ success: false, message: 'Синхронизация недоступна' });
+      }
+      const result = await state.syncMissedChatsFromWhatsApp({
+        maxAgeMs: req.body?.maxAgeMs,
+        maxItems: req.body?.maxItems,
+      });
+      if (!result.success) {
+        return res.status(result.status || 500).json(result);
+      }
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+  app.post('/api/admin/chats/:chatId/catch-up', requireAdmin, async (req, res) => {
+    try {
+      const chatId = decodeURIComponent(req.params.chatId);
+      if (typeof state.catchUpBotReply !== 'function') {
+        return res.status(501).json({ success: false, message: 'Догон ботом недоступен' });
+      }
+      const result = await state.catchUpBotReply(chatId);
+      if (!result.success) {
+        return res.status(result.status || 500).json(result);
+      }
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
   app.get('/api/admin/handoffs', requireAdmin, (req, res) => {
     try {
       let filter = req.query.filter || 'open';

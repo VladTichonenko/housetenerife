@@ -1,0 +1,30 @@
+{
+  "chats": {
+    "web:testpagectx01": {
+      "recentSent": [
+        {
+          "id": "HZ391",
+          "title": "Вилла с частным бассейном 391",
+          "price": "€1,650,000",
+          "siteUrl": "https://housetenerife.eu/ru/property/villa-vith-private-swimming-pool-391/",
+          "overview": "Property type | Виллы | 4 | Комнаты | 2 | Ванные | 1 | Garage | 458 m² | Area Size",
+          "source": "webchat_page",
+          "interestedAt": "2026-09-27T00:49:49.192Z",
+          "sentAt": "2026-09-27T00:49:49.198Z"
+        }
+      ],
+      "interested": [
+        {
+          "id": "HZ391",
+          "title": "Вилла с частным бассейном 391",
+          "price": "€1,650,000",
+          "siteUrl": "https://housetenerife.eu/ru/property/villa-vith-private-swimming-pool-391/",
+          "overview": "Property type | Виллы | 4 | Комнаты | 2 | Ванные | 1 | Garage | 458 m² | Area Size",
+          "source": "webchat_page",
+          "interestedAt": "2026-09-27T00:49:49.196Z"
+        }
+      ]
+    }
+  },
+  "updatedAt": "2026-09-27T00:49:49.198Z"
+}
