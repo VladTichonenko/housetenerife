@@ -1236,6 +1236,41 @@ function countValidCatalogPropertyLinks(text) {
   return new Set(matches.map((u) => u.toLowerCase().replace(/\/+$/, ''))).size;
 }
 
+/**
+ * Count listing cards described in a reply. A card is a line/block that has a
+ * property-like label and a price. General budget sentences must not count.
+ */
+function countDescribedListingCards(text) {
+  const blocks = String(text || '')
+    .split(/\n\s*\n|\n(?=\s*(?:[•*\-]|\d+[.)]))/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const propertyHint =
+    /apartament|апартамент|квартир|villa|вилл|piso|wohnung|appartement|maison|дом\b|house\b|penthouse|студи|duplex|дуплекс|townhouse|таунхаус/i;
+  const priceHint = /(?:€\s*[\d.,]+|[\d.,]+\s*(?:€|eur)\b)/i;
+  const cardMarker = /^(?:[•*\-]|\d+[.)])\s*/;
+  return blocks.filter(
+    (block) => priceHint.test(block) && (cardMarker.test(block) || propertyHint.test(block))
+  ).length;
+}
+
+/**
+ * A shortlist is invalid when it describes N catalog options but links fewer
+ * than N of them. One valid URL somewhere in the answer is not enough.
+ */
+function shortlistMissesPerObjectLinks(reply, catalogUrls = []) {
+  const described = countDescribedListingCards(reply);
+  if (described < 2) return false;
+  const available = new Set(
+    (catalogUrls || [])
+      .map((url) => String(url || '').trim().toLowerCase().replace(/\/+$/, ''))
+      .filter(Boolean)
+  ).size;
+  if (!available) return false;
+  const required = Math.min(described, available, 5);
+  return countValidCatalogPropertyLinks(reply) < required;
+}
+
 /** Модель иногда копирует «коридор €800k–€1.2M / ±26%» из внутренних подсказок — вырезаем. */
 function stripBudgetBandTalkFromReply(text) {
   let out = String(text || '');
@@ -1790,6 +1825,31 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         }
       }
     }
+
+    // Абсолютный финальный гард: у КАЖДОЙ описанной карточки должна быть
+    // отдельная ссылка. Раньше одна ссылка делала весь ответ «валидным».
+    if (
+      !postPickStage &&
+      (dialog.hasBudget || dialog.ignoreBudget) &&
+      shortlistMissesPerObjectLinks(reply, urlsForRepair)
+    ) {
+      const described = countDescribedListingCards(reply);
+      const linked = countValidCatalogPropertyLinks(reply);
+      const safe = buildDeterministicListingsReply(
+        urlsForRepair,
+        userLanguage,
+        dialog,
+        recentUrls,
+        fallbackMeta
+      );
+      if (safe) {
+        console.warn(
+          `⚠️ В подборке ${described} объектов, но только ${linked} ссылк(и) — заменяю на карточки «объект + URL»`
+        );
+        reply = safe;
+      }
+    }
+
     if (listingStage) {
       reply = stripNonCatalogUrls(reply);
     }
@@ -1931,7 +1991,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         const salesLangRetry = normalizeSalesLang(userLanguage);
         const lastUserRetry =
           [...(conversationHistory || [])].reverse().find((m) => m.sender === 'user')?.text || '';
-        const repairedRetry = repairPropertyUrlsInText(
+        let repairedRetry = repairPropertyUrlsInText(
           fixPhoneticTransliterations(
             sanitizeListingWhyLabels(
               softenRoboticPunctuation(
@@ -1956,6 +2016,24 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
             wantedTypes: dialog.propertyTypes || []
           }
         );
+        const retryRecentUrls = collectRecentPropertyUrls(conversationHistory);
+        if (
+          (dialog.hasBudget || dialog.ignoreBudget) &&
+          shortlistMissesPerObjectLinks(repairedRetry, catalogUrls)
+        ) {
+          const safeRetry = buildDeterministicListingsReply(
+            catalogUrls,
+            userLanguage,
+            dialog,
+            retryRecentUrls
+          );
+          if (safeRetry) {
+            console.warn(
+              '⚠️ Retry описал несколько объектов без ссылки у каждого — заменяю на каталог'
+            );
+            repairedRetry = safeRetry;
+          }
+        }
         if (options.chatId) {
           try {
             recordTopicAssistantReply(options.chatId, repairedRetry);
@@ -2044,4 +2122,7 @@ module.exports = {
   checkAIHealth,
   hasUnsupportedDelayedListingPromise,
   buildAskBudgetInsteadOfListingsReply,
+  countDescribedListingCards,
+  shortlistMissesPerObjectLinks,
+  buildDeterministicListingsReply,
 };
