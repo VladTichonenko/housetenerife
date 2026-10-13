@@ -5024,7 +5024,41 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
   return { text: outgoing, language: dialogLanguage };
 }
 
-registerWebchatRoutes(app, { processWebMessage });
+/**
+ * Проверка, что номер зарегистрирован в WhatsApp и с ним можно открыть чат.
+ * Сообщение не отправляется — только queryWidExists через текущую сессию.
+ */
+async function checkWhatsAppNumber(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits || digits.length < 8 || digits.length > 15) {
+    return { success: false, status: 400, message: 'Invalid phone' };
+  }
+  if (!botReady || !client) {
+    return { success: false, status: 503, message: 'WhatsApp session is not ready' };
+  }
+
+  try {
+    const wid = await client.getNumberId(digits);
+    const user = wid && (wid.user || String(wid._serialized || wid || '').split('@')[0]);
+    const canonical = String(user || '').replace(/\D/g, '');
+    if (!canonical) {
+      console.log(`📵 Webchat WhatsApp check: …${digits.slice(-4)} — нет в WhatsApp`);
+      return { success: true, onWhatsApp: false };
+    }
+    console.log(`✅ Webchat WhatsApp check: …${canonical.slice(-4)} — чат можно открыть`);
+    return {
+      success: true,
+      onWhatsApp: true,
+      phone: `+${canonical}`,
+      waLink: `https://wa.me/${canonical}`,
+    };
+  } catch (err) {
+    console.warn('webchat whatsapp check:', err.message || err);
+    return { success: false, status: 503, message: 'WhatsApp check failed' };
+  }
+}
+
+registerWebchatRoutes(app, { processWebMessage, checkWhatsAppNumber });
 
 /**
  * GET /health — healthcheck Railway (синхронный, без Puppeteer)
