@@ -1100,10 +1100,21 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fal
       ) {
         continue;
       }
-      const share = getShareUrl(item, lang);
+      const localized = getLocalizedItem(item, lang);
+      const share = fallbackMeta.canonicalSiteOnly
+        ? localized.url || item.url || ''
+        : getShareUrl(item, lang);
+      if (
+        fallbackMeta.canonicalSiteOnly &&
+        !/^https?:\/\/(?:www\.)?housetenerife\.eu\/(?:(?:ru|es|en|de|fr|pl|nl)\/)?property\/[a-z0-9-]+\/?$/i.test(
+          share
+        )
+      ) {
+        continue;
+      }
       if (!share || seen.has(share)) continue;
       seen.add(share);
-      const loc = getLocalizedItem(item, lang);
+      const loc = localized;
       const desc = String(loc.factsLine || loc.description || '')
         .replace(/\s+/g, ' ')
         .trim()
@@ -1234,6 +1245,79 @@ function countValidCatalogPropertyLinks(text) {
     /https?:\/\/(?:www\.)?housetenerife\.eu\/(?:(?:ru|es|en|de|fr|pl|nl)\/)?property\/[a-z0-9\-]+\/?/gi;
   const matches = String(text || '').match(re) || [];
   return new Set(matches.map((u) => u.toLowerCase().replace(/\/+$/, ''))).size;
+}
+
+/** Считает только ссылки, которые реально разрешаются в запись локального каталога. */
+function countKnownCatalogPropertyLinks(text) {
+  const re =
+    /https?:\/\/(?:www\.)?housetenerife\.eu\/(?:(?:ru|es|en|de|fr|pl|nl)\/)?property\/[a-z0-9\-]+\/?/gi;
+  const matches = String(text || '').match(re) || [];
+  const ids = new Set();
+  for (const url of matches) {
+    const item = findItemByUrl(url);
+    if (item) ids.add(String(item.id || url).toLowerCase());
+  }
+  return ids.size;
+}
+
+/**
+ * В webchat подборка всегда пересобирается из каталога. Так модель не может
+ * выдать выдуманные названия/цены, одну ссылку на несколько карточек или
+ * подставить главную страницу вместо карточки объекта.
+ */
+function webchatListingsNeedCatalogReply(reply) {
+  const described = countDescribedListingCards(reply);
+  if (!described) return false;
+  if (described >= 2) return true;
+
+  const known = countKnownCatalogPropertyLinks(reply);
+  const syntactic = countValidCatalogPropertyLinks(reply);
+  const hasHomepageLink =
+    /https?:\/\/(?:www\.)?housetenerife\.eu\/(?:(?:ru|es|en|de|fr|pl|nl)\/)?(?=$|[\s),.;])/i.test(
+      String(reply || '')
+    );
+  return (
+    known < described ||
+    syntactic !== known ||
+    hasHomepageLink ||
+    hasInventedHtLinks(reply) ||
+    hasDuplicatePropertyUrls(reply) ||
+    hasMismatchedListingPrices(reply) ||
+    hasMismatchedListingLabels(reply)
+  );
+}
+
+function extractRequestedBedroomCount(text) {
+  const source = String(text || '').toLowerCase();
+  const numeric = source.match(
+    /\b([1-9])\s*[-–]?\s*(?:bed(?:room)?s?|спальн\w*|dormitorio\w*|schlafzimmer|chambre\w*|sypialni\w*|slaapkamer\w*)/i
+  );
+  if (numeric) return Number(numeric[1]);
+  const englishWord = source.match(/\b(one|two|three|four|five)\s*[-–]?\s*bed(?:room)?s?\b/i);
+  if (!englishWord) return null;
+  return { one: 1, two: 2, three: 3, four: 4, five: 5 }[englishWord[1]] || null;
+}
+
+function getCatalogItemBedroomCount(item) {
+  if (!item) return null;
+  const explicitBlob = [item.title, item.description]
+    .filter(Boolean)
+    .join(' | ');
+  const explicit = explicitBlob.match(
+    /(\d+)\s*[-–]?\s*(?:bed(?:room)?s?|спальн\w*|dormitorio\w*|schlafzimmer|chambre\w*|sypialni\w*|slaapkamer\w*)/i
+  );
+  if (explicit) return Number(explicit[1]);
+
+  const blob = [
+    item.overview,
+    ...(item.overviews ? Object.values(item.overviews) : []),
+  ]
+    .filter(Boolean)
+    .join(' | ');
+  const labeled = blob.match(
+    /(\d+)\s*\|\s*(?:Rooms?|Bedrooms?|Комнат\w*|Habitacion(?:es)?|Schlafzimmer|Chambres?|Sypialni\w*|Slaapkamers?)/i
+  );
+  return labeled ? Number(labeled[1]) : null;
 }
 
 /**
@@ -1573,7 +1657,6 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
           String(dialog.stage || '')
         )
     );
-    const isWebchatDialog = /^web:/i.test(String(options.chatId || ''));
     const recentUrls = collectRecentPropertyUrls(conversationHistory);
     let urlsForRepair = Array.isArray(catalogUrls) ? [...catalogUrls] : [];
     const fallbackMeta = {
@@ -1869,31 +1952,6 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       }
     }
 
-    // Онлайн-чат: любая названная карточка обязана быть реальным объектом
-    // каталога со своей ссылкой. Главная страница не считается ссылкой на объект.
-    if (isWebchatDialog && !postPickStage && (dialog.hasBudget || dialog.ignoreBudget)) {
-      const described = countDescribedListingCards(reply);
-      const linked = countValidCatalogPropertyLinks(reply);
-      if (described > 0 && linked < described) {
-        const safe = buildDeterministicListingsReply(
-          urlsForRepair,
-          userLanguage,
-          dialog,
-          recentUrls,
-          fallbackMeta
-        );
-        if (safe) {
-          console.warn(
-            `⚠️ Webchat: ${described} карточек, ${linked} ссылок — заменяю ответ реальными объектами каталога`
-          );
-          reply = safe;
-        } else {
-          console.warn('⚠️ Webchat: карточки без URL и каталог пуст — убираю выдуманные объекты');
-          reply = buildHonestNoCatalogReply(userLanguage, dialog);
-        }
-      }
-    }
-
     if (listingStage) {
       reply = stripNonCatalogUrls(reply);
     }
@@ -2008,6 +2066,70 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       );
       if (safe && !replyMismatchesLanguage(safe, userLanguage)) {
         reply = safe;
+      }
+    }
+
+    // Онлайн-чат: любая подборка из нескольких объектов формируется только из
+    // реальных записей каталога. Промпт модели здесь не является защитой:
+    // финальный ответ не может содержать выдуманные карточки или ссылку на главную.
+    if (
+      String(options.chatId || '').startsWith('web:') &&
+      !postPickStage &&
+      webchatListingsNeedCatalogReply(reply)
+    ) {
+      const requestedBedrooms = extractRequestedBedroomCount(dialog.allUserText);
+      if (!urlsForRepair.length || requestedBedrooms) {
+        const budget = dialog.ignoreBudget
+          ? { minPrice: null, maxPrice: null }
+          : dialog.budget && (dialog.budget.minPrice != null || dialog.budget.maxPrice != null)
+            ? dialog.budget
+            : extractBudgetRange(dialog.allUserText);
+        const fallback = searchForContext(
+          buildCatalogSearchQuery(conversationHistory) || dialog.allUserText,
+          requestedBedrooms ? 30 : 8,
+          {
+            minPrice: budget.minPrice,
+            maxPrice: budget.maxPrice,
+            priceTarget: dialog.ignoreBudget ? null : derivePriceTarget(budget),
+            propertyTypes: dialog.propertyTypes,
+            businessSectors: dialog.businessSectors,
+            macroRegions: dialog.macroRegions,
+            microAreaGroupIds: dialog.microAreaGroupIds || [],
+            microDetection: dialog.microAreas,
+            lang: userLanguage,
+            contextText: dialog.allUserText,
+            allowBudgetFallback: true,
+            allowTypeFamilyFallback: true,
+          }
+        );
+        urlsForRepair = Array.isArray(fallback.urls) ? fallback.urls : [];
+        fallbackMeta.usedBudgetFallback = Boolean(fallback.usedBudgetFallback);
+        fallbackMeta.usedAreaFallback = Boolean(fallback.usedAreaFallback);
+        fallbackMeta.usedLastResortTypeFallback = Boolean(
+          fallback.usedLastResortTypeFallback
+        );
+      }
+      if (requestedBedrooms) {
+        urlsForRepair = urlsForRepair.filter(
+          (url) => getCatalogItemBedroomCount(findItemByUrl(url)) === requestedBedrooms
+        );
+      }
+
+      const safe = buildDeterministicListingsReply(
+        urlsForRepair,
+        userLanguage,
+        dialog,
+        recentUrls,
+        { ...fallbackMeta, canonicalSiteOnly: true }
+      );
+      if (safe) {
+        console.warn(
+          '⚠️ Webchat-подборка заменена на проверенные карточки каталога с отдельной ссылкой у каждого объекта'
+        );
+        reply = safe;
+      } else {
+        console.warn('⚠️ Webchat-подборка заблокирована: нет реальных карточек каталога');
+        reply = buildHonestNoCatalogReply(userLanguage, dialog);
       }
     }
 
@@ -2218,7 +2340,11 @@ module.exports = {
   hasUnsupportedDelayedListingPromise,
   buildAskBudgetInsteadOfListingsReply,
   countDescribedListingCards,
+  countKnownCatalogPropertyLinks,
   shortlistMissesPerObjectLinks,
+  webchatListingsNeedCatalogReply,
+  extractRequestedBedroomCount,
+  getCatalogItemBedroomCount,
   buildDeterministicListingsReply,
   buildLanguageSafetyReply,
 };

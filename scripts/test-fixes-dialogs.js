@@ -34,7 +34,12 @@ const {
   hasUnsupportedDelayedListingPromise,
   buildLanguageSafetyReply,
   countDescribedListingCards,
+  countKnownCatalogPropertyLinks,
   shortlistMissesPerObjectLinks,
+  webchatListingsNeedCatalogReply,
+  extractRequestedBedroomCount,
+  getCatalogItemBedroomCount,
+  buildDeterministicListingsReply,
 } = require('../ai-service');
 const { searchForContext, load, parseItemPriceEur } = require('../property-catalog');
 const {
@@ -44,6 +49,7 @@ const {
   hasMismatchedListingPrices,
   hasMismatchedListingLabels,
   hasMismatchedPropertyTypeUrls,
+  findItemByUrl,
 } = require('../property-share');
 const {
   lastMessageConfirmsMortgage,
@@ -2272,11 +2278,52 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
   check(
     'webchat: три карточки с одной ссылкой на главную отклоняются',
     countDescribedListingCards(brokenWebchatShortlist) === 3 &&
+      countKnownCatalogPropertyLinks(brokenWebchatShortlist) === 0 &&
+      webchatListingsNeedCatalogReply(brokenWebchatShortlist) &&
       shortlistMissesPerObjectLinks(brokenWebchatShortlist, [
         'https://housetenerife.eu/property/a/',
         'https://housetenerife.eu/property/b/',
         'https://housetenerife.eu/property/c/',
       ])
+  );
+  const webchatQuery = 'two-bedroom apartment Los Cristianos €220000';
+  const requestedWebchatBedrooms = extractRequestedBedroomCount(webchatQuery);
+  const webchatCatalog = searchForContext(
+    webchatQuery,
+    30,
+    {
+      maxPrice: 220000,
+      priceTarget: 220000,
+      propertyTypes: ['apartments'],
+      macroRegions: ['tenerife'],
+      lang: 'en',
+      contextText: webchatQuery,
+      allowBudgetFallback: true,
+      allowTypeFamilyFallback: true,
+    }
+  );
+  const safeWebchatShortlist = buildDeterministicListingsReply(
+    webchatCatalog.urls.filter(
+      (url) =>
+        getCatalogItemBedroomCount(findItemByUrl(url)) === requestedWebchatBedrooms
+    ),
+    'en',
+    {
+      propertyTypes: ['apartments'],
+      macroRegions: ['tenerife'],
+      microAreaLabel: 'Los Cristianos',
+    },
+    [],
+    { canonicalSiteOnly: true }
+  );
+  check(
+    'webchat: безопасная подборка — реальные карточки и отдельная ссылка у каждой',
+    requestedWebchatBedrooms === 2 &&
+      countDescribedListingCards(safeWebchatShortlist) >= 1 &&
+      countKnownCatalogPropertyLinks(safeWebchatShortlist) >=
+        countDescribedListingCards(safeWebchatShortlist) &&
+      !/https:\/\/housetenerife\.eu\/?(?:\s|$)/i.test(safeWebchatShortlist) &&
+      !/\b1 bedroom\b/i.test(safeWebchatShortlist)
   );
 
   check(
