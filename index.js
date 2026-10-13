@@ -22,9 +22,7 @@ const {
 const {
   detectLanguageFromText,
   getLanguageName,
-  isAmbiguousShortReply,
-  isStrongLanguageSignal,
-  isMostlyPlaceName,
+  resolveConversationLanguage,
 } = require('./language-detector');
 const { getSearchingListingsMessage } = require('./sales-localization');
 const { registerAdminRoutes } = require('./admin-api');
@@ -2795,7 +2793,15 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
           continue;
         }
 
-        const detectedLang = detectLanguageFromText(text) || 'en';
+        const previousUserTexts = getPersistedMessages(chatId)
+          .filter((m) => m.role === 'user')
+          .map((m) => m.text);
+        const detectedLang = resolveConversationLanguage({
+          sticky: getStickyDialogLanguage(chatId),
+          currentText: text,
+          historyTexts: previousUserTexts,
+          fallback: 'en',
+        });
         const languageName = getLanguageName(detectedLang);
 
         try {
@@ -3155,41 +3161,18 @@ function resolveDialogLanguage(chatId, currentMessageText, phoneFallback = null)
     return sticky || phoneFallback || 'en';
   }
 
-  const detectFromHistory = () => {
-    const userMsgs = getHistory(chatId).filter((m) => m.sender === 'user');
-    for (let i = userMsgs.length - 1; i >= 0; i--) {
-      const t = String(userMsgs[i].text || '').trim();
-      if (t.length >= 2 && !t.startsWith('[') && !isAmbiguousShortReply(t)) {
-        return detectLanguageFromText(t);
-      }
-    }
-    return null;
-  };
-
-  let resolved = sticky || phoneFallback || null;
-
-  if (trimmed.length >= 1) {
-    const fromText = detectLanguageFromText(trimmed);
-    if (sticky) {
-      if (isStrongLanguageSignal(trimmed, fromText) && fromText !== sticky) {
-        resolved = fromText;
-        console.log(
-          `🌐 Язык диалога переключён ${sticky} → ${fromText} (${chatId})`
-        );
-      } else {
-        resolved = sticky;
-      }
-    } else if (isAmbiguousShortReply(trimmed) || isMostlyPlaceName(trimmed)) {
-      // Топонимы / ok / 300k / только ссылка — не задают язык диалога
-      resolved = detectFromHistory() || phoneFallback || fromText || 'en';
-    } else {
-      resolved = fromText;
-    }
-  } else if (!sticky) {
-    resolved = detectFromHistory() || phoneFallback || 'en';
+  const userHistory = getHistory(chatId)
+    .filter((m) => m.sender === 'user')
+    .map((m) => m.text);
+  const resolved = resolveConversationLanguage({
+    sticky,
+    currentText: trimmed,
+    historyTexts: userHistory,
+    fallback: phoneFallback,
+  });
+  if (sticky && resolved !== sticky) {
+    console.log(`🌐 Язык диалога переключён ${sticky} → ${resolved} (${chatId})`);
   }
-
-  resolved = resolved || 'en';
   setStickyDialogLanguage(chatId, resolved);
   return resolved;
 }
@@ -5041,7 +5024,41 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
   return { text: outgoing, language: dialogLanguage };
 }
 
-registerWebchatRoutes(app, { processWebMessage });
+/**
+ * Проверка, что номер зарегистрирован в WhatsApp и с ним можно открыть чат.
+ * Сообщение не отправляется — только queryWidExists через текущую сессию.
+ */
+async function checkWhatsAppNumber(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits || digits.length < 8 || digits.length > 15) {
+    return { success: false, status: 400, message: 'Invalid phone' };
+  }
+  if (!botReady || !client) {
+    return { success: false, status: 503, message: 'WhatsApp session is not ready' };
+  }
+
+  try {
+    const wid = await client.getNumberId(digits);
+    const user = wid && (wid.user || String(wid._serialized || wid || '').split('@')[0]);
+    const canonical = String(user || '').replace(/\D/g, '');
+    if (!canonical) {
+      console.log(`📵 Webchat WhatsApp check: …${digits.slice(-4)} — нет в WhatsApp`);
+      return { success: true, onWhatsApp: false };
+    }
+    console.log(`✅ Webchat WhatsApp check: …${canonical.slice(-4)} — чат можно открыть`);
+    return {
+      success: true,
+      onWhatsApp: true,
+      phone: `+${canonical}`,
+      waLink: `https://wa.me/${canonical}`,
+    };
+  } catch (err) {
+    console.warn('webchat whatsapp check:', err.message || err);
+    return { success: false, status: 503, message: 'WhatsApp check failed' };
+  }
+}
+
+registerWebchatRoutes(app, { processWebMessage, checkWhatsAppNumber });
 
 /**
  * GET /health — healthcheck Railway (синхронный, без Puppeteer)

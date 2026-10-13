@@ -45,6 +45,11 @@ const SHORT_REPLY = {
   здравствуйте: 'ru',
   gracias: 'es',
   thanks: 'en',
+  what: 'en',
+  why: 'en',
+  where: 'en',
+  when: 'en',
+  how: 'en',
   cześć: 'pl',
   czesc: 'pl',
   tak: 'pl',
@@ -717,6 +722,39 @@ function detectLanguageFromText(text) {
   return 'ru';
 }
 
+/**
+ * Resolve the reply language from CLIENT messages only.
+ * Ambiguous short messages inherit the latest substantive client language,
+ * not a possibly corrupted sticky value.
+ */
+function resolveConversationLanguage({
+  sticky = null,
+  currentText = '',
+  historyTexts = [],
+  fallback = null,
+} = {}) {
+  const current = String(currentText || '').trim();
+  let historyLanguage = null;
+  for (let i = (historyTexts || []).length - 1; i >= 0; i -= 1) {
+    const text = String(historyTexts[i] || '').trim();
+    if (!text || text.startsWith('[') || isAmbiguousShortReply(text)) continue;
+    historyLanguage = detectLanguageFromText(text);
+    if (historyLanguage) break;
+  }
+
+  if (!current) return historyLanguage || sticky || fallback || 'en';
+
+  const detected = detectLanguageFromText(current);
+  if (isAmbiguousShortReply(current) || isMostlyPlaceName(current) || isBudgetAmountReply(current)) {
+    return historyLanguage || sticky || fallback || detected || 'en';
+  }
+
+  if (sticky && detected !== sticky && !isStrongLanguageSignal(current, detected)) {
+    return sticky;
+  }
+  return detected || sticky || historyLanguage || fallback || 'en';
+}
+
 function getLanguageName(langCode) {
   const names = {
     ru: 'Русский',
@@ -745,5 +783,6 @@ module.exports = {
   stripUrls,
   stripCatalogTitleNoise,
   prepareDetectBody,
+  resolveConversationLanguage,
   SUPPORTED_DETECT,
 };

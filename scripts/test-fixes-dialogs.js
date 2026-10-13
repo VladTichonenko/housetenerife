@@ -15,6 +15,7 @@ const {
   isAmbiguousShortReply,
   isMostlyPlaceName,
   isStrongLanguageSignal,
+  resolveConversationLanguage,
 } = require('../language-detector');
 const {
   detectMicroAreas,
@@ -29,7 +30,10 @@ const {
   buildDialogMemoryBlock,
   formatBudgetBandLabel,
 } = require('../dialog-context');
-const { hasUnsupportedDelayedListingPromise } = require('../ai-service');
+const {
+  hasUnsupportedDelayedListingPromise,
+  buildLanguageSafetyReply,
+} = require('../ai-service');
 const { searchForContext, load, parseItemPriceEur } = require('../property-catalog');
 const {
   repairPropertyUrlsInText,
@@ -159,6 +163,36 @@ function runDeterministicTests() {
     'Goedemorgen ik zoek een appartement → nl',
     detectLanguageFromText('Goedemorgen, ik zoek een appartement in Adeje') === 'nl'
   );
+  const englishHistory = [
+    'I am looking for a two-bedroom apartment in Los Cristianos up to €220,000',
+    'Thanks, but only the first property has a link',
+  ];
+  check(
+    'ошибочный sticky ru + «What?» → EN из истории клиента',
+    resolveConversationLanguage({
+      sticky: 'ru',
+      currentText: 'What?',
+      historyTexts: englishHistory,
+      fallback: 'ru',
+    }) === 'en'
+  );
+  check(
+    '«?????» сохраняет EN из истории клиента',
+    resolveConversationLanguage({
+      sticky: 'ru',
+      currentText: '?????',
+      historyTexts: [...englishHistory, 'What?'],
+      fallback: 'ru',
+    }) === 'en'
+  );
+  check(
+    'явная претензия на EN переключает sticky ru → en',
+    resolveConversationLanguage({
+      sticky: 'ru',
+      currentText: 'You are not writing in English',
+      historyTexts: englishHistory,
+    }) === 'en'
+  );
 
   console.log('\n=== 1b. Локализация: без RU в не-русских промптах / mismatch смеси ===\n');
   const {
@@ -203,6 +237,19 @@ function runDeterministicTests() {
     'i18n: кириллица в de → mismatch',
     replyMismatchesLanguage('Super! Какой у вас бюджет для инвестиции?', 'de')
   );
+  check(
+    'i18n: русский ответ блокируется для EN',
+    replyMismatchesLanguage(
+      'Понял, тогда спокойной ночи! Если захотите вернуться к вопросу, напишите.',
+      'en'
+    )
+  );
+  for (const lang of ['ru', 'uk', 'en', 'es', 'de', 'fr', 'pl', 'nl', 'it', 'pt', 'tr']) {
+    check(
+      `i18n: аварийный ответ соответствует ${lang}`,
+      !replyMismatchesLanguage(buildLanguageSafetyReply(lang), lang)
+    );
+  }
   check(
     'i18n: place fix en → Marbella не Марбелья',
     fixPlaceNameSpellings('вилла в марбелла', 'en').includes('Marbella') &&

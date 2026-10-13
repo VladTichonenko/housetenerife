@@ -1271,6 +1271,24 @@ function shortlistMissesPerObjectLinks(reply, catalogUrls = []) {
   return countValidCatalogPropertyLinks(reply) < required;
 }
 
+function buildLanguageSafetyReply(lang) {
+  const code = String(lang || '').toLowerCase().slice(0, 2);
+  const byLang = {
+    ru: 'Извините, я не смог корректно сформировать ответ. Повторите, пожалуйста, последний вопрос — отвечу только по-русски.',
+    uk: 'Вибачте, я не зміг коректно сформувати відповідь. Повторіть, будь ласка, останнє запитання — відповім лише українською.',
+    en: 'Sorry, I could not format that reply correctly. Please repeat your last question — I will reply in English only.',
+    es: 'Perdón, no pude formular bien la respuesta. Repita su última pregunta; responderé únicamente en español.',
+    de: 'Entschuldigung, ich konnte die Antwort nicht korrekt formulieren. Bitte wiederholen Sie Ihre letzte Frage; ich antworte nur auf Deutsch.',
+    fr: 'Désolé, je n’ai pas pu formuler correctement la réponse. Répétez votre dernière question ; je répondrai uniquement en français.',
+    pl: 'Przepraszam, nie udało mi się poprawnie przygotować odpowiedzi. Proszę powtórzyć ostatnie pytanie — odpowiem wyłącznie po polsku.',
+    nl: 'Sorry, ik kon het antwoord niet correct formuleren. Herhaal uw laatste vraag; ik antwoord uitsluitend in het Nederlands.',
+    it: 'Mi dispiace, non sono riuscito a formulare correttamente la risposta. Ripeta l’ultima domanda; risponderò solo in italiano.',
+    pt: 'Desculpe, não consegui formular corretamente a resposta. Repita a última pergunta; responderei apenas em português.',
+    tr: 'Teşekkür ederim. Lütfen son sorunuzu tekrarlayın; yalnızca Türkçe yanıt vereceğim.',
+  };
+  return byLang[code] || byLang.en;
+}
+
 /** Модель иногда копирует «коридор €800k–€1.2M / ±26%» из внутренних подсказок — вырезаем. */
 function stripBudgetBandTalkFromReply(text) {
   let out = String(text || '');
@@ -1920,6 +1938,53 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
       }
     }
 
+    // Правило №1 перед самой отправкой: готовый ответ обязан быть на языке
+    // клиента. Эта проверка идёт ПОСЛЕ всех каталоговых и текстовых правок.
+    if (replyMismatchesLanguage(reply, userLanguage)) {
+      console.warn(`⚠️ Финальный язык ответа не ${userLanguage} — блокирую отправку и переписываю`);
+      try {
+        const rewritten = await callAI(
+          [
+            ...messages,
+            { role: 'assistant', content: reply },
+            { role: 'user', content: languageRewriteInstruction(userLanguage) },
+          ],
+          'chat-final-language-guard'
+        );
+        reply = repairPropertyUrlsInText(
+          fixPhoneticTransliterations(stripUnexpectedScripts(rewritten), userLanguage),
+          userLanguage,
+          urlsForRepair,
+          { wantedTypes: dialog.propertyTypes || [], avoidUrls: recentUrls }
+        );
+      } catch (e) {
+        console.warn('⚠️ Финальная языковая перезапись не удалась:', e.message);
+      }
+      if (replyMismatchesLanguage(reply, userLanguage)) {
+        console.error(`🛑 Ответ на неверном языке заблокирован (${userLanguage})`);
+        reply = buildLanguageSafetyReply(userLanguage);
+      }
+    }
+
+    // Перезапись языка тоже не имеет права оставить несколько карточек с
+    // одной ссылкой.
+    if (
+      !postPickStage &&
+      (dialog.hasBudget || dialog.ignoreBudget) &&
+      shortlistMissesPerObjectLinks(reply, urlsForRepair)
+    ) {
+      const safe = buildDeterministicListingsReply(
+        urlsForRepair,
+        userLanguage,
+        dialog,
+        recentUrls,
+        fallbackMeta
+      );
+      if (safe && !replyMismatchesLanguage(safe, userLanguage)) {
+        reply = safe;
+      }
+    }
+
     if (options.chatId) {
       try {
         recordTopicAssistantReply(options.chatId, reply);
@@ -2034,6 +2099,10 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
             repairedRetry = safeRetry;
           }
         }
+        if (replyMismatchesLanguage(repairedRetry, userLanguage)) {
+          console.error(`🛑 Retry на неверном языке заблокирован (${userLanguage})`);
+          repairedRetry = buildLanguageSafetyReply(userLanguage);
+        }
         if (options.chatId) {
           try {
             recordTopicAssistantReply(options.chatId, repairedRetry);
@@ -2125,4 +2194,5 @@ module.exports = {
   countDescribedListingCards,
   shortlistMissesPerObjectLinks,
   buildDeterministicListingsReply,
+  buildLanguageSafetyReply,
 };
