@@ -4955,7 +4955,7 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
       pageTitle,
       language: dialogLanguage,
     });
-    pagePropertyUrl = bound.url || pageUrl || '';
+    pagePropertyUrl = bound.url || '';
     const alreadyHasPageContext = existing.some((m) =>
       /\[Website page property|I'm looking at this property:/i.test(String(m?.text || ''))
     );
@@ -4969,13 +4969,15 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
     }
   } catch (e) {
     console.warn('webchat page property bind:', e.message);
-    if (pageUrl && existing.length === 0) {
+    const { normalizeWebsitePropertyUrl } = require('./property-interest');
+    const safePropertyUrl = normalizeWebsitePropertyUrl(pageUrl);
+    if (safePropertyUrl && existing.length === 0) {
       const safeTitle = String(pageTitle || '').trim();
       const context = safeTitle
-        ? `I'm looking at this property: [${safeTitle}] ${pageUrl}`
-        : `I'm looking at this property: ${pageUrl}`;
+        ? `I'm looking at this property: [${safeTitle}] ${safePropertyUrl}`
+        : `I'm looking at this property: ${safePropertyUrl}`;
       addToHistory(chatId, 'user', context, { language: dialogLanguage });
-      pagePropertyUrl = pageUrl;
+      pagePropertyUrl = safePropertyUrl;
     }
   }
 
@@ -5000,7 +5002,7 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
 
   const aiResponse = await askAI(history, dialogLanguage, {
     chatId,
-    pagePropertyUrl: pagePropertyUrl || pageUrl || '',
+    pagePropertyUrl,
     pagePropertyTitle: String(pageTitle || '').trim(),
   });
   const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);

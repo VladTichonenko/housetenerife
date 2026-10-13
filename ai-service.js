@@ -1573,6 +1573,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
           String(dialog.stage || '')
         )
     );
+    const isWebchatDialog = /^web:/i.test(String(options.chatId || ''));
     const recentUrls = collectRecentPropertyUrls(conversationHistory);
     let urlsForRepair = Array.isArray(catalogUrls) ? [...catalogUrls] : [];
     const fallbackMeta = {
@@ -1865,6 +1866,31 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
           `⚠️ В подборке ${described} объектов, но только ${linked} ссылк(и) — заменяю на карточки «объект + URL»`
         );
         reply = safe;
+      }
+    }
+
+    // Онлайн-чат: любая названная карточка обязана быть реальным объектом
+    // каталога со своей ссылкой. Главная страница не считается ссылкой на объект.
+    if (isWebchatDialog && !postPickStage && (dialog.hasBudget || dialog.ignoreBudget)) {
+      const described = countDescribedListingCards(reply);
+      const linked = countValidCatalogPropertyLinks(reply);
+      if (described > 0 && linked < described) {
+        const safe = buildDeterministicListingsReply(
+          urlsForRepair,
+          userLanguage,
+          dialog,
+          recentUrls,
+          fallbackMeta
+        );
+        if (safe) {
+          console.warn(
+            `⚠️ Webchat: ${described} карточек, ${linked} ссылок — заменяю ответ реальными объектами каталога`
+          );
+          reply = safe;
+        } else {
+          console.warn('⚠️ Webchat: карточки без URL и каталог пуст — убираю выдуманные объекты');
+          reply = buildHonestNoCatalogReply(userLanguage, dialog);
+        }
       }
     }
 

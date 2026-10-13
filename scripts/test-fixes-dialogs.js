@@ -33,6 +33,8 @@ const {
 const {
   hasUnsupportedDelayedListingPromise,
   buildLanguageSafetyReply,
+  countDescribedListingCards,
+  shortlistMissesPerObjectLinks,
 } = require('../ai-service');
 const { searchForContext, load, parseItemPriceEur } = require('../property-catalog');
 const {
@@ -2242,9 +2244,40 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
   else process.env.MANAGER_REPORT_WHATSAPP = prevReportWa;
 
   console.log('\n=== 23. Sticky объект / /start / фото / parking ===\n');
-  const { userStartsFreshSearch, refersToCurrentProperty, findItemsByNameMention, clearChatPropertyInterest, userMessageHasExternalListingLink } =
-    require('../property-interest');
+  const {
+    userStartsFreshSearch,
+    refersToCurrentProperty,
+    findItemsByNameMention,
+    clearChatPropertyInterest,
+    userMessageHasExternalListingLink,
+    normalizeWebsitePropertyUrl,
+  } = require('../property-interest');
   const { splitGluedUrlTail } = require('../property-share');
+
+  check(
+    'webchat: главная страница не считается карточкой объекта',
+    normalizeWebsitePropertyUrl('https://housetenerife.eu/') === ''
+  );
+  check(
+    'webchat: URL реальной карточки сохраняется',
+    normalizeWebsitePropertyUrl(
+      'https://housetenerife.eu/property/for-sale-beautiful-villa-in-puerto-de-la-cruz/?from=chat'
+    ) ===
+      'https://housetenerife.eu/property/for-sale-beautiful-villa-in-puerto-de-la-cruz'
+  );
+  const brokenWebchatShortlist =
+    '• Apartment A — €215,000\nhttps://housetenerife.eu\n\n' +
+    '• Apartment B — €210,000\n\n' +
+    '• Apartment C — €219,000';
+  check(
+    'webchat: три карточки с одной ссылкой на главную отклоняются',
+    countDescribedListingCards(brokenWebchatShortlist) === 3 &&
+      shortlistMissesPerObjectLinks(brokenWebchatShortlist, [
+        'https://housetenerife.eu/property/a/',
+        'https://housetenerife.eu/property/b/',
+        'https://housetenerife.eu/property/c/',
+      ])
+  );
 
   check(
     'fresh search PL после parking — новый поиск',

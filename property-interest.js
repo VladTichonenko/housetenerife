@@ -616,18 +616,17 @@ function normalizeWebsitePropertyUrl(rawUrl) {
   s = s.replace(/housetenerife\.com/gi, 'housetenerife.eu');
   try {
     const u = new URL(s);
-    if (!/housetenerife\.eu$/i.test(u.hostname.replace(/^www\./, ''))) {
-      return s.replace(/\/+$/, '');
-    }
+    if (!/housetenerife\.eu$/i.test(u.hostname.replace(/^www\./, ''))) return '';
     u.hash = '';
     u.search = '';
     let path = u.pathname.replace(/\/+$/, '');
     if (path.startsWith('/en/property/')) {
       path = path.replace(/^\/en\/property\//, '/property/');
     }
+    if (!/^\/(?:(?:ru|es|de|fr|pl|nl)\/)?property\/[^/]+$/i.test(path)) return '';
     return `https://housetenerife.eu${path}`;
   } catch {
-    return s.replace(/\/+$/, '');
+    return '';
   }
 }
 
