@@ -148,6 +148,19 @@ function stripPhoneForName(text, phone) {
 }
 
 /**
+ * Контактная форма webchat отправляет имя, телефон и канал одним сообщением.
+ * Забираем только значение из первой строки, не отдавая весь блок общему
+ * эвристическому парсеру имени.
+ */
+function extractContactFormName(text) {
+  const match = String(text || '').match(
+    /(?:(?:name|имя|nombre|nom|imi[eę])\s*:\s*|(?:my name is|i am|i'm|меня зовут|зовут меня|me llamo|soy|mein name ist|ich hei(?:ß|ss)e|je m['’]appelle|nazywam si[eę]|mi chiamo)\s+)([^\n.]{2,60})/i
+  );
+  if (!match) return '';
+  return extractClientName(match[1].trim()) || '';
+}
+
+/**
  * Собрать лид из текущего сообщения и недавней истории webchat.
  */
 function extractWebchatLead(text, history = []) {
@@ -165,7 +178,12 @@ function extractWebchatLead(text, history = []) {
   if (!phone) return null;
 
   let name = '';
+  for (const line of userLines) {
+    name = extractContactFormName(line);
+    if (name) break;
+  }
   for (const line of [...userLines].reverse()) {
+    if (name) break;
     const candidate = extractClientName(stripPhoneForName(line, phone));
     if (candidate) {
       name = candidate;
