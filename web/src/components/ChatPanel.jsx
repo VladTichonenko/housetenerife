@@ -51,6 +51,21 @@ function lastMessageNeedsBotReply(messages) {
   return false;
 }
 
+/** Сколько подряд сообщений клиента в хвосте без ответа бота/менеджера. */
+function countPendingUserMessages(messages) {
+  if (!messages?.length) return 0;
+  let count = 0;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const role = messages[i]?.role;
+    if (role === 'user') {
+      if (String(messages[i]?.text || '').trim()) count += 1;
+      continue;
+    }
+    if (role === 'assistant' || role === 'manager') break;
+  }
+  return count;
+}
+
 function PropertyLinks({ properties, compact = false }) {
   if (!properties?.length) return null;
   return (
@@ -143,6 +158,7 @@ export default function ChatPanel({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  const pendingUserCount = countPendingUserMessages(messages);
   const awaitingBot =
     !catchUpDone && (needsCatchUp || lastMessageNeedsBotReply(messages));
 
@@ -237,7 +253,9 @@ export default function ChatPanel({
             <p className="chat-panel__catchup-text">
               {settings.aiDisabled
                 ? 'ИИ выключен — клиент ждёт ответа.'
-                : 'Клиент написал, пока бот не отвечал.'}
+                : pendingUserCount > 1
+                  ? `Клиент написал ${pendingUserCount} сообщ., пока бот не отвечал. ИИ обработает все.`
+                  : 'Клиент написал, пока бот не отвечал.'}
             </p>
             <button
               type="button"
@@ -245,7 +263,11 @@ export default function ChatPanel({
               onClick={handleEnableAiAndReply}
               disabled={catchingUp}
             >
-              {catchingUp ? 'Отвечаю…' : 'Включить ИИ и ответить'}
+              {catchingUp
+                ? 'Собираю сообщения и отвечаю…'
+                : pendingUserCount > 1
+                  ? `Включить ИИ и ответить (${pendingUserCount})`
+                  : 'Включить ИИ и ответить'}
             </button>
           </div>
         )}

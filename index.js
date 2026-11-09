@@ -2609,10 +2609,16 @@ let missedSyncInFlight = null;
 let catchUpInFlight = new Set();
 
 /**
- * Лёгкий снимок входящих из Store.Msg (+ unread из Chat) без getChats().
- * Только импорт в БД — без автоответа.
+ * Снимок пропущенных входящих из Store без getChats().
+ * Собирает НЕ только последнее: по каждому ЛС — пачка сообщений в окне age.
  */
-async function fetchMissedInboundSnapshots({ maxAgeMs, maxItems }) {
+async function fetchMissedInboundSnapshots({
+  maxAgeMs,
+  maxItems,
+  perChatLimit = 80,
+  focusChatId = '',
+  budgetMs = 45000,
+}) {
   if (!client?.pupPage) {
     throw Object.assign(new Error('WhatsApp page unavailable'), {
       code: 'WA_POLLING_PAGE_UNAVAILABLE',
@@ -2620,7 +2626,7 @@ async function fetchMissedInboundSnapshots({ maxAgeMs, maxItems }) {
   }
 
   return client.pupPage.evaluate(
-    (ageLimitMs, maxCount) => {
+    async (ageLimitMs, maxTotal, perChat, focusId, deadlineAt) => {
       const collections = window.require?.('WAWebCollections');
       if (!collections) throw new Error('WAWebCollections unavailable');
 
@@ -2633,30 +2639,32 @@ async function fetchMissedInboundSnapshots({ maxAgeMs, maxItems }) {
       const cutoffSeconds = Math.floor((Date.now() - ageLimitMs) / 1000);
       const seen = new Set();
       const out = [];
+      const chatIds = new Set();
+
+      const isDmRemote = (remote) =>
+        typeof remote === 'string' &&
+        remote &&
+        !remote.includes('@broadcast') &&
+        remote !== 'status@broadcast' &&
+        !remote.endsWith('@g.us');
 
       const pushMsg = (message) => {
-        if (!message?.id || message.id.fromMe || message.isStatusV3) return;
+        if (!message?.id || message.id.fromMe || message.isStatusV3) return false;
         const timestamp = Number(message.t || message.timestamp || 0);
-        if (!timestamp || timestamp < cutoffSeconds) return;
+        if (!timestamp || timestamp < cutoffSeconds) return false;
         const remote =
           message.id.remote?._serialized ??
           message.id.remote?.$1 ??
           message.id.remote ??
           '';
-        if (
-          typeof remote !== 'string' ||
-          !remote ||
-          remote.includes('@broadcast') ||
-          remote === 'status@broadcast' ||
-          remote.endsWith('@g.us')
-        ) {
-          return;
-        }
+        if (!isDmRemote(remote)) return false;
+        if (focusId && remote !== focusId) return false;
+
         const serialized =
           message.id._serialized ||
           message.id.$1 ||
           `${message.id.fromMe ? 'true' : 'false'}_${remote}_${message.id.id || ''}`;
-        if (!serialized || seen.has(serialized)) return;
+        if (!serialized || seen.has(serialized)) return false;
         seen.add(serialized);
 
         const body = String(
@@ -2677,46 +2685,285 @@ async function fetchMissedInboundSnapshots({ maxAgeMs, maxItems }) {
           ).slice(0, 120),
           type: String(message.type || 'chat'),
         });
+        chatIds.add(remote);
+        return true;
       };
 
+      const collectFromChat = async (chat) => {
+        if (!chat) return;
+        const id =
+          chat.id?._serialized ||
+          chat.id?.$1 ||
+          (typeof chat.id === 'string' ? chat.id : '');
+        if (!isDmRemote(id)) return;
+        if (focusId && id !== focusId) return;
+
+        // Догружаем историю чата вглубь, пока не дойдём до начала окна (cutoff),
+        // пока WhatsApp отдаёт более ранние сообщения или не выйдет бюджет времени.
+        try {
+          const loadEarlier =
+            (typeof chat.loadEarlierMsgs === 'function' && chat.loadEarlierMsgs.bind(chat)) ||
+            (chat.msgs && typeof chat.msgs.loadEarlierMsgs === 'function'
+              ? chat.msgs.loadEarlierMsgs.bind(chat.msgs)
+              : null);
+          if (loadEarlier) {
+            const countMsgs = () =>
+              typeof chat.msgs?.getModelsArray === 'function'
+                ? chat.msgs.getModelsArray().length
+                : 0;
+            const oldestT = () => {
+              const arr =
+                typeof chat.msgs?.getModelsArray === 'function' ? chat.msgs.getModelsArray() : [];
+              let min = 0;
+              for (const m of arr) {
+                const t = Number(m?.t || m?.timestamp || 0);
+                if (t && (!min || t < min)) min = t;
+              }
+              return min;
+            };
+            const maxPasses = focusId ? 25 : 12;
+            for (let p = 0; p < maxPasses; p += 1) {
+              if (Date.now() > deadlineAt) break;
+              const oldest = oldestT();
+              if (oldest && oldest <= cutoffSeconds) break;
+              if (chat.msgs?.msgLoadState?.noEarlierMsgs) break;
+              const before = countMsgs();
+              try {
+                // eslint-disable-next-line no-await-in-loop
+                await Promise.race([
+                  loadEarlier(),
+                  new Promise((resolve) => setTimeout(resolve, 2500)),
+                ]);
+              } catch {
+                break;
+              }
+              if (countMsgs() <= before) break;
+            }
+          }
+        } catch {
+          /* loadEarlier недоступен — берём что есть в msgs */
+        }
+
+        const msgs =
+          typeof chat.msgs?.getModelsArray === 'function'
+            ? chat.msgs.getModelsArray()
+            : [];
+        let taken = 0;
+        for (let i = msgs.length - 1; i >= 0 && taken < perChat; i -= 1) {
+          if (pushMsg(msgs[i])) taken += 1;
+        }
+      };
+
+      // 1) Хвост глобального Msg — находим активные чаты
       const all = Msg.getModelsArray();
-      const start = Math.max(0, all.length - Math.max(maxCount * 6, 300));
-      for (let i = all.length - 1; i >= start && out.length < maxCount; i -= 1) {
-        pushMsg(all[i]);
+      const start = Math.max(0, all.length - Math.max(maxTotal * 8, 800));
+      for (let i = all.length - 1; i >= start; i -= 1) {
+        const message = all[i];
+        if (!message?.id || message.id.fromMe) continue;
+        const remote =
+          message.id.remote?._serialized ??
+          message.id.remote?.$1 ??
+          message.id.remote ??
+          '';
+        if (isDmRemote(remote) && (!focusId || remote === focusId)) {
+          chatIds.add(remote);
+          pushMsg(message);
+        }
       }
 
-      // Дополнительно: непрочитанные ЛС из Chat (если msgs доступны локально)
-      if (Chat && typeof Chat.getModelsArray === 'function' && out.length < maxCount) {
-        const chats = Chat.getModelsArray();
+      // 2) ВСЕ личные чаты с активностью в окне (самые свежие — первыми)
+      if (Chat && typeof Chat.getModelsArray === 'function') {
+        const chatTime = (chat) =>
+          Number(
+            chat.t ||
+              chat.lastReceivedKey?.t ||
+              chat.msgs?.getModelsArray?.()?.slice?.(-1)?.[0]?.t ||
+              0
+          );
+        const chats = [...Chat.getModelsArray()].sort((a, b) => chatTime(b) - chatTime(a));
         for (const chat of chats) {
-          if (out.length >= maxCount) break;
+          if (Date.now() > deadlineAt) break;
           try {
             const id =
               chat.id?._serialized ||
               chat.id?.$1 ||
               (typeof chat.id === 'string' ? chat.id : '');
-            if (!id || id.endsWith('@g.us') || id.includes('@broadcast')) continue;
+            if (!isDmRemote(id)) continue;
+            if (focusId && id !== focusId) continue;
+
             const unread = Number(chat.unreadCount || 0);
-            if (unread <= 0) continue;
-            const msgs =
-              typeof chat.msgs?.getModelsArray === 'function'
-                ? chat.msgs.getModelsArray()
-                : [];
-            const take = Math.min(unread + 3, 20);
-            for (let i = msgs.length - 1; i >= 0 && take > 0; i -= 1) {
-              pushMsg(msgs[i]);
+            const lastT = chatTime(chat);
+            // Пропускаем только чаты, где точно нет активности в окне
+            if (!focusId && lastT > 0 && lastT < cutoffSeconds && unread <= 0 && !chatIds.has(id)) {
+              continue;
             }
+
+            // eslint-disable-next-line no-await-in-loop
+            await collectFromChat(chat);
           } catch {
             /* skip broken chat model */
           }
         }
+
+        // Focus: Chat.get(id) если не нашли в массиве
+        if (focusId && Chat.get) {
+          try {
+            const focused = Chat.get(focusId);
+            if (focused) await collectFromChat(focused);
+          } catch {
+            /* ignore */
+          }
+        }
       }
 
-      return out.sort((a, b) => a.timestamp - b.timestamp);
+      // Если всё же больше лимита — оставляем САМЫЕ СВЕЖИЕ, а не самые старые
+      const sorted = out.sort((a, b) => a.timestamp - b.timestamp);
+      return sorted.length > maxTotal ? sorted.slice(-maxTotal) : sorted;
     },
     maxAgeMs,
-    maxItems
+    maxItems,
+    perChatLimit,
+    String(focusChatId || ''),
+    Date.now() + Math.max(5000, budgetMs)
   );
+}
+
+/** Импорт снимков в SQLite/клиентов без автоответа. */
+function importMissedSnapshots(snapshots = []) {
+  let imported = 0;
+  const touched = new Map();
+
+  for (const snap of snapshots || []) {
+    const chatId = String(snap.chatId || '');
+    const waMessageId = String(snap.waMessageId || '');
+    if (!chatId || !waMessageId) continue;
+    if (hasWaMessageId(waMessageId)) {
+      processedMessageIds.set(waMessageId, Date.now());
+      continue;
+    }
+
+    const text =
+      String(snap.body || '').trim() ||
+      (snap.type && snap.type !== 'chat' ? `[${snap.type}]` : '');
+    if (!text) continue;
+
+    const atIso = new Date(
+      snap.timestamp < 1000000000000 ? snap.timestamp * 1000 : snap.timestamp
+    ).toISOString();
+
+    if (hasSimilarUserMessage(chatId, text, atIso)) {
+      processedMessageIds.set(waMessageId, Date.now());
+      continue;
+    }
+
+    const previousUserTexts = getPersistedMessages(chatId)
+      .filter((m) => m.role === 'user')
+      .map((m) => m.text);
+    const detectedLang = resolveConversationLanguage({
+      sticky: getStickyDialogLanguage(chatId),
+      currentText: text,
+      historyTexts: previousUserTexts,
+      fallback: 'en',
+    });
+    const languageName = getLanguageName(detectedLang);
+
+    try {
+      recordClientMessage({
+        chatId,
+        senderId: chatId,
+        chatName: snap.notifyName || '',
+        messageText: text.slice(0, 500),
+        language: detectedLang,
+        languageLabel: languageName,
+        country: '',
+        isGroup: false,
+        kind: snap.type && snap.type !== 'chat' ? snap.type : 'text',
+      });
+      setStickyDialogLanguage(chatId, detectedLang);
+    } catch (e) {
+      console.warn('⚠️ syncMissed client:', e.message);
+    }
+
+    try {
+      persistMessage(chatId, {
+        role: 'user',
+        text,
+        kind: snap.type && snap.type !== 'chat' ? snap.type : 'text',
+        language: detectedLang,
+        waMessageId,
+      });
+      try {
+        getDb()
+          .prepare(`UPDATE messages SET created_at = ?, language = ? WHERE wa_message_id = ?`)
+          .run(atIso, detectedLang, waMessageId);
+        getDb()
+          .prepare(
+            `UPDATE users SET last_seen_at = ?, last_message = ?, last_language = ?
+             WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at <= ?)`
+          )
+          .run(atIso, text.slice(0, 500), detectedLang, chatId, atIso);
+      } catch {
+        /* ignore timestamp patch errors */
+      }
+    } catch (e) {
+      console.warn('⚠️ syncMissed persist:', e.message);
+      continue;
+    }
+
+    processedMessageIds.set(waMessageId, Date.now());
+    imported += 1;
+
+    const prev = touched.get(chatId) || {
+      count: 0,
+      lastText: '',
+      lastAt: atIso,
+      name: '',
+      language: detectedLang,
+      texts: [],
+    };
+    const texts = [...(prev.texts || []), text].slice(-30);
+    touched.set(chatId, {
+      count: prev.count + 1,
+      lastText: text,
+      lastAt: atIso,
+      name: snap.notifyName || prev.name || '',
+      language: detectedLang,
+      texts,
+    });
+  }
+
+  for (const [chatId, info] of touched.entries()) {
+    // «Ждёт ответа» только если последнее сообщение в чате — от клиента.
+    // Старые пропуски внутри уже отвеченного диалога просто дописываются в историю.
+    let lastRole = 'user';
+    try {
+      const all = getPersistedMessages(chatId);
+      lastRole = all.length ? all[all.length - 1].role : 'user';
+    } catch {
+      /* ignore */
+    }
+    if (lastRole === 'user') {
+      markNeedsCatchUp(chatId, {
+        lastUserMessage: info.lastText,
+        lastUserAt: info.lastAt,
+        importedDelta: info.count,
+        chatName: info.name,
+        pendingTexts: info.texts,
+      });
+    }
+    if (info.language) {
+      try {
+        setStickyDialogLanguage(chatId, info.language);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (conversationHistory.has(chatId)) {
+      conversationHistory.delete(chatId);
+    }
+  }
+
+  return { imported, touched };
 }
 
 /**
@@ -2742,151 +2989,47 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
     60 * 60 * 1000,
     parseInt(opts.maxAgeMs, 10) ||
       parseInt(process.env.CATCHUP_MAX_AGE_MS, 10) ||
-      7 * 24 * 60 * 60 * 1000
+      30 * 24 * 60 * 60 * 1000
   );
   const maxItems = Math.min(
+    5000,
+    Math.max(
+      50,
+      parseInt(opts.maxItems, 10) ||
+        parseInt(process.env.CATCHUP_MAX_ITEMS, 10) ||
+        3000
+    )
+  );
+  const perChatLimit = Math.min(
     400,
     Math.max(
       20,
-      parseInt(opts.maxItems, 10) ||
-        parseInt(process.env.CATCHUP_MAX_ITEMS, 10) ||
+      parseInt(opts.perChatLimit, 10) ||
+        parseInt(process.env.CATCHUP_PER_CHAT_LIMIT, 10) ||
         200
     )
   );
 
   missedSyncInFlight = (async () => {
     const softTimeoutMs = Math.max(
-      15000,
-      parseInt(process.env.CATCHUP_SYNC_TIMEOUT_MS, 10) || 45000
+      20000,
+      parseInt(process.env.CATCHUP_SYNC_TIMEOUT_MS, 10) || 120000
     );
     try {
-      pauseMessagePolling(Math.min(softTimeoutMs + 5000, 60000));
+      pauseMessagePolling(Math.min(softTimeoutMs + 5000, 130000));
       const snapshots = await runExclusiveCdp(
         'admin.syncMissed',
-        () => fetchMissedInboundSnapshots({ maxAgeMs, maxItems }),
+        () =>
+          fetchMissedInboundSnapshots({
+            maxAgeMs,
+            maxItems,
+            perChatLimit,
+            budgetMs: softTimeoutMs - 15000,
+          }),
         softTimeoutMs
       );
 
-      let imported = 0;
-      const touched = new Map();
-
-      for (const snap of snapshots || []) {
-        const chatId = String(snap.chatId || '');
-        const waMessageId = String(snap.waMessageId || '');
-        if (!chatId || !waMessageId) continue;
-        if (hasWaMessageId(waMessageId)) {
-          processedMessageIds.set(waMessageId, Date.now());
-          continue;
-        }
-
-        const text =
-          String(snap.body || '').trim() ||
-          (snap.type && snap.type !== 'chat' ? `[${snap.type}]` : '');
-        if (!text) continue;
-
-        const atIso = new Date(
-          snap.timestamp < 1000000000000 ? snap.timestamp * 1000 : snap.timestamp
-        ).toISOString();
-
-        if (hasSimilarUserMessage(chatId, text, atIso)) {
-          processedMessageIds.set(waMessageId, Date.now());
-          continue;
-        }
-
-        const previousUserTexts = getPersistedMessages(chatId)
-          .filter((m) => m.role === 'user')
-          .map((m) => m.text);
-        const detectedLang = resolveConversationLanguage({
-          sticky: getStickyDialogLanguage(chatId),
-          currentText: text,
-          historyTexts: previousUserTexts,
-          fallback: 'en',
-        });
-        const languageName = getLanguageName(detectedLang);
-
-        try {
-          recordClientMessage({
-            chatId,
-            senderId: chatId,
-            chatName: snap.notifyName || '',
-            messageText: text.slice(0, 500),
-            language: detectedLang,
-            languageLabel: languageName,
-            country: '',
-            isGroup: false,
-            kind: snap.type && snap.type !== 'chat' ? snap.type : 'text',
-          });
-          setStickyDialogLanguage(chatId, detectedLang);
-        } catch (e) {
-          console.warn('⚠️ syncMissed client:', e.message);
-        }
-
-        try {
-          persistMessage(chatId, {
-            role: 'user',
-            text,
-            kind: snap.type && snap.type !== 'chat' ? snap.type : 'text',
-            language: detectedLang,
-            waMessageId,
-          });
-          // Выровнять created_at под реальное время WA (persistMessage ставит now)
-          try {
-            getDb()
-              .prepare(
-                `UPDATE messages SET created_at = ?, language = ? WHERE wa_message_id = ?`
-              )
-              .run(atIso, detectedLang, waMessageId);
-            getDb()
-              .prepare(
-                `UPDATE users SET last_seen_at = ?, last_message = ?, last_language = ? WHERE id = ?`
-              )
-              .run(atIso, text.slice(0, 500), detectedLang, chatId);
-          } catch {
-            /* ignore timestamp patch errors */
-          }
-        } catch (e) {
-          console.warn('⚠️ syncMissed persist:', e.message);
-          continue;
-        }
-
-        processedMessageIds.set(waMessageId, Date.now());
-        imported += 1;
-
-        const prev = touched.get(chatId) || {
-          count: 0,
-          lastText: '',
-          lastAt: atIso,
-          name: '',
-          language: detectedLang,
-        };
-        touched.set(chatId, {
-          count: prev.count + 1,
-          lastText: text,
-          lastAt: atIso,
-          name: snap.notifyName || prev.name || '',
-          language: detectedLang,
-        });
-      }
-
-      for (const [chatId, info] of touched.entries()) {
-        markNeedsCatchUp(chatId, {
-          lastUserMessage: info.lastText,
-          lastUserAt: info.lastAt,
-          importedDelta: info.count,
-          chatName: info.name,
-        });
-        if (info.language) {
-          try {
-            setStickyDialogLanguage(chatId, info.language);
-          } catch {
-            /* ignore */
-          }
-        }
-        // История в памяти может быть пустой после рестарта — сбросим, чтобы гидратация взяла SQLite
-        if (conversationHistory.has(chatId)) {
-          conversationHistory.delete(chatId);
-        }
-      }
+      const { imported, touched } = importMissedSnapshots(snapshots);
 
       // Также пометить чаты из БД, где последнее — от клиента
       try {
@@ -2907,10 +3050,11 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
         imported,
         chatsTouched: touched.size,
         maxAgeHours: Math.round(maxAgeMs / 3600000),
+        perChatLimit,
       };
       setLastSync(stats);
       console.log(
-        `📥 Sync missed: scanned=${stats.scanned}, imported=${stats.imported}, chats=${stats.chatsTouched}`
+        `📥 Sync missed: scanned=${stats.scanned}, imported=${stats.imported}, chats=${stats.chatsTouched}, perChat≤${perChatLimit}`
       );
 
       return {
@@ -2920,7 +3064,7 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
         meta: getSyncMeta(),
         message:
           imported > 0
-            ? `Импортировано ${imported} сообщ. в ${touched.size} чатах. Можно догнать ботом.`
+            ? `Импортировано ${imported} сообщ. в ${touched.size} чатах (все пропущенные в окне). Можно догнать ботом.`
             : touched.size || listMarkedCatchUp().length
               ? 'Новых из WhatsApp нет, но есть чаты без ответа бота.'
               : 'Пропущенных сообщений не найдено.',
@@ -2948,7 +3092,58 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
 }
 
 /**
- * Догнать клиента: ИИ читает историю и отвечает в WhatsApp.
+ * Перед догоном — догрузить ВСЕ пропущенные входящие именно этого чата из WhatsApp.
+ */
+async function syncOneChatMissedFromWhatsApp(chatId) {
+  const id = String(chatId || '');
+  if (!id || !botReady || !client?.pupPage) {
+    return { imported: 0, scanned: 0 };
+  }
+  if (isCdpBusy() || hasAbandonedCdpWork() || softReloadInFlight) {
+    return { imported: 0, scanned: 0, skipped: true };
+  }
+
+  const maxAgeMs = Math.max(
+    60 * 60 * 1000,
+    parseInt(process.env.CATCHUP_MAX_AGE_MS, 10) || 30 * 24 * 60 * 60 * 1000
+  );
+  const perChatLimit = Math.min(
+    400,
+    Math.max(40, parseInt(process.env.CATCHUP_PER_CHAT_LIMIT, 10) || 200)
+  );
+  const softTimeoutMs = Math.max(
+    15000,
+    parseInt(process.env.CATCHUP_SYNC_TIMEOUT_MS, 10) || 45000
+  );
+
+  pauseMessagePolling(Math.min(softTimeoutMs + 5000, 60000));
+  try {
+    const snapshots = await runExclusiveCdp(
+      `admin.syncMissedChat:${id}`,
+      () =>
+        fetchMissedInboundSnapshots({
+          maxAgeMs,
+          maxItems: perChatLimit * 2,
+          perChatLimit,
+          focusChatId: id,
+          budgetMs: softTimeoutMs - 10000,
+        }),
+      softTimeoutMs
+    );
+    const { imported } = importMissedSnapshots(snapshots);
+    if (conversationHistory.has(id)) conversationHistory.delete(id);
+    console.log(
+      `📥 Sync one chat ${id}: scanned=${(snapshots || []).length}, imported=${imported}`
+    );
+    return { imported, scanned: (snapshots || []).length };
+  } finally {
+    resumeMessagePollingSoon(8000);
+  }
+}
+
+/**
+ * Догнать клиента: сначала догружаем все пропущенные сообщения чата,
+ * затем ИИ читает полную историю и отвечает в WhatsApp.
  */
 async function catchUpBotReply(chatId) {
   const id = String(chatId || '');
@@ -2966,6 +3161,13 @@ async function catchUpBotReply(chatId) {
   try {
     if (isAiDisabled(id)) {
       setAiDisabled(id, false);
+    }
+
+    let deepSync = { imported: 0, scanned: 0 };
+    try {
+      deepSync = await syncOneChatMissedFromWhatsApp(id);
+    } catch (e) {
+      console.warn('⚠️ deep sync before catch-up:', e.message);
     }
 
     ensureHistoryHydrated(id);
@@ -3006,11 +3208,31 @@ async function catchUpBotReply(chatId) {
       };
     }
 
-    const lastUserText = String(history[lastUserIdx].text || '');
-    const dialogLanguage = resolveDialogLanguage(id, lastUserText);
-    console.log(`↩️ Catch-up reply → ${id} (${dialogLanguage}): ${lastUserText.slice(0, 80)}`);
+    // Хвост непрочитанных реплик клиента (всё до последнего ответа бота/менеджера)
+    let pendingStart = lastUserIdx;
+    while (pendingStart > 0) {
+      const prev = history[pendingStart - 1];
+      if (!prev || prev.sender === 'assistant' || prev.sender === 'manager') break;
+      pendingStart -= 1;
+    }
+    const pendingUserMessages = history
+      .slice(pendingStart, lastUserIdx + 1)
+      .filter((m) => m.sender === 'user' && String(m.text || '').trim());
+    const pendingCount = pendingUserMessages.length;
 
-    const aiResponse = await askAI(getHistory(id), dialogLanguage, { chatId: id });
+    const lastUserText = String(history[lastUserIdx].text || '');
+    const dialogLanguage = resolveDialogLanguage(
+      id,
+      pendingUserMessages.map((m) => m.text).join('\n') || lastUserText
+    );
+    console.log(
+      `↩️ Catch-up reply → ${id} (${dialogLanguage}): ${pendingCount} pending user msg(s); last=${lastUserText.slice(0, 80)}`
+    );
+
+    const aiResponse = await askAI(getHistory(id), dialogLanguage, {
+      chatId: id,
+      catchUpPendingCount: pendingCount,
+    });
     const outgoing = localizeUrlsInText(aiResponse, dialogLanguage);
     if (!String(outgoing || '').trim()) {
       return { success: false, status: 500, message: 'ИИ вернул пустой ответ' };
@@ -3026,8 +3248,13 @@ async function catchUpBotReply(chatId) {
       chatId: id,
       text: outgoing,
       language: dialogLanguage,
+      pendingCount,
+      deepImported: deepSync.imported || 0,
       settings: getChatSettings(id),
-      message: 'Ответ бота отправлен',
+      message:
+        pendingCount > 1
+          ? `Ответ бота отправлен (учтено ${pendingCount} сообщ. клиента)`
+          : 'Ответ бота отправлен',
     };
   } catch (e) {
     console.error('❌ catchUpBotReply:', e.message);
@@ -3104,6 +3331,24 @@ function listCatchUpInbox({ page = 1, limit = 50, q = '', filter = 'pending' } =
         }
       }
     }
+
+    let pendingCount = Number(item.pendingCount || item.importedCount || 0);
+    try {
+      const msgs = getPersistedMessages(item.chatId);
+      let count = 0;
+      for (let i = msgs.length - 1; i >= 0; i -= 1) {
+        const role = msgs[i]?.role;
+        if (role === 'user') {
+          if (String(msgs[i]?.text || '').trim()) count += 1;
+          continue;
+        }
+        if (role === 'assistant' || role === 'manager') break;
+      }
+      if (count > 0) pendingCount = count;
+    } catch {
+      /* keep existing pendingCount */
+    }
+
     return {
       ...item,
       phoneDisplay: clientInfo?.phoneDisplay || '',
@@ -3112,6 +3357,7 @@ function listCatchUpInbox({ page = 1, limit = 50, q = '', filter = 'pending' } =
       language,
       languageLabel: language ? getLanguageName(language) : clientInfo?.languageLabel || '',
       aiDisabled: isAiDisabled(item.chatId),
+      pendingCount,
     };
   });
 
@@ -5026,41 +5272,7 @@ async function processWebMessage({ chatId, text, pageUrl, pageTitle, languageHin
   return { text: outgoing, language: dialogLanguage };
 }
 
-/**
- * Проверка, что номер зарегистрирован в WhatsApp и с ним можно открыть чат.
- * Сообщение не отправляется — только queryWidExists через текущую сессию.
- */
-async function checkWhatsAppNumber(phone) {
-  const digits = String(phone || '').replace(/\D/g, '');
-  if (!digits || digits.length < 8 || digits.length > 15) {
-    return { success: false, status: 400, message: 'Invalid phone' };
-  }
-  if (!botReady || !client) {
-    return { success: false, status: 503, message: 'WhatsApp session is not ready' };
-  }
-
-  try {
-    const wid = await client.getNumberId(digits);
-    const user = wid && (wid.user || String(wid._serialized || wid || '').split('@')[0]);
-    const canonical = String(user || '').replace(/\D/g, '');
-    if (!canonical) {
-      console.log(`📵 Webchat WhatsApp check: …${digits.slice(-4)} — нет в WhatsApp`);
-      return { success: true, onWhatsApp: false };
-    }
-    console.log(`✅ Webchat WhatsApp check: …${canonical.slice(-4)} — чат можно открыть`);
-    return {
-      success: true,
-      onWhatsApp: true,
-      phone: `+${canonical}`,
-      waLink: `https://wa.me/${canonical}`,
-    };
-  } catch (err) {
-    console.warn('webchat whatsapp check:', err.message || err);
-    return { success: false, status: 503, message: 'WhatsApp check failed' };
-  }
-}
-
-registerWebchatRoutes(app, { processWebMessage, checkWhatsAppNumber });
+registerWebchatRoutes(app, { processWebMessage });
 
 /**
  * GET /health — healthcheck Railway (синхронный, без Puppeteer)

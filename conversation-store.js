@@ -147,6 +147,7 @@ function hasSimilarUserMessage(chatId, text, atIso) {
     .prepare(
       `SELECT 1 AS ok FROM messages
        WHERE user_id = ? AND role = 'user' AND body = ?
+         AND (wa_message_id IS NULL OR wa_message_id = '')
          AND created_at >= ? AND created_at <= ?
        LIMIT 1`
     )

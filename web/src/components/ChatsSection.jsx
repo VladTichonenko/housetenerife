@@ -94,8 +94,8 @@ export default function ChatsSection({ showToast }) {
     <div className="chats-section">
       <div className="card chats-section__intro">
         <p className="card__desc">
-          Если сервер был выключен и клиенты писали в WhatsApp — соберите пропущенные сообщения,
-          откройте нужный чат и нажмите «Включить ИИ и ответить».
+          Если сервер был выключен и клиенты писали в WhatsApp — соберите все сообщения от всех клиентов
+          (новых и старых чатов, за последние 30 дней, не только последнее), откройте чат и нажмите «Включить ИИ и ответить»: бот учтёт всю пачку.
         </p>
         <div className="chats-section__actions">
           <button
@@ -194,7 +194,11 @@ export default function ChatsSection({ showToast }) {
                   >
                     <td>
                       {item.needsCatchUp ? (
-                        <span className="lead-status lead-status--new">Ждёт ответа</span>
+                        <span className="lead-status lead-status--new">
+                          {item.pendingCount > 1
+                            ? `Ждёт ответа · ${item.pendingCount}`
+                            : 'Ждёт ответа'}
+                        </span>
                       ) : (
                         <span className="lead-status lead-status--closed">Ок</span>
                       )}

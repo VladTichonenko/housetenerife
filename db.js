@@ -4,12 +4,23 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 
+/**
+ * БД должна жить на Volume (как сессия WhatsApp), иначе на Railway
+ * каждый деплой создаёт пустой /app/data/bot.db.
+ */
 function resolveDbPath() {
   if (process.env.SQLITE_PATH) return process.env.SQLITE_PATH;
+
   const sessionPath = process.env.SESSION_PATH;
   if (sessionPath && path.isAbsolute(sessionPath)) {
     return path.join(path.dirname(sessionPath), 'bot.db');
   }
+
+  // Тот же fallback, что у сессии WhatsApp в index.js
+  if (fs.existsSync('/data')) {
+    return path.join('/data', 'bot.db');
+  }
+
   return path.join(__dirname, 'data', 'bot.db');
 }
 
@@ -26,6 +37,19 @@ function ensureDir(filePath) {
 function getDb() {
   if (db) return db;
   ensureDir(DB_PATH);
+
+  const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+  if (isRailway && !DB_PATH.startsWith('/data') && !process.env.SQLITE_PATH) {
+    console.warn(
+      `⚠️ Railway: SQLite на эфемерном пути (${DB_PATH}). После деплоя БД обнулится.`
+    );
+    console.warn(
+      '   Volume → mount /data; Variables → SESSION_PATH=/data/.wwebjs_auth_ht (или SQLITE_PATH=/data/bot.db).'
+    );
+  } else if (isRailway && DB_PATH.startsWith('/data')) {
+    console.log(`💾 Railway Volume: SQLite на ${DB_PATH}`);
+  }
+
   db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');

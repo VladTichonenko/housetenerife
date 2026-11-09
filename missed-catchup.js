@@ -54,12 +54,17 @@ function markNeedsCatchUp(chatId, meta = {}) {
   const store = loadStore();
   const id = String(chatId);
   const existing = store.chats[id] || {};
+  const pendingTexts = Array.isArray(meta.pendingTexts)
+    ? meta.pendingTexts.map((t) => String(t || '').slice(0, 500)).filter(Boolean).slice(-30)
+    : existing.pendingTexts || [];
   store.chats[id] = {
     ...existing,
     needsCatchUp: true,
     lastUserMessage: String(meta.lastUserMessage || existing.lastUserMessage || '').slice(0, 500),
     lastUserAt: meta.lastUserAt || existing.lastUserAt || new Date().toISOString(),
     importedCount: Number(existing.importedCount || 0) + Number(meta.importedDelta || 0),
+    pendingCount: pendingTexts.length || Number(meta.pendingCount || existing.pendingCount || 0),
+    pendingTexts,
     chatName: meta.chatName || existing.chatName || '',
     updatedAt: new Date().toISOString(),
   };
@@ -107,6 +112,7 @@ function listMarkedCatchUp() {
       lastMessageAt: v.lastUserAt || v.updatedAt || null,
       chatName: v.chatName || '',
       importedCount: v.importedCount || 0,
+      pendingCount: v.pendingCount || (Array.isArray(v.pendingTexts) ? v.pendingTexts.length : 0),
     }))
     .sort((a, b) => String(b.lastMessageAt || '').localeCompare(String(a.lastMessageAt || '')));
 }

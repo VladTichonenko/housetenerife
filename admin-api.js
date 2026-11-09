@@ -252,6 +252,17 @@ function registerAdminRoutes(app, state) {
     }
   });
 
+  app.post('/api/admin/chats/:chatId/brief', requireAdmin, async (req, res) => {
+    try {
+      const chatId = decodeURIComponent(req.params.chatId);
+      const { buildDialogBriefCard } = require('./webchat-lead-notify');
+      const card = await buildDialogBriefCard(chatId, { force: Boolean(req.body?.force) });
+      res.json({ success: true, card });
+    } catch (e) {
+      res.status(e.status || 500).json({ success: false, message: e.message });
+    }
+  });
+
   app.get('/api/admin/chats/:chatId/messages', requireAdmin, (req, res) => {
     try {
       const chatId = decodeURIComponent(req.params.chatId);
