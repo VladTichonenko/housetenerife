@@ -180,10 +180,12 @@ export default function ChatPanel({
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [catchingUp, setCatchingUp] = useState(false);
+  const [syncingHistory, setSyncingHistory] = useState(false);
   const [error, setError] = useState('');
   const [catchUpDone, setCatchUpDone] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const autoSyncedRef = useRef('');
 
   const load = useCallback(async () => {
     if (!chatId) return;
@@ -201,11 +203,50 @@ export default function ChatPanel({
     }
   }, [chatId]);
 
+  const syncHistoryFromWhatsApp = useCallback(async () => {
+    if (!chatId || syncingHistory) return;
+    setSyncingHistory(true);
+    setError('');
+    try {
+      const data = await api.syncChatMissed(chatId);
+      showToast?.(data.message || 'История обновлена', 'success');
+      await load();
+    } catch (err) {
+      const msg = err.message || 'Не удалось подтянуть историю из WhatsApp';
+      setError(msg);
+      showToast?.(msg, 'error');
+    } finally {
+      setSyncingHistory(false);
+    }
+  }, [chatId, syncingHistory, load, showToast]);
+
   useEffect(() => {
     load();
     const interval = setInterval(load, 5000);
     return () => clearInterval(interval);
   }, [load]);
+
+  // При открытии чата один раз подтянуть полную историю из WhatsApp
+  // (иначе в панели часто остаётся только последнее сообщение).
+  useEffect(() => {
+    if (!chatId || loading || autoSyncedRef.current === chatId) return undefined;
+    autoSyncedRef.current = chatId;
+    let cancelled = false;
+    (async () => {
+      try {
+        setSyncingHistory(true);
+        await api.syncChatMissed(chatId);
+        if (!cancelled) await load();
+      } catch {
+        /* тихо: кнопку «Подтянуть историю» можно нажать вручную */
+      } finally {
+        if (!cancelled) setSyncingHistory(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [chatId, loading, load]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -379,29 +420,43 @@ export default function ChatPanel({
           </div>
         </div>
 
-        {awaitingBot && (
-          <div className="chat-panel__catchup">
-            <p className="chat-panel__catchup-text">
-              {settings.aiDisabled
-                ? 'ИИ выключен — клиент ждёт ответа.'
-                : pendingUserCount > 1
-                  ? `Клиент написал ${pendingUserCount} сообщ., пока бот не отвечал. ИИ обработает все.`
-                  : 'Клиент написал, пока бот не отвечал.'}
-            </p>
+        <div className="chat-panel__catchup">
+          <p className="chat-panel__catchup-text">
+            {syncingHistory
+              ? 'Подтягиваю все сообщения из WhatsApp…'
+              : awaitingBot
+                ? settings.aiDisabled
+                  ? 'ИИ выключен — клиент ждёт ответа.'
+                  : pendingUserCount > 1
+                    ? `Клиент написал ${pendingUserCount} сообщ., пока бот не отвечал. ИИ обработает все.`
+                    : 'Клиент написал, пока бот не отвечал.'
+                : `В истории ${messages.length || 0} сообщ. Если чего-то не хватает — подтяните из WhatsApp.`}
+          </p>
+          <div className="chat-panel__catchup-actions">
             <button
               type="button"
-              className="btn btn--primary chat-panel__catchup-btn"
-              onClick={handleEnableAiAndReply}
-              disabled={catchingUp}
+              className="btn btn--outline chat-panel__catchup-btn"
+              onClick={syncHistoryFromWhatsApp}
+              disabled={syncingHistory || catchingUp}
             >
-              {catchingUp
-                ? 'Собираю сообщения и отвечаю…'
-                : pendingUserCount > 1
-                  ? `Включить ИИ и ответить (${pendingUserCount})`
-                  : 'Включить ИИ и ответить'}
+              {syncingHistory ? 'Собираю…' : 'Подтянуть историю из WhatsApp'}
             </button>
+            {awaitingBot && (
+              <button
+                type="button"
+                className="btn btn--primary chat-panel__catchup-btn"
+                onClick={handleEnableAiAndReply}
+                disabled={catchingUp || syncingHistory}
+              >
+                {catchingUp
+                  ? 'Собираю сообщения и отвечаю…'
+                  : pendingUserCount > 1
+                    ? `Включить ИИ и ответить (${pendingUserCount})`
+                    : 'Включить ИИ и ответить'}
+              </button>
+            )}
           </div>
-        )}
+        </div>
 
         <form className="chat-panel__composer" onSubmit={handleSend}>
           <textarea

@@ -331,12 +331,97 @@ function getClient(id) {
   return mapUserRow(row);
 }
 
+/** Все user.id, у которых телефон совпадает с digits (resolvedPhone / phone / id@c.us). */
+function findUserIdsByPhone(phoneDigits) {
+  const digits = normalizePhoneDigits(phoneDigits);
+  if (!digits) return [];
+  const database = getDb();
+  const rows = database
+    .prepare(`SELECT id, phone, wa_meta FROM users`)
+    .all();
+  const ids = [];
+  for (const row of rows) {
+    let waMeta = {};
+    try {
+      waMeta = row.wa_meta ? JSON.parse(row.wa_meta) : {};
+    } catch {
+      waMeta = {};
+    }
+    const fromMeta = normalizePhoneDigits(waMeta.resolvedPhone);
+    const fromPhone = normalizePhoneDigits(row.phone);
+    const fromId = String(row.id || '').endsWith('@c.us')
+      ? normalizePhoneDigits(row.id)
+      : '';
+    if (fromMeta === digits || fromPhone === digits || fromId === digits) {
+      ids.push(String(row.id));
+    }
+  }
+  const phoneId = `${digits}@c.us`;
+  if (!ids.includes(phoneId)) {
+    const exists = database.prepare(`SELECT 1 AS ok FROM users WHERE id = ?`).get(phoneId);
+    if (exists) ids.push(phoneId);
+  }
+  return ids;
+}
+
+/**
+ * LID и @c.us одного человека — разные id в WA/БД.
+ * Возвращает все известные alias id для объединения истории.
+ */
+function getChatAliases(chatId) {
+  const id = String(chatId || '');
+  if (!id) return [];
+  const aliases = new Set([id]);
+  const client = getClient(id);
+  const digits =
+    normalizePhoneDigits(client?.waMeta?.resolvedPhone) ||
+    normalizePhoneDigits(client?.phone) ||
+    (id.endsWith('@c.us') ? normalizePhoneDigits(id) : '');
+
+  if (digits) {
+    aliases.add(`${digits}@c.us`);
+    for (const other of findUserIdsByPhone(digits)) {
+      aliases.add(other);
+    }
+  }
+  return [...aliases];
+}
+
+/**
+ * Куда писать импорт: в уже существующий чат панели (часто @lid), а не в новый @c.us.
+ */
+function resolveImportChatId(snapChatId, phoneDigits) {
+  const snapId = String(snapChatId || '');
+  const digits =
+    normalizePhoneDigits(phoneDigits) ||
+    (snapId.endsWith('@c.us') || snapId.endsWith('@s.whatsapp.net')
+      ? normalizePhoneDigits(snapId)
+      : '');
+
+  if (digits) {
+    const matches = findUserIdsByPhone(digits);
+    if (matches.length) {
+      // Предпочитаем уже существующий @lid (как в панели catch-up), иначе первый match.
+      const lid = matches.find((x) => /@lid$/i.test(x));
+      if (lid) return lid;
+      if (matches.includes(snapId)) return snapId;
+      return matches[0];
+    }
+  }
+
+  if (getClient(snapId)) return snapId;
+  return snapId;
+}
+
 module.exports = {
   CLIENTS_PATH,
   recordClientMessage,
   updateClientLanguage,
   updateClientResolvedPhone,
   normalizePhoneDigits,
+  findUserIdsByPhone,
+  getChatAliases,
+  resolveImportChatId,
   listClients,
   getClient,
   resolveClientsPath,

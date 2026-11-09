@@ -84,36 +84,72 @@ function recordMessage(chatId, payload = {}) {
 }
 
 function getMessages(chatId, { excludeAssistant = false } = {}) {
-  const id = String(chatId);
+  const { getChatAliases } = require('./clients-store');
+  const aliases = getChatAliases(chatId);
+  const ids = aliases.length ? aliases : [String(chatId)];
+  const placeholders = ids.map(() => '?').join(', ');
   let rows;
   if (excludeAssistant) {
     rows = getDb()
       .prepare(
         `SELECT * FROM messages
-         WHERE user_id = ? AND role != 'assistant'
+         WHERE user_id IN (${placeholders}) AND role != 'assistant'
          ORDER BY created_at ASC, rowid ASC`
       )
-      .all(id);
+      .all(...ids);
   } else {
     rows = getDb()
       .prepare(
         `SELECT * FROM messages
-         WHERE user_id = ?
+         WHERE user_id IN (${placeholders})
          ORDER BY created_at ASC, rowid ASC`
       )
-      .all(id);
+      .all(...ids);
   }
 
-  return rows.map((m) => ({
-    id: m.id,
-    role: m.role,
-    text: m.body,
-    kind: m.kind || 'text',
-    language: m.language || null,
-    managerId: m.manager_id || '',
-    managerName: m.manager_name || '',
-    at: m.created_at,
-  }));
+  // Дедуп: один wa_message_id мог попасть и в @lid, и в @c.us
+  const seenWa = new Set();
+  const seenSoft = new Set();
+  const out = [];
+  for (const m of rows) {
+    const wa = String(m.wa_message_id || '').trim();
+    if (wa) {
+      if (seenWa.has(wa)) continue;
+      seenWa.add(wa);
+    } else {
+      const soft = `${m.role}|${String(m.body || '').slice(0, 200)}|${m.created_at || ''}`;
+      if (seenSoft.has(soft)) continue;
+      seenSoft.add(soft);
+    }
+    out.push({
+      id: m.id,
+      role: m.role,
+      text: m.body,
+      kind: m.kind || 'text',
+      language: m.language || null,
+      managerId: m.manager_id || '',
+      managerName: m.manager_name || '',
+      at: m.created_at,
+    });
+  }
+  return out;
+}
+
+/** Перенести сообщения alias-чатов в primaryId (после резолва LID↔телефон). */
+function mergeMessagesIntoChat(primaryChatId, aliasChatIds = []) {
+  const primary = String(primaryChatId || '');
+  if (!primary) return 0;
+  const database = getDb();
+  let moved = 0;
+  for (const alias of aliasChatIds || []) {
+    const from = String(alias || '');
+    if (!from || from === primary) continue;
+    const info = database
+      .prepare(`UPDATE messages SET user_id = ? WHERE user_id = ?`)
+      .run(primary, from);
+    moved += info.changes || 0;
+  }
+  return moved;
 }
 
 function getLastActivityAt(chatId) {
@@ -302,6 +338,7 @@ module.exports = {
   CONVERSATIONS_PATH,
   recordMessage,
   getMessages,
+  mergeMessagesIntoChat,
   getLastActivityAt,
   hasWaMessageId,
   hasSimilarUserMessage,

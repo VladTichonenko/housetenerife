@@ -162,6 +162,12 @@ export const api = {
       body: JSON.stringify(body),
       timeoutMs: 90000,
     }),
+  syncChatMissed: (chatId) =>
+    request(`/api/admin/chats/${encodeURIComponent(chatId)}/sync-missed`, {
+      method: 'POST',
+      body: '{}',
+      timeoutMs: 90000,
+    }),
   catchUpChat: (chatId) =>
     request(`/api/admin/chats/${encodeURIComponent(chatId)}/catch-up`, {
       method: 'POST',

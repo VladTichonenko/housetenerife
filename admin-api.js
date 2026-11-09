@@ -436,6 +436,36 @@ function registerAdminRoutes(app, state) {
     }
   });
 
+  app.post('/api/admin/chats/:chatId/sync-missed', requireAdmin, async (req, res) => {
+    try {
+      const chatId = decodeURIComponent(req.params.chatId);
+      if (typeof state.syncOneChatMissedFromWhatsApp !== 'function') {
+        return res.status(501).json({ success: false, message: 'Синхронизация чата недоступна' });
+      }
+      const result = await state.syncOneChatMissedFromWhatsApp(chatId);
+      if (result?.skipped) {
+        return res.status(503).json({
+          success: false,
+          message: 'WhatsApp сейчас занят — повторите через минуту',
+        });
+      }
+      const messages = getMessages(chatId);
+      res.json({
+        success: true,
+        chatId,
+        imported: result?.imported || 0,
+        scanned: result?.scanned || 0,
+        messageCount: messages.length,
+        message:
+          (result?.imported || 0) > 0
+            ? `Подтянуто ${result.imported} сообщ. из WhatsApp`
+            : 'Новых сообщений из WhatsApp нет — показана текущая история',
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
   app.post('/api/admin/chats/:chatId/catch-up', requireAdmin, async (req, res) => {
     try {
       const chatId = decodeURIComponent(req.params.chatId);

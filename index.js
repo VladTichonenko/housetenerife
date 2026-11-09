@@ -2617,6 +2617,7 @@ async function fetchMissedInboundSnapshots({
   maxItems,
   perChatLimit = 80,
   focusChatId = '',
+  focusChatIds = [],
   budgetMs = 45000,
 }) {
   if (!client?.pupPage) {
@@ -2625,8 +2626,16 @@ async function fetchMissedInboundSnapshots({
     });
   }
 
+  const focusList = [
+    ...new Set(
+      [...(focusChatIds || []), focusChatId]
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    ),
+  ];
+
   return client.pupPage.evaluate(
-    async (ageLimitMs, maxTotal, perChat, focusId, deadlineAt) => {
+    async (ageLimitMs, maxTotal, perChat, focusIds, deadlineAt) => {
       const collections = window.require?.('WAWebCollections');
       if (!collections) throw new Error('WAWebCollections unavailable');
 
@@ -2640,6 +2649,8 @@ async function fetchMissedInboundSnapshots({
       const seen = new Set();
       const out = [];
       const chatIds = new Set();
+      const focusSet = new Set((focusIds || []).filter(Boolean));
+      const hasFocus = focusSet.size > 0;
 
       const isDmRemote = (remote) =>
         typeof remote === 'string' &&
@@ -2702,6 +2713,40 @@ async function fetchMissedInboundSnapshots({
         return digits;
       };
 
+      const matchesFocus = (remote) => {
+        if (!hasFocus) return true;
+        if (focusSet.has(remote)) return true;
+        const digits = resolvePhoneDigits(remote);
+        if (!digits) return false;
+        for (const focus of focusSet) {
+          if (focus.endsWith('@c.us') || focus.endsWith('@s.whatsapp.net')) {
+            if (focus.replace(/@.*$/, '').replace(/\D/g, '') === digits) return true;
+          }
+          if (focusSet.has(`${digits}@c.us`)) return true;
+        }
+        return false;
+      };
+
+      const extractBody = (message) => {
+        const raw =
+          message?.body ||
+          message?.caption ||
+          message?.text ||
+          message?.matchedText ||
+          message?._data?.body ||
+          message?._data?.caption ||
+          message?._data?.matchedText ||
+          (Array.isArray(message?.links) && (message.links[0]?.link || message.links[0]?.url)) ||
+          (Array.isArray(message?._data?.links) &&
+            (message._data.links[0]?.link || message._data.links[0]?.url)) ||
+          '';
+        const text = String(raw || '').trim();
+        if (text) return text.slice(0, 4000);
+        const type = String(message?.type || 'chat');
+        if (type && type !== 'chat') return `[${type}]`;
+        return '';
+      };
+
       const pushMsg = (message) => {
         if (!message?.id || message.id.fromMe || message.isStatusV3) return false;
         const timestamp = Number(message.t || message.timestamp || 0);
@@ -2712,7 +2757,7 @@ async function fetchMissedInboundSnapshots({
           message.id.remote ??
           '';
         if (!isDmRemote(remote)) return false;
-        if (focusId && remote !== focusId) return false;
+        if (!matchesFocus(remote)) return false;
 
         const serialized =
           message.id._serialized ||
@@ -2721,13 +2766,8 @@ async function fetchMissedInboundSnapshots({
         if (!serialized || seen.has(serialized)) return false;
         seen.add(serialized);
 
-        const body = String(
-          message.body ||
-            message.caption ||
-            message.text ||
-            (message.type && message.type !== 'chat' ? `[${message.type}]` : '') ||
-            ''
-        ).slice(0, 4000);
+        const body = extractBody(message);
+        if (!body) return false;
 
         out.push({
           waMessageId: serialized,
@@ -2751,10 +2791,10 @@ async function fetchMissedInboundSnapshots({
           chat.id?.$1 ||
           (typeof chat.id === 'string' ? chat.id : '');
         if (!isDmRemote(id)) return;
-        if (focusId && id !== focusId) return;
+        if (!matchesFocus(id)) return;
 
-        // Догружаем историю чата вглубь, пока не дойдём до начала окна (cutoff),
-        // пока WhatsApp отдаёт более ранние сообщения или не выйдет бюджет времени.
+        // Догружаем историю чата вглубь — без короткого Promise.race,
+        // который раньше обрывал загрузку и оставлял только хвост.
         try {
           const loadEarlier =
             (typeof chat.loadEarlierMsgs === 'function' && chat.loadEarlierMsgs.bind(chat)) ||
@@ -2776,7 +2816,7 @@ async function fetchMissedInboundSnapshots({
               }
               return min;
             };
-            const maxPasses = focusId ? 25 : 12;
+            const maxPasses = hasFocus ? 40 : 16;
             for (let p = 0; p < maxPasses; p += 1) {
               if (Date.now() > deadlineAt) break;
               const oldest = oldestT();
@@ -2785,13 +2825,12 @@ async function fetchMissedInboundSnapshots({
               const before = countMsgs();
               try {
                 // eslint-disable-next-line no-await-in-loop
-                await Promise.race([
-                  loadEarlier(),
-                  new Promise((resolve) => setTimeout(resolve, 2500)),
-                ]);
+                await loadEarlier();
               } catch {
                 break;
               }
+              // eslint-disable-next-line no-await-in-loop
+              await new Promise((resolve) => setTimeout(resolve, 80));
               if (countMsgs() <= before) break;
             }
           }
@@ -2820,7 +2859,7 @@ async function fetchMissedInboundSnapshots({
           message.id.remote?.$1 ??
           message.id.remote ??
           '';
-        if (isDmRemote(remote) && (!focusId || remote === focusId)) {
+        if (isDmRemote(remote) && matchesFocus(remote)) {
           chatIds.add(remote);
           pushMsg(message);
         }
@@ -2844,12 +2883,12 @@ async function fetchMissedInboundSnapshots({
               chat.id?.$1 ||
               (typeof chat.id === 'string' ? chat.id : '');
             if (!isDmRemote(id)) continue;
-            if (focusId && id !== focusId) continue;
+            if (!matchesFocus(id)) continue;
 
             const unread = Number(chat.unreadCount || 0);
             const lastT = chatTime(chat);
             // Пропускаем только чаты, где точно нет активности в окне
-            if (!focusId && lastT > 0 && lastT < cutoffSeconds && unread <= 0 && !chatIds.has(id)) {
+            if (!hasFocus && lastT > 0 && lastT < cutoffSeconds && unread <= 0 && !chatIds.has(id)) {
               continue;
             }
 
@@ -2860,13 +2899,15 @@ async function fetchMissedInboundSnapshots({
           }
         }
 
-        // Focus: Chat.get(id) если не нашли в массиве
-        if (focusId && Chat.get) {
-          try {
-            const focused = Chat.get(focusId);
-            if (focused) await collectFromChat(focused);
-          } catch {
-            /* ignore */
+        // Focus: Chat.get(id) для каждого alias, если не нашли в массиве
+        if (hasFocus && Chat.get) {
+          for (const focusId of focusSet) {
+            try {
+              const focused = Chat.get(focusId);
+              if (focused) await collectFromChat(focused);
+            } catch {
+              /* ignore */
+            }
           }
         }
       }
@@ -2878,7 +2919,7 @@ async function fetchMissedInboundSnapshots({
     maxAgeMs,
     maxItems,
     perChatLimit,
-    String(focusChatId || ''),
+    focusList,
     Date.now() + Math.max(5000, budgetMs)
   );
 }
@@ -2887,31 +2928,43 @@ async function fetchMissedInboundSnapshots({
 function importMissedSnapshots(snapshots = []) {
   let imported = 0;
   const touched = new Map();
-  const { updateClientResolvedPhone } = require('./clients-store');
+  const {
+    updateClientResolvedPhone,
+    resolveImportChatId,
+    getChatAliases,
+  } = require('./clients-store');
+  const { mergeMessagesIntoChat } = require('./conversation-store');
 
   // Даже для уже известных сообщений сохраняем найденный MSISDN у @lid.
   for (const snap of snapshots || []) {
-    const chatId = String(snap.chatId || '');
+    const rawChatId = String(snap.chatId || '');
     const phoneDigits = String(snap.phoneDigits || '').replace(/\D/g, '');
-    if (!chatId || !phoneDigits) continue;
+    if (!rawChatId || !phoneDigits) continue;
     try {
-      updateClientResolvedPhone(chatId, phoneDigits, {
+      const targetId = resolveImportChatId(rawChatId, phoneDigits);
+      updateClientResolvedPhone(targetId, phoneDigits, {
         notifyName: snap.notifyName || '',
       });
+      if (rawChatId !== targetId) {
+        updateClientResolvedPhone(rawChatId, phoneDigits, {
+          notifyName: snap.notifyName || '',
+        });
+      }
     } catch {
       /* ignore */
     }
   }
 
   for (const snap of snapshots || []) {
-    const chatId = String(snap.chatId || '');
+    const rawChatId = String(snap.chatId || '');
     const waMessageId = String(snap.waMessageId || '');
-    if (!chatId || !waMessageId) continue;
+    if (!rawChatId || !waMessageId) continue;
     if (hasWaMessageId(waMessageId)) {
       processedMessageIds.set(waMessageId, Date.now());
       continue;
     }
 
+    const chatId = resolveImportChatId(rawChatId, snap.phoneDigits || '');
     const text =
       String(snap.body || '').trim() ||
       (snap.type && snap.type !== 'chat' ? `[${snap.type}]` : '');
@@ -3001,6 +3054,16 @@ function importMissedSnapshots(snapshots = []) {
       language: detectedLang,
       texts,
     });
+  }
+
+  // Склеить разрозненные @lid / @c.us истории в один чат панели.
+  for (const chatId of touched.keys()) {
+    try {
+      const aliases = getChatAliases(chatId);
+      mergeMessagesIntoChat(chatId, aliases);
+    } catch {
+      /* ignore */
+    }
   }
 
   for (const [chatId, info] of touched.entries()) {
@@ -3334,6 +3397,18 @@ async function syncOneChatMissedFromWhatsApp(chatId) {
     return { imported: 0, scanned: 0, skipped: true };
   }
 
+  const { getChatAliases } = require('./clients-store');
+  const { mergeMessagesIntoChat } = require('./conversation-store');
+  let focusIds = getChatAliases(id);
+  if (isLidChatId(id)) {
+    try {
+      await ensureLidPhoneResolved(id);
+      focusIds = getChatAliases(id);
+    } catch {
+      /* ignore */
+    }
+  }
+
   const maxAgeMs = Math.max(
     60 * 60 * 1000,
     parseInt(process.env.CATCHUP_MAX_AGE_MS, 10) || 30 * 24 * 60 * 60 * 1000
@@ -3343,11 +3418,11 @@ async function syncOneChatMissedFromWhatsApp(chatId) {
     Math.max(40, parseInt(process.env.CATCHUP_PER_CHAT_LIMIT, 10) || 200)
   );
   const softTimeoutMs = Math.max(
-    15000,
-    parseInt(process.env.CATCHUP_SYNC_TIMEOUT_MS, 10) || 45000
+    20000,
+    parseInt(process.env.CATCHUP_SYNC_TIMEOUT_MS, 10) || 60000
   );
 
-  pauseMessagePolling(Math.min(softTimeoutMs + 5000, 60000));
+  pauseMessagePolling(Math.min(softTimeoutMs + 5000, 70000));
   try {
     const snapshots = await runExclusiveCdp(
       `admin.syncMissedChat:${id}`,
@@ -3357,23 +3432,22 @@ async function syncOneChatMissedFromWhatsApp(chatId) {
           maxItems: perChatLimit * 2,
           perChatLimit,
           focusChatId: id,
-          budgetMs: softTimeoutMs - 10000,
+          focusChatIds: focusIds,
+          budgetMs: softTimeoutMs - 8000,
         }),
       softTimeoutMs
     );
     const { imported } = importMissedSnapshots(snapshots);
-    if (conversationHistory.has(id)) conversationHistory.delete(id);
-    if (isLidChatId(id)) {
-      try {
-        await ensureLidPhoneResolved(id);
-      } catch {
-        /* ignore */
-      }
+    try {
+      mergeMessagesIntoChat(id, getChatAliases(id));
+    } catch {
+      /* ignore */
     }
+    if (conversationHistory.has(id)) conversationHistory.delete(id);
     console.log(
-      `📥 Sync one chat ${id}: scanned=${(snapshots || []).length}, imported=${imported}`
+      `📥 Sync one chat ${id}: scanned=${(snapshots || []).length}, imported=${imported}, focus=${focusIds.join('|')}`
     );
-    return { imported, scanned: (snapshots || []).length };
+    return { imported, scanned: (snapshots || []).length, focusIds };
   } finally {
     resumeMessagePollingSoon(8000);
   }
@@ -5597,6 +5671,7 @@ registerAdminRoutes(app, {
   logoutWhatsAppSession,
   sendManagerMessage,
   syncMissedChatsFromWhatsApp,
+  syncOneChatMissedFromWhatsApp,
   catchUpBotReply,
   listCatchUpInbox,
   ensureLidPhoneResolved,

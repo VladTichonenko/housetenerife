@@ -1201,16 +1201,35 @@ textarea {
   line-height: 1.4;
 }
 
+.modal--chat .chat-panel__catchup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .modal--chat .chat-panel__catchup-btn {
   width: 100%;
   justify-content: center;
+}
+
+.modal--chat .chat-panel__catchup-btn.btn--primary {
   background: #00a884;
   border-color: #00a884;
 }
 
-.modal--chat .chat-panel__catchup-btn:hover:not(:disabled) {
+.modal--chat .chat-panel__catchup-btn.btn--primary:hover:not(:disabled) {
   background: #06cf9c;
   border-color: #06cf9c;
+}
+
+.modal--chat .chat-panel__catchup-btn.btn--outline {
+  background: transparent;
+  border: 1px solid rgba(134, 150, 160, 0.45);
+  color: #e9edef;
+}
+
+.modal--chat .chat-panel__catchup-btn.btn--outline:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 body.chat-fullscreen-open {
