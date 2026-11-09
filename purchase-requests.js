@@ -179,7 +179,13 @@ function upsertPurchaseRequestFromDialog(payload) {
           ? false
           : item?.needsMortgage ?? null,
     financeStage,
-    budget: dialog.budgetLabel || dialog.budget || item?.budget || null,
+    budget:
+      dialog.budgetLabel ||
+      (typeof dialog.budget === 'string' || typeof dialog.budget === 'number'
+        ? dialog.budget
+        : '') ||
+      (typeof item?.budget === 'string' || typeof item?.budget === 'number' ? item.budget : '') ||
+      null,
     region: dialog.regionLabel || item?.region || '',
     propertyType: dialog.propertyTypeLabel || item?.propertyType || '',
     businessSector: dialog.businessSectorLabel || item?.businessSector || '',

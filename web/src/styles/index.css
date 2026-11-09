@@ -305,6 +305,12 @@ textarea {
   overflow-y: auto;
 }
 
+.modal__dialog--wide.handoff-modal,
+.modal__dialog--wide.purchase-modal {
+  max-width: min(720px, calc(100vw - 32px));
+  padding: 28px 28px 24px;
+}
+
 .modal--chat .modal__dialog--wide {
   max-width: min(1040px, calc(100vw - 24px));
   max-height: none;
@@ -1690,6 +1696,31 @@ body.chat-fullscreen-open {
   margin: 6px 0 10px;
   font-size: 0.8125rem;
   max-width: 36ch;
+}
+
+.purchase-modal .handoff-modal__meta-row,
+.purchase-modal .handoff-modal__top {
+  margin-bottom: 16px;
+}
+
+.purchase-modal .property-links__list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+
+.purchase-modal .property-links__item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: baseline;
+  padding: 12px 14px;
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
 }
 
 .lead-table-wrap {

@@ -13,6 +13,16 @@ const STATUS_LABELS = {
   closed: 'Завершена',
 };
 
+const FINANCE_STAGE_LABELS = {
+  NEED_FUNDS_NOW: 'Уточнение средств на руках',
+  NEED_MORTGAGE: 'Нужна ли ипотека',
+  FINANCE_DOCUMENTS: 'Документы / ипотека',
+  FINANCE_DOCUMENTS_CASH: 'Документы / оплата наличными',
+  PROPERTY_SELECTED: 'Объект выбран',
+  OFFER_MANAGER_CALL: 'Предложен созвон',
+  PROPERTY_CLOSING: 'Закрытие сделки',
+};
+
 const FILTERS = [
   { id: 'open', label: 'Открытые' },
   { id: 'draft', label: 'Черновики' },
@@ -20,6 +30,35 @@ const FILTERS = [
   { id: 'handed_off', label: 'У менеджера' },
   { id: 'closed', label: 'Завершённые' },
 ];
+
+function displayText(value) {
+  if (value == null || value === '') return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(displayText).filter(Boolean).join(', ');
+  }
+  if (typeof value === 'object') {
+    if (value.label) return displayText(value.label);
+    if (value.text) return displayText(value.text);
+    if (value.min != null || value.max != null) {
+      const min = value.min != null ? String(value.min) : '';
+      const max = value.max != null ? String(value.max) : '';
+      if (min && max) return `${min}–${max}`;
+      return min || max;
+    }
+    if (value.amount != null) return String(value.amount);
+  }
+  return '';
+}
+
+function criteriaLine(item) {
+  return [item.propertyType, item.businessSector, item.region, item.budget]
+    .map(displayText)
+    .filter(Boolean)
+    .join(' · ');
+}
 
 function PropertyLinks({ properties }) {
   if (!properties?.length) return <span className="muted">Объект не указан</span>;
@@ -82,34 +121,31 @@ function DetailModal({ id, onClose, onUpdated, onOpenChat }) {
   };
 
   return (
-    <div className="modal-overlay" role="presentation" onClick={onClose}>
-      <div
-        className="handoff-modal purchase-modal"
-        role="dialog"
-        aria-modal="true"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="handoff-modal__head">
-          <h3>Запрос на покупку</h3>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Закрыть">
-            <IconClose />
-          </button>
-        </div>
+    <div className="modal" role="dialog" aria-modal="true" aria-labelledby="purchase-modal-title">
+      <button type="button" className="modal__backdrop" onClick={onClose} aria-label="Закрыть" />
+      <div className="modal__dialog modal__dialog--wide handoff-modal purchase-modal">
+        <button type="button" className="modal__close" onClick={onClose} aria-label="Закрыть">
+          <IconClose />
+        </button>
 
         {loading ? (
-          <p className="muted">Загрузка…</p>
+          <p className="handoff-modal__loading">Загрузка…</p>
         ) : error && !item ? (
           <p className="form-error">{error}</p>
         ) : item ? (
           <>
-            <div className="handoff-modal__meta">
+            <div className="handoff-modal__top">
+              <div>
+                <h2 id="purchase-modal-title" className="modal__title">
+                  Запрос на покупку
+                </h2>
+                <p className="modal__subtitle">
+                  {[item.languageLabel, formatDate(item.updatedAt)].filter(Boolean).join(' · ')}
+                </p>
+              </div>
               <span className={`lead-status lead-status--${item.status}`}>
                 {item.statusLabel || STATUS_LABELS[item.status] || item.status}
               </span>
-              {item.languageLabel && (
-                <span className="purchase-modal__lang">{item.languageLabel}</span>
-              )}
-              <span>{formatDate(item.updatedAt)}</span>
             </div>
 
             <div className="handoff-modal__block">
@@ -134,21 +170,21 @@ function DetailModal({ id, onClose, onUpdated, onOpenChat }) {
 
             <div className="handoff-modal__block">
               <span className="handoff-modal__label">Критерии</span>
-              <p>
-                {[item.propertyType, item.businessSector, item.region, item.budget]
-                  .filter(Boolean)
-                  .join(' · ') || '—'}
-              </p>
+              <p>{criteriaLine(item) || '—'}</p>
             </div>
 
             <div className="handoff-modal__block">
               <span className="handoff-modal__label">Финансы</span>
               <p>
-                {item.fundsNowLabel || '—'}
+                {displayText(item.fundsNowLabel) || '—'}
                 {item.needsMortgage === true && ' · нужна ипотека'}
                 {item.needsMortgage === false && ' · без ипотеки'}
               </p>
-              {item.financeStage && <p className="muted">Этап: {item.financeStage}</p>}
+              {item.financeStage && (
+                <p className="muted">
+                  Этап: {FINANCE_STAGE_LABELS[item.financeStage] || item.financeStage}
+                </p>
+              )}
             </div>
 
             {item.preview && (
