@@ -1298,6 +1298,35 @@ if (isRailway && !path.isAbsolute(sessionPath)) {
   console.log('💾 Railway Volume: сессия WhatsApp сохраняется на /data');
 }
 
+/**
+ * После редеплоя на Railway контейнер меняет hostname, а Volume хранит старые
+ * Singleton{Lock,Cookie,Socket} Chromium → «profile appears to be in use by another
+ * Chromium process on another computer» и клиент не стартует. Перед запуском (когда
+ * в этом контейнере Chromium ещё не работает) чистим эти файлы. Это симлинки — lstat/rm.
+ */
+function clearChromiumProfileLocks() {
+  const dirs = [
+    path.join(sessionPath, 'session-housetenerife-wa'),
+    path.join(sessionPath, 'session-housetenerife-wa', 'Default')
+  ];
+  const names = ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'DevToolsActivePort'];
+  let removed = 0;
+  for (const dir of dirs) {
+    for (const name of names) {
+      const p = path.join(dir, name);
+      try {
+        fs.lstatSync(p);
+        fs.rmSync(p, { force: true, recursive: true });
+        removed++;
+      } catch {
+        /* нет файла */
+      }
+    }
+  }
+  if (removed) console.log(`🧹 Chromium: удалено lock-файлов профиля: ${removed}`);
+  return removed;
+}
+
 logPuppeteerDiagnostics();
 console.log(
   '🔧 WA runtime: cdp-mutex-v13 | drain-send | force-reload-on-send-fail | no dual Chrome'
@@ -6285,8 +6314,19 @@ const server = app.listen(BOT_PORT, '0.0.0.0', async () => {
     console.log('⏳ Это может занять некоторое время...');
     console.log('💡 HTTP сервер уже работает, Railway не завершит процесс');
     
-    client.initialize().catch(error => {
+    clearChromiumProfileLocks();
+    client.initialize().catch(async error => {
       console.error('❌ Ошибка инициализации клиента:', error);
+      if (/profile appears to be in use|SingletonLock|ProcessSingleton/i.test(String(error?.message || error))) {
+        const n = clearChromiumProfileLocks();
+        console.warn(`🔁 Повторный запуск WhatsApp после очистки lock-файлов (${n})`);
+        try {
+          await client.initialize();
+          return;
+        } catch (retryErr) {
+          console.error('❌ Повторная инициализация не удалась:', retryErr);
+        }
+      }
       console.error('⚠️ HTTP сервер продолжает работать, но WhatsApp бот недоступен');
       console.error('💡 Проверьте логи выше для деталей ошибки');
       console.error('💡 Если это ошибка авторизации - отсканируйте QR-код через веб-интерфейс');
