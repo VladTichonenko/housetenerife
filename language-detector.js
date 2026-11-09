@@ -730,6 +730,18 @@ function detectLanguageFromText(text) {
 }
 
 /**
+ * The website chat asks for name + phone before the first message and sends them
+ * as a small form summary in the PAGE language ("Name: Anna\nTelefon: +34 ...").
+ * Those lines carry no language signal of their own (proper name + digits +
+ * a field label), so the detector used to guess fr/nl/ru from them.
+ */
+function isContactGateMessage(text) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 300) return false;
+  return /^[^\n:]{2,30}:[^\n]{1,80}\n[^\n:]{2,30}:\s*\+?[\d\s().-]{6,}(?:\n[^\n:]{2,40}:[^\n]{1,40})?$/.test(t);
+}
+
+/**
  * Resolve the reply language from CLIENT messages only.
  * Ambiguous short messages inherit the latest substantive client language,
  * not a possibly corrupted sticky value.
@@ -744,12 +756,17 @@ function resolveConversationLanguage({
   let historyLanguage = null;
   for (let i = (historyTexts || []).length - 1; i >= 0; i -= 1) {
     const text = String(historyTexts[i] || '').trim();
-    if (!text || text.startsWith('[') || isAmbiguousShortReply(text)) continue;
+    if (!text || text.startsWith('[') || isContactGateMessage(text) || isAmbiguousShortReply(text)) continue;
     historyLanguage = detectLanguageFromText(text);
     if (historyLanguage) break;
   }
 
   if (!current) return historyLanguage || sticky || fallback || 'en';
+
+  // Name/phone gate of the website chat: language comes from the page, not the text.
+  if (isContactGateMessage(current)) {
+    return fallback || sticky || historyLanguage || 'en';
+  }
 
   // «English please» / «по-немецки пожалуйста» — явная просьба важнее sticky языка страницы
   const explicitRequest = detectExplicitLanguageRequest(current);
@@ -785,6 +802,7 @@ function getLanguageName(langCode) {
 
 module.exports = {
   detectLanguageFromText,
+  isContactGateMessage,
   getLanguageName,
   isAmbiguousShortReply,
   isStrongLanguageSignal,
