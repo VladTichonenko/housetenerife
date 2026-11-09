@@ -9,9 +9,17 @@ const FILTERS = [
   { id: 'all', label: 'Все чаты' },
 ];
 
+function isWhatsAppIdLabel(value) {
+  return /whatsapp id/i.test(String(value || ''));
+}
+
 function contactLabel(item) {
-  if (item.name) return item.name;
-  if (item.chatName) return item.chatName;
+  const phone = item.phoneDisplay && !isWhatsAppIdLabel(item.phoneDisplay) ? item.phoneDisplay : '';
+  const name = item.name && !isWhatsAppIdLabel(item.name) ? item.name : '';
+  const chatName = item.chatName && !isWhatsAppIdLabel(item.chatName) ? item.chatName : '';
+  if (name) return name;
+  if (chatName) return chatName;
+  if (phone) return phone;
   if (item.phoneDisplay) return item.phoneDisplay;
   return item.chatId || '—';
 }
@@ -251,7 +259,11 @@ export default function ChatsSection({ showToast }) {
         <ChatPanel
           chatId={selectedChatId}
           title={contactLabel(selected || { chatId: selectedChatId })}
-          subtitle={selected?.phoneDisplay || selectedChatId}
+          subtitle={
+            selected?.phoneDisplay && !isWhatsAppIdLabel(selected.phoneDisplay)
+              ? selected.phoneDisplay
+              : selected?.phoneDisplay || selectedChatId
+          }
           needsCatchUp={Boolean(selected?.needsCatchUp || selected?.aiDisabled)}
           showToast={showToast}
           onCatchUpDone={() => load()}

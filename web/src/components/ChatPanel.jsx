@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { IconClose } from './Icons';
 
@@ -13,6 +13,51 @@ function formatDate(iso) {
     });
   } catch {
     return iso;
+  }
+}
+
+function formatBubbleTime(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleTimeString('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
+
+function formatDayLabel(iso) {
+  if (!iso) return '';
+  try {
+    const date = new Date(iso);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+    const sameDay = (a, b) =>
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate();
+    if (sameDay(date, today)) return 'Сегодня';
+    if (sameDay(date, yesterday)) return 'Вчера';
+    return date.toLocaleDateString('ru-RU', {
+      day: 'numeric',
+      month: 'long',
+      year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined,
+    });
+  } catch {
+    return '';
+  }
+}
+
+function dayKey(iso) {
+  if (!iso) return 'unknown';
+  try {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  } catch {
+    return String(iso);
   }
 }
 
@@ -39,6 +84,18 @@ function bubbleLabel(m) {
   if (m.role === 'manager') return m.managerName || 'Менеджер';
   if (m.role === 'assistant') return 'Бот';
   return 'Клиент';
+}
+
+function initialsFrom(name) {
+  const parts = String(name || '')
+    .replace(/[^\p{L}\p{N}\s+]/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts[0].startsWith('+')) return '#';
+  const letters = parts.slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('');
+  return letters || '?';
 }
 
 function lastMessageNeedsBotReply(messages) {
@@ -98,6 +155,14 @@ function PropertyLinks({ properties, compact = false }) {
   );
 }
 
+function IconSend() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z" />
+    </svg>
+  );
+}
+
 export default function ChatPanel({
   chatId,
   title,
@@ -118,6 +183,7 @@ export default function ChatPanel({
   const [error, setError] = useState('');
   const [catchUpDone, setCatchUpDone] = useState(false);
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   const load = useCallback(async () => {
     if (!chatId) return;
@@ -162,6 +228,42 @@ export default function ChatPanel({
   const awaitingBot =
     !catchUpDone && (needsCatchUp || lastMessageNeedsBotReply(messages));
 
+  const resolvedPhone =
+    client?.phoneDisplay && !/whatsapp id/i.test(client.phoneDisplay)
+      ? client.phoneDisplay
+      : '';
+  const displayTitle =
+    (client?.name && !/whatsapp id/i.test(client.name) ? client.name : '') ||
+    (client?.chatName && !/whatsapp id/i.test(client.chatName) ? client.chatName : '') ||
+    resolvedPhone ||
+    (title && !/whatsapp id/i.test(title) ? title : '') ||
+    title ||
+    client?.phoneDisplay ||
+    chatId;
+  const displaySubtitle =
+    resolvedPhone && resolvedPhone !== displayTitle
+      ? resolvedPhone
+      : subtitle && !/whatsapp id/i.test(subtitle)
+        ? subtitle
+        : resolvedPhone && resolvedPhone === displayTitle
+          ? ''
+          : subtitle || '';
+
+  const timeline = useMemo(() => {
+    const rows = [];
+    let lastDay = '';
+    for (const m of messages) {
+      const key = dayKey(m.at);
+      if (key !== lastDay) {
+        const label = formatDayLabel(m.at);
+        if (label) rows.push({ type: 'day', id: `day-${key}`, label });
+        lastDay = key;
+      }
+      rows.push({ type: 'msg', id: m.id || `${m.at}-${m.role}-${rows.length}`, message: m });
+    }
+    return rows;
+  }, [messages]);
+
   const handleSend = async (e) => {
     e.preventDefault();
     const trimmed = text.trim();
@@ -172,10 +274,20 @@ export default function ChatPanel({
       setText('');
       setSettings(data.settings || settings);
       await load();
+      inputRef.current?.focus();
     } catch (err) {
       setError(err.message || 'Не удалось отправить');
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleComposerKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!sending && !catchingUp && text.trim()) {
+        e.currentTarget.form?.requestSubmit();
+      }
     }
   };
 
@@ -210,39 +322,58 @@ export default function ChatPanel({
           <button type="button" className="chat-panel__back" onClick={onClose} aria-label="Назад">
             ←
           </button>
+          <div className="chat-panel__avatar" aria-hidden>
+            {initialsFrom(displayTitle)}
+          </div>
           <div className="chat-panel__topbar-info">
             <h2 id="chat-panel-title" className="chat-panel__topbar-title">
-              {title || client?.chatName || client?.phoneDisplay || chatId}
+              {displayTitle}
             </h2>
-            {subtitle && <p className="chat-panel__topbar-sub">{subtitle}</p>}
+            {displaySubtitle && <p className="chat-panel__topbar-sub">{displaySubtitle}</p>}
           </div>
+          <button type="button" className="chat-panel__icon-btn modal__close--chat" onClick={onClose} aria-label="Закрыть">
+            <IconClose />
+          </button>
         </header>
 
-        <button type="button" className="modal__close modal__close--chat" onClick={onClose} aria-label="Закрыть">
-          <IconClose />
-        </button>
-
         <div className="chat-panel__body">
-          <PropertyLinks properties={interestedProperties} />
+          {interestedProperties?.length > 0 && (
+            <div className="chat-panel__props">
+              <PropertyLinks properties={interestedProperties} compact />
+            </div>
+          )}
 
-          {error && <p className="form-error">{error}</p>}
+          {error && <p className="chat-panel__error">{error}</p>}
 
           <div className="chat-panel__messages">
             {loading && !messages.length ? (
-              <p className="handoff-modal__loading">Загрузка…</p>
+              <p className="chat-panel__empty">Загрузка…</p>
             ) : messages.length === 0 ? (
               <p className="chat-panel__empty">Сообщений пока нет</p>
             ) : (
-              messages.map((m) => (
-                <div
-                  key={m.id || `${m.at}-${m.role}`}
-                  className={`chat-bubble chat-bubble--${bubbleRole(m)}`}
-                >
-                  <span className="chat-bubble__author">{bubbleLabel(m)}</span>
-                  <p className="chat-bubble__text">{linkifyText(m.text)}</p>
-                  <span className="chat-bubble__time">{formatDate(m.at)}</span>
-                </div>
-              ))
+              timeline.map((row) =>
+                row.type === 'day' ? (
+                  <div key={row.id} className="chat-day">
+                    <span className="chat-day__label">{row.label}</span>
+                  </div>
+                ) : (
+                  <div
+                    key={row.id}
+                    className={`chat-bubble chat-bubble--${bubbleRole(row.message)}`}
+                  >
+                    <span className="chat-bubble__author">{bubbleLabel(row.message)}</span>
+                    <p className="chat-bubble__text">{linkifyText(row.message.text)}</p>
+                    <span className="chat-bubble__meta">
+                      <span className="chat-bubble__time">{formatBubbleTime(row.message.at)}</span>
+                      {bubbleRole(row.message) !== 'user' && (
+                        <span className="chat-bubble__ticks" aria-hidden>
+                          ✓✓
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )
+              )
             )}
             <div ref={messagesEndRef} />
           </div>
@@ -274,19 +405,22 @@ export default function ChatPanel({
 
         <form className="chat-panel__composer" onSubmit={handleSend}>
           <textarea
+            ref={inputRef}
             className="chat-panel__input"
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Написать клиенту…"
-            rows={2}
+            onKeyDown={handleComposerKeyDown}
+            placeholder="Введите сообщение"
+            rows={1}
             disabled={sending || catchingUp}
           />
           <button
             type="submit"
-            className="btn btn--primary"
+            className="chat-panel__send"
             disabled={sending || catchingUp || !text.trim()}
+            aria-label="Отправить"
           >
-            {sending ? '…' : 'Отправить'}
+            {sending ? '…' : <IconSend />}
           </button>
         </form>
       </div>

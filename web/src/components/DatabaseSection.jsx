@@ -91,21 +91,40 @@ function UserDetail({ userId, onClose }) {
           <button type="button" className="chat-panel__back" onClick={onClose} aria-label="Назад">
             ←
           </button>
+          <div className="chat-panel__avatar" aria-hidden>
+            {(user?.name || user?.phoneDisplay || '?')
+              .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+              .trim()
+              .split(/\s+/)
+              .slice(0, 2)
+              .map((p) => p[0]?.toUpperCase() || '')
+              .join('') || '?'}
+          </div>
           <div className="chat-panel__topbar-info">
             <h2 id="db-user-title" className="chat-panel__topbar-title">
-              {user?.name || user?.phoneDisplay || userId}
+              {(user?.name && !/whatsapp id/i.test(user.name) ? user.name : '') ||
+                (user?.phoneDisplay && !/whatsapp id/i.test(user.phoneDisplay)
+                  ? user.phoneDisplay
+                  : '') ||
+                user?.phoneDisplay ||
+                userId}
             </h2>
             <p className="chat-panel__topbar-sub">
-              {[user?.phoneDisplay, user?.countryName || user?.country, languagesText(user || {})]
+              {[
+                user?.phoneDisplay && !/whatsapp id/i.test(user.phoneDisplay)
+                  ? user.phoneDisplay
+                  : null,
+                user?.countryName || user?.country,
+                languagesText(user || {}),
+              ]
                 .filter((v) => v && v !== '—')
                 .join(' · ')}
             </p>
           </div>
+          <button type="button" className="chat-panel__icon-btn modal__close--chat" onClick={onClose} aria-label="Закрыть">
+            <IconClose />
+          </button>
         </header>
-
-        <button type="button" className="modal__close modal__close--chat" onClick={onClose} aria-label="Закрыть">
-          <IconClose />
-        </button>
 
         {user && (
           <div className="db-user-meta">
@@ -133,9 +152,11 @@ function UserDetail({ userId, onClose }) {
                 <div key={m.id || `${m.at}-${m.role}`} className={`chat-bubble chat-bubble--${bubbleRole(m)}`}>
                   <span className="chat-bubble__author">{bubbleLabel(m)}</span>
                   <p className="chat-bubble__text">{m.text}</p>
-                  <span className="chat-bubble__time">
-                    {formatDate(m.at)}
-                    {m.language ? ` · ${m.language}` : ''}
+                  <span className="chat-bubble__meta">
+                    <span className="chat-bubble__time">
+                      {formatDate(m.at)}
+                      {m.language ? ` · ${m.language}` : ''}
+                    </span>
                   </span>
                 </div>
               ))
@@ -168,9 +189,11 @@ export default function DatabaseSection() {
     }
   }, []);
 
-  const fetchPage = useCallback(async (page, q) => {
-    setLoading(true);
-    setError('');
+  const fetchPage = useCallback(async (page, q, { quiet = false } = {}) => {
+    if (!quiet) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const data = await api.getDbUsers({ page, limit: PAGE_SIZE, q });
       setItems(data.items || []);
@@ -180,10 +203,12 @@ export default function DatabaseSection() {
         totalPages: data.totalPages ?? 1,
       });
     } catch (err) {
-      setError(err.message || 'Не удалось загрузить пользователей');
-      setItems([]);
+      if (!quiet) {
+        setError(err.message || 'Не удалось загрузить пользователей');
+        setItems([]);
+      }
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, []);
 
@@ -194,6 +219,16 @@ export default function DatabaseSection() {
   useEffect(() => {
     fetchPage(1, query);
   }, [query, fetchPage]);
+
+  // После фонового LID→phone обновить таблицу, если ещё видны WhatsApp ID.
+  useEffect(() => {
+    const needsPhone = items.some((u) => /whatsapp id/i.test(String(u.phoneDisplay || '')));
+    if (!needsPhone) return undefined;
+    const timer = setTimeout(() => {
+      fetchPage(meta.page || 1, query, { quiet: true });
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [items, meta.page, query, fetchPage]);
 
   const onSearchChange = (value) => {
     setSearchInput(value);

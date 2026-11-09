@@ -2648,6 +2648,60 @@ async function fetchMissedInboundSnapshots({
         remote !== 'status@broadcast' &&
         !remote.endsWith('@g.us');
 
+      const phoneCache = new Map();
+      const resolvePhoneDigits = (remote) => {
+        if (!remote || typeof remote !== 'string') return null;
+        if (phoneCache.has(remote)) return phoneCache.get(remote);
+        let digits = null;
+        try {
+          if (remote.endsWith('@c.us') || remote.endsWith('@s.whatsapp.net')) {
+            digits = remote.replace(/@.*$/, '').replace(/\D/g, '') || null;
+          } else if (remote.endsWith('@lid')) {
+            const WidFactory = window.require?.('WAWebWidFactory');
+            const wid = WidFactory?.createWid?.(remote);
+            let phone = null;
+            try {
+              const { toPn } = window.require('WAWebLidMigrationUtils') || {};
+              const mapped = typeof toPn === 'function' ? toPn(wid) : null;
+              phone = mapped?._serialized || mapped?.user || null;
+            } catch {
+              /* ignore */
+            }
+            if (!phone) {
+              try {
+                const phoneWid = window.require('WAWebApiContact')?.getPhoneNumber?.(wid);
+                phone = phoneWid?._serialized || phoneWid?.user || null;
+              } catch {
+                /* ignore */
+              }
+            }
+            if (!phone) {
+              try {
+                const contact = collections.Contact?.get?.(remote);
+                const pn = contact?.phoneNumber || contact?.id;
+                const serialized =
+                  pn?._serialized ||
+                  (pn?.user && pn?.server ? `${pn.user}@${pn.server}` : '') ||
+                  '';
+                if (/@c\.us$/i.test(serialized) || pn?.server === 'c.us') {
+                  phone = serialized || pn.user;
+                }
+              } catch {
+                /* ignore */
+              }
+            }
+            if (phone) {
+              digits = String(phone).replace(/@.*$/, '').replace(/\D/g, '') || null;
+            }
+          }
+        } catch {
+          digits = null;
+        }
+        if (digits && (digits.length < 8 || digits.length > 15)) digits = null;
+        phoneCache.set(remote, digits);
+        return digits;
+      };
+
       const pushMsg = (message) => {
         if (!message?.id || message.id.fromMe || message.isStatusV3) return false;
         const timestamp = Number(message.t || message.timestamp || 0);
@@ -2684,6 +2738,7 @@ async function fetchMissedInboundSnapshots({
             message.notifyName || message._data?.notifyName || message.pushname || ''
           ).slice(0, 120),
           type: String(message.type || 'chat'),
+          phoneDigits: resolvePhoneDigits(remote),
         });
         chatIds.add(remote);
         return true;
@@ -2832,6 +2887,21 @@ async function fetchMissedInboundSnapshots({
 function importMissedSnapshots(snapshots = []) {
   let imported = 0;
   const touched = new Map();
+  const { updateClientResolvedPhone } = require('./clients-store');
+
+  // Даже для уже известных сообщений сохраняем найденный MSISDN у @lid.
+  for (const snap of snapshots || []) {
+    const chatId = String(snap.chatId || '');
+    const phoneDigits = String(snap.phoneDigits || '').replace(/\D/g, '');
+    if (!chatId || !phoneDigits) continue;
+    try {
+      updateClientResolvedPhone(chatId, phoneDigits, {
+        notifyName: snap.notifyName || '',
+      });
+    } catch {
+      /* ignore */
+    }
+  }
 
   for (const snap of snapshots || []) {
     const chatId = String(snap.chatId || '');
@@ -2878,6 +2948,7 @@ function importMissedSnapshots(snapshots = []) {
         country: '',
         isGroup: false,
         kind: snap.type && snap.type !== 'chat' ? snap.type : 'text',
+        resolvedPhone: snap.phoneDigits || '',
       });
       setStickyDialogLanguage(chatId, detectedLang);
     } catch (e) {
@@ -2966,6 +3037,153 @@ function importMissedSnapshots(snapshots = []) {
   return { imported, touched };
 }
 
+/** In-memory кэш LID → MSISDN, чтобы не долбить Store на каждый refresh списка. */
+const lidPhoneCache = new Map();
+const lidPhoneResolveInFlight = new Map();
+
+/**
+ * Достать реальный телефон из WhatsApp Store для @lid чата.
+ * @returns {Promise<string|null>} digits only
+ */
+async function resolveLidToPhoneNumber(chatId) {
+  const id = String(chatId || '');
+  if (!id || !isLidChatId(id) || !client?.pupPage || !botReady) return null;
+  if (lidPhoneCache.has(id)) return lidPhoneCache.get(id) || null;
+  if (isCdpBusy() || hasAbandonedCdpWork() || softReloadInFlight) return null;
+
+  try {
+    const digits = await runExclusiveCdp(
+      `lid.toPn:${id}`,
+      () =>
+        client.pupPage.evaluate(async (userId) => {
+          const normalize = (value) => {
+            const d = String(value || '')
+              .replace(/@.*$/, '')
+              .replace(/\D/g, '');
+            return d.length >= 8 && d.length <= 15 ? d : null;
+          };
+          try {
+            const WidFactory = window.require('WAWebWidFactory');
+            const wid = WidFactory.createWid(userId);
+            let phone = null;
+
+            try {
+              const { toPn } = window.require('WAWebLidMigrationUtils') || {};
+              const mapped = typeof toPn === 'function' ? toPn(wid) : null;
+              phone = mapped?._serialized || mapped?.user || null;
+            } catch {
+              /* ignore */
+            }
+
+            if (!phone) {
+              try {
+                const phoneWid = window.require('WAWebApiContact')?.getPhoneNumber?.(wid);
+                phone = phoneWid?._serialized || phoneWid?.user || null;
+              } catch {
+                /* ignore */
+              }
+            }
+
+            if (!phone && window.WWebJS?.enforceLidAndPnRetrieval) {
+              try {
+                const result = await window.WWebJS.enforceLidAndPnRetrieval(userId);
+                phone = result?.phone?._serialized || result?.phone?.user || null;
+              } catch {
+                /* ignore */
+              }
+            }
+
+            if (!phone) {
+              try {
+                const contact = window.require('WAWebCollections')?.Contact?.get?.(userId);
+                const pn = contact?.phoneNumber || contact?.id;
+                const serialized =
+                  pn?._serialized ||
+                  (pn?.user && pn?.server ? `${pn.user}@${pn.server}` : '') ||
+                  '';
+                if (/@c\.us$/i.test(serialized) || pn?.server === 'c.us') {
+                  phone = serialized || pn.user;
+                }
+              } catch {
+                /* ignore */
+              }
+            }
+
+            return normalize(phone);
+          } catch {
+            return null;
+          }
+        }, id),
+      10000
+    );
+
+    if (digits) lidPhoneCache.set(id, digits);
+    return digits || null;
+  } catch (e) {
+    console.warn(`⚠️ lid→phone ${id}:`, e.message || e);
+    return null;
+  }
+}
+
+/**
+ * Если у чата ещё нет MSISDN — резолвим через Store и пишем в users.
+ */
+async function ensureLidPhoneResolved(chatId, { notifyName = '' } = {}) {
+  const id = String(chatId || '');
+  if (!id) return null;
+
+  const { getClient, updateClientResolvedPhone, normalizePhoneDigits } = require('./clients-store');
+  const existing = getClient(id);
+  const known =
+    normalizePhoneDigits(existing?.waMeta?.resolvedPhone) ||
+    normalizePhoneDigits(existing?.phone);
+  if (known && existing?.phoneDisplay && !/whatsapp id/i.test(existing.phoneDisplay)) {
+    return existing;
+  }
+  if (!isLidChatId(id)) {
+    if (known) return existing;
+    return existing;
+  }
+  if (lidPhoneResolveInFlight.has(id)) return lidPhoneResolveInFlight.get(id);
+
+  const promise = (async () => {
+    const digits = await resolveLidToPhoneNumber(id);
+    if (!digits) return getClient(id);
+    return updateClientResolvedPhone(id, digits, { notifyName });
+  })().finally(() => {
+    lidPhoneResolveInFlight.delete(id);
+  });
+
+  lidPhoneResolveInFlight.set(id, promise);
+  return promise;
+}
+
+/** Фоном дотянуть телефоны для LID-чатов без resolvedPhone. */
+async function resolveMissingLidPhones(chatIds = [], { limit = 25 } = {}) {
+  const { getClient, normalizePhoneDigits } = require('./clients-store');
+  const unique = [...new Set((chatIds || []).map((id) => String(id || '')).filter(Boolean))];
+  let done = 0;
+  for (const chatId of unique) {
+    if (done >= limit) break;
+    if (!isLidChatId(chatId)) continue;
+    const clientInfo = getClient(chatId);
+    const known =
+      normalizePhoneDigits(clientInfo?.waMeta?.resolvedPhone) ||
+      (clientInfo?.phoneDisplay && !/whatsapp id/i.test(clientInfo.phoneDisplay)
+        ? normalizePhoneDigits(clientInfo.phone)
+        : '');
+    if (known) continue;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await ensureLidPhoneResolved(chatId, { notifyName: clientInfo?.name || '' });
+      done += 1;
+    } catch {
+      /* ignore */
+    }
+  }
+  return done;
+}
+
 /**
  * Собрать сообщения, пришедшие пока сервер лежал: сохранить в БД, пометить «нужен догон».
  * Не отвечает клиенту автоматически.
@@ -3043,6 +3261,19 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
         }
       } catch (e) {
         console.warn('⚠️ syncMissed awaiting list:', e.message);
+      }
+
+      try {
+        const lidIds = [
+          ...touched.keys(),
+          ...(snapshots || []).map((s) => s.chatId),
+        ].filter((id) => isLidChatId(id));
+        const resolved = await resolveMissingLidPhones(lidIds, { limit: 40 });
+        if (resolved > 0) {
+          console.log(`📞 Resolved ${resolved} LID→phone after sync`);
+        }
+      } catch (e) {
+        console.warn('⚠️ syncMissed lid phones:', e.message);
       }
 
       const stats = {
@@ -3132,6 +3363,13 @@ async function syncOneChatMissedFromWhatsApp(chatId) {
     );
     const { imported } = importMissedSnapshots(snapshots);
     if (conversationHistory.has(id)) conversationHistory.delete(id);
+    if (isLidChatId(id)) {
+      try {
+        await ensureLidPhoneResolved(id);
+      } catch {
+        /* ignore */
+      }
+    }
     console.log(
       `📥 Sync one chat ${id}: scanned=${(snapshots || []).length}, imported=${imported}`
     );
@@ -3311,6 +3549,14 @@ function listCatchUpInbox({ page = 1, limit = 50, q = '', filter = 'pending' } =
         source: 'history',
       });
     }
+  }
+
+  // Фоном подтянуть телефоны для LID в текущем списке (не блокируем ответ API).
+  const lidsNeedingPhone = items
+    .map((item) => String(item.chatId || ''))
+    .filter((id) => isLidChatId(id));
+  if (lidsNeedingPhone.length && botReady && client?.pupPage && !isCdpBusy()) {
+    resolveMissingLidPhones(lidsNeedingPhone, { limit: 12 }).catch(() => {});
   }
 
   items = items.map((item) => {
@@ -4558,6 +4804,12 @@ async function handleIncomingMessage(msg, options = {}) {
           isGroup: chat.isGroup,
           kind: 'voice',
         });
+        const voiceChatId = getConversationChatId(msg, chat);
+        if (isLidChatId(voiceChatId)) {
+          ensureLidPhoneResolved(voiceChatId, {
+            notifyName: pickIncomingDisplayName(msg, chat),
+          }).catch(() => {});
+        }
       } catch (clientStoreErr) {
         console.warn('⚠️ Не удалось сохранить клиента:', clientStoreErr.message);
       }
@@ -4678,6 +4930,11 @@ async function handleIncomingMessage(msg, options = {}) {
           isGroup: chat.isGroup,
           kind: 'image',
         });
+        if (isLidChatId(chatId)) {
+          ensureLidPhoneResolved(chatId, {
+            notifyName: pickIncomingDisplayName(msg, chat),
+          }).catch(() => {});
+        }
       } catch (clientStoreErr) {
         console.warn('⚠️ Не удалось сохранить клиента:', clientStoreErr.message);
       }
@@ -4774,6 +5031,11 @@ async function handleIncomingMessage(msg, options = {}) {
           isGroup: chat.isGroup,
           kind: 'text',
         });
+        if (isLidChatId(chatId)) {
+          ensureLidPhoneResolved(chatId, {
+            notifyName: pickIncomingDisplayName(msg, chat),
+          }).catch(() => {});
+        }
       } catch (clientStoreErr) {
         console.warn('⚠️ Не удалось сохранить клиента:', clientStoreErr.message);
       }
@@ -5337,6 +5599,8 @@ registerAdminRoutes(app, {
   syncMissedChatsFromWhatsApp,
   catchUpBotReply,
   listCatchUpInbox,
+  ensureLidPhoneResolved,
+  resolveMissingLidPhones,
 });
 
 // Веб-панель /admin — после API, чтобы /api не перехватывался

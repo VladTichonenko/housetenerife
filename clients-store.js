@@ -26,6 +26,22 @@ function buildWaLink(phone, { isLid = false } = {}) {
   return d ? `https://wa.me/${d}` : null;
 }
 
+function normalizePhoneDigits(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.length < 8 || digits.length > 15) return '';
+  // LID-подобные длинные id без валидного MSISDN не считаем телефоном
+  if (digits.length >= 14) {
+    try {
+      const { parsePhoneNumberFromString } = require('libphonenumber-js');
+      const parsed = parsePhoneNumberFromString(`+${digits}`);
+      if (!parsed || !parsed.isValid()) return '';
+    } catch {
+      return '';
+    }
+  }
+  return digits;
+}
+
 function mapUserRow(row) {
   if (!row) return null;
   const languages = parseLanguages(row.languages);
@@ -39,18 +55,25 @@ function mapUserRow(row) {
 
   const contact = formatContactDisplay(row.sender_id || row.id || row.phone);
   const isLid = contact.isLid || Boolean(waMeta.isLid);
-  const phoneDisplay = isLid
-    ? contact.display
-    : row.phone_display || (row.phone ? `+${String(row.phone).replace(/\D/g, '')}` : '—');
+  const resolvedDigits =
+    normalizePhoneDigits(waMeta.resolvedPhone) ||
+    (!isLid ? normalizePhoneDigits(row.phone) : '') ||
+    normalizePhoneDigits(waMeta.phone);
+
+  const phoneDisplay = resolvedDigits
+    ? `+${resolvedDigits}`
+    : isLid
+      ? contact.display
+      : row.phone_display || (row.phone ? `+${String(row.phone).replace(/\D/g, '')}` : '—');
 
   return {
     id: row.id,
     chatId: row.id,
     senderId: row.sender_id || row.id,
-    phone: row.phone || '',
+    phone: resolvedDigits || row.phone || '',
     phoneDisplay,
     isLid,
-    waLink: isLid ? null : row.wa_link || buildWaLink(row.phone),
+    waLink: resolvedDigits ? buildWaLink(resolvedDigits) : isLid ? null : row.wa_link || buildWaLink(row.phone),
     chatName: row.name || '',
     name: row.name || '',
     language: lastLanguage,
@@ -68,6 +91,53 @@ function mapUserRow(row) {
     lastMessages: Array.isArray(waMeta.lastMessages) ? waMeta.lastMessages : [],
     waMeta,
   };
+}
+
+/**
+ * Сохранить реальный MSISDN для чата с @lid (или обновить телефон у обычного контакта).
+ */
+function updateClientResolvedPhone(chatId, phoneDigits, { notifyName = '' } = {}) {
+  const id = String(chatId || '');
+  const digits = normalizePhoneDigits(phoneDigits);
+  if (!id || !digits) return null;
+
+  const database = getDb();
+  const now = new Date().toISOString();
+  ensureUserStub(id, now);
+  const existing = database.prepare('SELECT * FROM users WHERE id = ?').get(id);
+
+  let waMeta = {};
+  try {
+    waMeta = existing?.wa_meta ? JSON.parse(existing.wa_meta) : {};
+  } catch {
+    waMeta = {};
+  }
+
+  const contact = formatContactDisplay(existing?.sender_id || id);
+  waMeta.isLid = contact.isLid;
+  waMeta.resolvedPhone = digits;
+  waMeta.resolvedPhoneAt = now;
+
+  const phoneDisplay = `+${digits}`;
+  const waLink = buildWaLink(digits);
+  const name =
+    String(notifyName || '').trim() ||
+    existing?.name ||
+    '';
+
+  database
+    .prepare(
+      `UPDATE users SET
+         phone = ?,
+         phone_display = ?,
+         wa_link = ?,
+         name = COALESCE(NULLIF(?, ''), name),
+         wa_meta = ?
+       WHERE id = ?`
+    )
+    .run(digits, phoneDisplay, waLink, name, JSON.stringify(waMeta), id);
+
+  return mapUserRow(database.prepare('SELECT * FROM users WHERE id = ?').get(id));
 }
 
 function ensureUserStub(userId, now) {
@@ -112,6 +182,13 @@ function recordClientMessage(payload = {}) {
     waMeta = {};
   }
   waMeta.isLid = contact.isLid;
+  const resolvedDigits =
+    normalizePhoneDigits(payload.resolvedPhone) ||
+    normalizePhoneDigits(waMeta.resolvedPhone) ||
+    (!contact.isLid ? normalizePhoneDigits(phone) : '');
+  if (resolvedDigits) {
+    waMeta.resolvedPhone = resolvedDigits;
+  }
   const lastMessages = Array.isArray(waMeta.lastMessages) ? waMeta.lastMessages : [];
   waMeta.lastMessages = [
     ...lastMessages,
@@ -124,12 +201,17 @@ function recordClientMessage(payload = {}) {
   ].slice(-MAX_LAST_MESSAGES);
 
   const countryCode = country || existing?.country || '';
+  const phoneForStore = resolvedDigits || phone;
+  const phoneDisplay = resolvedDigits
+    ? `+${resolvedDigits}`
+    : contact.display;
+  const waLink = resolvedDigits ? buildWaLink(resolvedDigits) : contact.waLink;
   const row = {
     id,
     sender_id: senderId || chatId,
-    phone,
-    phone_display: contact.display,
-    wa_link: contact.waLink,
+    phone: phoneForStore,
+    phone_display: phoneDisplay,
+    wa_link: waLink,
     name: chatName || existing?.name || '',
     country: countryCode,
     country_name: getCountryName(countryCode) || existing?.country_name || '',
@@ -253,6 +335,8 @@ module.exports = {
   CLIENTS_PATH,
   recordClientMessage,
   updateClientLanguage,
+  updateClientResolvedPhone,
+  normalizePhoneDigits,
   listClients,
   getClient,
   resolveClientsPath,

@@ -179,6 +179,19 @@ function registerAdminRoutes(app, state) {
     }
   });
 
+  function kickResolveLidPhones(items = []) {
+    if (typeof state.resolveMissingLidPhones !== 'function') return;
+    const needResolve = (items || [])
+      .filter(
+        (item) =>
+          /@lid$/i.test(String(item?.chatId || item?.id || '')) ||
+          /whatsapp id/i.test(String(item?.phoneDisplay || ''))
+      )
+      .map((item) => String(item.chatId || item.id));
+    if (!needResolve.length) return;
+    state.resolveMissingLidPhones(needResolve, { limit: 20 }).catch(() => {});
+  }
+
   app.get('/api/admin/clients', requireAdmin, (req, res) => {
     try {
       const result = listClients({
@@ -186,6 +199,7 @@ function registerAdminRoutes(app, state) {
         limit: req.query.limit,
         q: req.query.q,
       });
+      kickResolveLidPhones(result.items);
       res.json({ success: true, ...result });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
@@ -208,17 +222,36 @@ function registerAdminRoutes(app, state) {
         limit: req.query.limit,
         q: req.query.q,
       });
+      kickResolveLidPhones(result.items);
       res.json({ success: true, ...result });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
     }
   });
 
-  app.get('/api/admin/db/users/:id', requireAdmin, (req, res) => {
+  app.get('/api/admin/db/users/:id', requireAdmin, async (req, res) => {
     try {
-      const item = getClient(req.params.id);
+      let item = getClient(req.params.id);
       if (!item) {
         return res.status(404).json({ success: false, message: 'Пользователь не найден' });
+      }
+      if (
+        typeof state.ensureLidPhoneResolved === 'function' &&
+        (/@lid$/i.test(String(item.chatId || item.id || '')) ||
+          /whatsapp id/i.test(String(item.phoneDisplay || '')))
+      ) {
+        try {
+          const resolved = await Promise.race([
+            state.ensureLidPhoneResolved(item.chatId || item.id, {
+              notifyName: item.name || '',
+            }),
+            new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
+          ]);
+          if (resolved) item = resolved;
+          else item = getClient(req.params.id) || item;
+        } catch {
+          /* keep existing */
+        }
       }
       const messages = getMessages(req.params.id);
       res.json({ success: true, item, messages });
@@ -227,11 +260,29 @@ function registerAdminRoutes(app, state) {
     }
   });
 
-  app.get('/api/admin/clients/:id', requireAdmin, (req, res) => {
+  app.get('/api/admin/clients/:id', requireAdmin, async (req, res) => {
     try {
-      const item = getClient(req.params.id);
+      let item = getClient(req.params.id);
       if (!item) {
         return res.status(404).json({ success: false, message: 'Клиент не найден' });
+      }
+      if (
+        typeof state.ensureLidPhoneResolved === 'function' &&
+        (/@lid$/i.test(String(item.chatId || item.id || '')) ||
+          /whatsapp id/i.test(String(item.phoneDisplay || '')))
+      ) {
+        try {
+          const resolved = await Promise.race([
+            state.ensureLidPhoneResolved(item.chatId || item.id, {
+              notifyName: item.name || '',
+            }),
+            new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
+          ]);
+          if (resolved) item = resolved;
+          else item = getClient(req.params.id) || item;
+        } catch {
+          /* keep existing */
+        }
       }
       res.json({ success: true, item });
     } catch (e) {
@@ -263,13 +314,31 @@ function registerAdminRoutes(app, state) {
     }
   });
 
-  app.get('/api/admin/chats/:chatId/messages', requireAdmin, (req, res) => {
+  app.get('/api/admin/chats/:chatId/messages', requireAdmin, async (req, res) => {
     try {
       const chatId = decodeURIComponent(req.params.chatId);
       const excludeAssistant = req.query.excludeAssistant === 'true';
       let messages = getMessages(chatId, { excludeAssistant });
       const settings = getChatSettings(chatId);
-      const client = getClient(chatId);
+
+      let client = getClient(chatId);
+      // При открытии чата — один раз попробовать достать MSISDN для @lid.
+      if (
+        typeof state.ensureLidPhoneResolved === 'function' &&
+        (/@lid$/i.test(chatId) || /whatsapp id/i.test(client?.phoneDisplay || ''))
+      ) {
+        try {
+          const resolved = await Promise.race([
+            state.ensureLidPhoneResolved(chatId, { notifyName: client?.name || '' }),
+            new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
+          ]);
+          if (resolved) client = resolved;
+          else client = getClient(chatId) || client;
+        } catch {
+          /* keep existing client row */
+        }
+      }
+
       const interestedProperties = getInterestedProperties(chatId, client?.language || 'ru');
 
       if (!messages.length && client?.lastMessages?.length) {
