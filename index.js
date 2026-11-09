@@ -3718,6 +3718,205 @@ async function syncOneChatMissedFromWhatsApp(chatId) {
  * Догнать клиента: сначала догружаем все пропущенные сообщения чата,
  * затем ИИ читает полную историю и отвечает в WhatsApp.
  */
+/**
+ * Скачать фото из WA в файлы панели (без vision) — для отображения в чате.
+ */
+async function downloadChatImagesForDisplay(chatId, { limit = 40 } = {}) {
+  const id = String(chatId || '');
+  if (!id || !client) return { images: 0 };
+
+  const { getChatAliases } = require('./clients-store');
+  const { updateMessageByWaId, findMessageByWaId } = require('./conversation-store');
+  const { saveChatMedia } = require('./chat-media');
+
+  const aliases = getChatAliases(id);
+  let chat = null;
+  for (const aid of aliases) {
+    try {
+      if (typeof client.getChatById === 'function') {
+        // eslint-disable-next-line no-await-in-loop
+        chat = await client.getChatById(aid);
+        if (chat) break;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  if (!chat) return { images: 0 };
+
+  let waMessages = [];
+  try {
+    waMessages = await chat.fetchMessages({ limit });
+  } catch (e) {
+    console.warn(`⚠️ download images fetchMessages ${id}:`, e.message);
+    return { images: 0 };
+  }
+
+  let images = 0;
+  for (const m of waMessages || []) {
+    if (!m || m.fromMe) continue;
+    const waId = m.id?._serialized || m.id;
+    if (!waId) continue;
+    const isImage = m.type === 'image' || (m.hasMedia && String(m.type || '') === 'image');
+    if (!isImage) continue;
+    const existing = findMessageByWaId(waId);
+    if (existing?.media_path) continue;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const media = await m.downloadMedia();
+      if (!media?.data) continue;
+      const saved = saveChatMedia(waId, media);
+      if (!saved?.relPath) continue;
+      const caption = String(m.body || m.caption || '').trim();
+      if (existing) {
+        updateMessageByWaId(waId, {
+          text: existing.body || caption || '[image]',
+          mediaPath: saved.relPath,
+          kind: 'image',
+        });
+      } else {
+        persistMessage(id, {
+          role: 'user',
+          text: caption || '[image]',
+          kind: 'image',
+          waMessageId: waId,
+          mediaPath: saved.relPath,
+        });
+      }
+      images += 1;
+    } catch (e) {
+      console.warn(`📷 download image ${waId}:`, e.message);
+    }
+  }
+  if (images && conversationHistory.has(id)) conversationHistory.delete(id);
+  return { images };
+}
+
+/**
+ * Перед догоном: скачать фото из WA + vision, открыть ссылки и дописать контекст в историю.
+ */
+async function enrichChatMediaAndLinks(chatId, { lang = 'ru', limit = 40 } = {}) {
+  const id = String(chatId || '');
+  if (!id || !client) return { images: 0, links: 0 };
+
+  const { getChatAliases } = require('./clients-store');
+  const { updateMessageByWaId, findMessageByWaId } = require('./conversation-store');
+  const { saveChatMedia, extractUrls, fetchLinkContext } = require('./chat-media');
+  const {
+    describePhotoWithVision,
+    formatPhotoUserLine,
+  } = require('./photo-vision');
+
+  const aliases = getChatAliases(id);
+  let chat = null;
+  for (const aid of aliases) {
+    try {
+      if (typeof client.getChatById === 'function') {
+        // eslint-disable-next-line no-await-in-loop
+        chat = await client.getChatById(aid);
+        if (chat) break;
+      }
+    } catch {
+      /* try next alias */
+    }
+  }
+  if (!chat) return { images: 0, links: 0 };
+
+  let waMessages = [];
+  try {
+    waMessages = await chat.fetchMessages({ limit });
+  } catch (e) {
+    console.warn(`⚠️ enrich fetchMessages ${id}:`, e.message);
+    return { images: 0, links: 0 };
+  }
+
+  let images = 0;
+  let links = 0;
+  const seenUrls = new Set();
+
+  for (const m of waMessages || []) {
+    if (!m || m.fromMe) continue;
+    const waId = m.id?._serialized || m.id;
+    if (!waId) continue;
+
+    const isImage = m.type === 'image' || (m.hasMedia && m.type === 'image');
+    if (isImage) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const media = await m.downloadMedia();
+        if (media?.data) {
+          const saved = saveChatMedia(waId, media);
+          const existing = findMessageByWaId(waId);
+          const caption = String(m.body || m.caption || '').trim();
+          let nextBody = existing?.body || caption || '[image]';
+          if (!/\[описание фото\]/i.test(nextBody)) {
+            // eslint-disable-next-line no-await-in-loop
+            const vision = await describePhotoWithVision(media, caption, lang);
+            if (vision) {
+              nextBody = formatPhotoUserLine(caption, vision);
+              images += 1;
+            } else if (!/\[фото|\[image/i.test(nextBody)) {
+              nextBody = formatPhotoUserLine(caption, '');
+            }
+          }
+          if (existing) {
+            updateMessageByWaId(waId, {
+              text: nextBody,
+              mediaPath: saved?.relPath || existing.media_path || null,
+              kind: 'image',
+            });
+          } else {
+            persistMessage(id, {
+              role: 'user',
+              text: nextBody,
+              kind: 'image',
+              language: lang,
+              waMessageId: waId,
+              mediaPath: saved?.relPath || null,
+            });
+            images += 1;
+          }
+        }
+      } catch (e) {
+        console.warn(`📷 enrich image ${waId}:`, e.message);
+      }
+    }
+
+    const bodyText = String(m.body || m.caption || '');
+    for (const url of extractUrls(bodyText)) {
+      if (seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      // eslint-disable-next-line no-await-in-loop
+      const summary = await fetchLinkContext(url);
+      if (!summary) continue;
+      const existing = findMessageByWaId(waId);
+      const note = `[содержимое ссылки] ${summary.title || url}\n${summary.text || ''}`.slice(
+        0,
+        2800
+      );
+      if (existing) {
+        if (/\[содержимое ссылки\]/i.test(existing.body || '')) continue;
+        updateMessageByWaId(waId, {
+          text: `${existing.body || bodyText}\n${note}`.slice(0, 4000),
+        });
+        links += 1;
+      } else if (bodyText) {
+        persistMessage(id, {
+          role: 'user',
+          text: `${bodyText}\n${note}`.slice(0, 4000),
+          kind: 'text',
+          language: lang,
+          waMessageId: waId,
+        });
+        links += 1;
+      }
+    }
+  }
+
+  if (conversationHistory.has(id)) conversationHistory.delete(id);
+  return { images, links };
+}
+
 async function catchUpBotReply(chatId) {
   const id = String(chatId || '');
   if (!id) {
@@ -3744,13 +3943,12 @@ async function catchUpBotReply(chatId) {
     }
 
     ensureHistoryHydrated(id);
-    // После sync история могла быть в SQLite с патченным временем — перечитаем
     if (conversationHistory.has(id)) {
       conversationHistory.delete(id);
     }
     ensureHistoryHydrated(id);
 
-    const history = getHistory(id);
+    let history = getHistory(id);
     if (!history.length) {
       return {
         success: false,
@@ -3781,25 +3979,65 @@ async function catchUpBotReply(chatId) {
       };
     }
 
-    // Хвост непрочитанных реплик клиента (всё до последнего ответа бота/менеджера)
     let pendingStart = lastUserIdx;
     while (pendingStart > 0) {
       const prev = history[pendingStart - 1];
       if (!prev || prev.sender === 'assistant' || prev.sender === 'manager') break;
       pendingStart -= 1;
     }
-    const pendingUserMessages = history
+    let pendingUserMessages = history
       .slice(pendingStart, lastUserIdx + 1)
-      .filter((m) => m.sender === 'user' && String(m.text || '').trim());
-    const pendingCount = pendingUserMessages.length;
+      .filter(
+        (m) =>
+          m.sender === 'user' &&
+          String(m.text || '').trim() &&
+          !/\[e2e_notification\]/i.test(String(m.text || ''))
+      );
+    let pendingCount = pendingUserMessages.length;
 
     const lastUserText = String(history[lastUserIdx].text || '');
     const dialogLanguage = resolveDialogLanguage(
       id,
       pendingUserMessages.map((m) => m.text).join('\n') || lastUserText
     );
+
+    // Фото + ссылки: скачать, прочитать, дописать в историю до askAI
+    let enrich = { images: 0, links: 0 };
+    try {
+      enrich = await enrichChatMediaAndLinks(id, { lang: dialogLanguage, limit: 50 });
+      if (conversationHistory.has(id)) conversationHistory.delete(id);
+      ensureHistoryHydrated(id);
+      history = getHistory(id);
+      lastUserIdx = -1;
+      for (let i = history.length - 1; i >= 0; i -= 1) {
+        if (history[i]?.sender === 'user' && String(history[i].text || '').trim()) {
+          lastUserIdx = i;
+          break;
+        }
+      }
+      if (lastUserIdx >= 0) {
+        pendingStart = lastUserIdx;
+        while (pendingStart > 0) {
+          const prev = history[pendingStart - 1];
+          if (!prev || prev.sender === 'assistant' || prev.sender === 'manager') break;
+          pendingStart -= 1;
+        }
+        pendingUserMessages = history
+          .slice(pendingStart, lastUserIdx + 1)
+          .filter(
+            (m) =>
+              m.sender === 'user' &&
+              String(m.text || '').trim() &&
+              !/\[e2e_notification\]/i.test(String(m.text || ''))
+          );
+        pendingCount = pendingUserMessages.length;
+      }
+    } catch (e) {
+      console.warn('⚠️ enrich before catch-up:', e.message);
+    }
+
     console.log(
-      `↩️ Catch-up reply → ${id} (${dialogLanguage}): ${pendingCount} pending user msg(s); last=${lastUserText.slice(0, 80)}`
+      `↩️ Catch-up reply → ${id} (${dialogLanguage}): ${pendingCount} pending; vision=${enrich.images}, links=${enrich.links}; last=${lastUserText.slice(0, 80)}`
     );
 
     const aiResponse = await askAI(getHistory(id), dialogLanguage, {
@@ -3823,10 +4061,12 @@ async function catchUpBotReply(chatId) {
       language: dialogLanguage,
       pendingCount,
       deepImported: deepSync.imported || 0,
+      enrichedImages: enrich.images || 0,
+      enrichedLinks: enrich.links || 0,
       settings: getChatSettings(id),
       message:
         pendingCount > 1
-          ? `Ответ бота отправлен (учтено ${pendingCount} сообщ. клиента)`
+          ? `Один ответ бота отправлен (учтено ${pendingCount} сообщ. клиента)`
           : 'Ответ бота отправлен',
     };
   } catch (e) {
@@ -4160,7 +4400,7 @@ async function shouldDebounceForReply(msg) {
   }
 
   if (wantsManagerHandoff(messageText)) return null;
-  if (containsLink(messageText) && !commandHandlers[trimmed]) return null;
+  // Ссылки идут в общий батч → один ответ ИИ по пачке (с чтением URL)
   if (isImageWithDescription(resolved.msg, messageText)) return null;
 
   return { chatId, msg: resolved.msg };
@@ -5243,10 +5483,21 @@ async function handleIncomingMessage(msg, options = {}) {
     if (isImageMessage(msg)) {
       console.log(`📷 Фото от ${chatId} (caption=${Boolean(String(messageText || '').trim())})`);
       let visionText = null;
+      let mediaPath = null;
       try {
-        visionText = await withChatTyping(msg, () =>
-          describeIncomingWhatsAppPhoto(msg, messageText || '', dialogLanguage)
-        );
+        const { saveChatMedia } = require('./chat-media');
+        const { describePhotoWithVision } = require('./photo-vision');
+        visionText = await withChatTyping(msg, async () => {
+          const media = await msg.downloadMedia();
+          if (!media?.data) return null;
+          try {
+            const saved = saveChatMedia(msgId, media);
+            mediaPath = saved?.relPath || null;
+          } catch (saveErr) {
+            console.warn('📷 saveChatMedia:', saveErr.message);
+          }
+          return describePhotoWithVision(media, messageText || '', dialogLanguage);
+        });
       } catch (e) {
         console.warn('📷 vision:', e.message);
       }
@@ -5288,8 +5539,18 @@ async function handleIncomingMessage(msg, options = {}) {
         })
         .catch((err) => console.error('telegram-notify message:', err.message));
 
+      const persistPhoto = () => {
+        addToHistory(chatId, 'user', userLine, { language: dialogLanguage, persist: false });
+        persistChatMessage(chatId, 'user', userLine, {
+          kind: 'image',
+          language: dialogLanguage,
+          waMessageId: msgId,
+          mediaPath,
+        });
+      };
+
       if (isAiDisabled(chatId)) {
-        addToHistory(chatId, 'user', userLine, { language: dialogLanguage });
+        persistPhoto();
         console.log(`🔇 AI отключён для ${chatId} — фото сохранено`);
         return 'processed';
       }
@@ -5298,7 +5559,7 @@ async function handleIncomingMessage(msg, options = {}) {
         for (const t of prependUserTexts) {
           addToHistory(chatId, 'user', t, { language: dialogLanguage });
         }
-        addToHistory(chatId, 'user', userLine, { language: dialogLanguage });
+        persistPhoto();
         const history = getHistory(chatId).slice();
         let aiResponse = await withChatTyping(msg, () =>
           askAI(history, dialogLanguage, { chatId })
@@ -5536,32 +5797,30 @@ async function handleIncomingMessage(msg, options = {}) {
       return 'processed';
     }
 
+    // Ссылки: открываем и читаем содержимое, затем обычный ответ ИИ (не soft-call).
+    let effectiveMessageText = messageText;
     if (containsLink(messageText) && !commandHandlers[trimmedMessage]) {
-      console.log(`🔗 Внешняя ссылка от ${chatId} — мягкое предложение созвона`);
       try {
-        await offerSoftCallViaAi({
-          msg,
-          client,
-          chatId,
-          dialogLanguage,
-          reasonKey: 'link',
-          preview: messageText,
-          messageText,
-          userLine: messageText,
-          sendMessageSafely,
-          withChatTyping,
-          askAI,
-          getHistory,
-          addToHistory,
-          localizeUrlsInText,
-        });
-      } catch (aiError) {
-        console.error('❌ Ошибка AI при ссылке:', aiError);
-        await sendMessageSafely(msg, getTranslation(dialogLanguage, 'error'), client);
+        const { extractUrls, fetchLinkContext } = require('./chat-media');
+        const urls = extractUrls(messageText);
+        const notes = [];
+        for (const url of urls) {
+          // eslint-disable-next-line no-await-in-loop
+          const summary = await fetchLinkContext(url);
+          if (!summary) continue;
+          notes.push(
+            `[содержимое ссылки] ${summary.title || url}\n${String(summary.text || '').slice(0, 2200)}`
+          );
+        }
+        if (notes.length) {
+          effectiveMessageText = `${messageText}\n${notes.join('\n')}`.slice(0, 4000);
+          console.log(`🔗 Прочитано ссылок: ${notes.length} для ${chatId}`);
+        }
+      } catch (linkErr) {
+        console.warn('🔗 link enrich:', linkErr.message);
       }
-      return 'processed';
     }
-    
+
     if (commandHandlers[trimmedMessage]) {
       console.log(`⚡ Выполнение команды: ${trimmedMessage} (язык: ${dialogLanguage})`);
       await commandHandlers[trimmedMessage](msg, dialogLanguage, client);
@@ -5571,7 +5830,7 @@ async function handleIncomingMessage(msg, options = {}) {
       for (const t of prependUserTexts) {
         addToHistory(chatId, 'user', t, { language: dialogLanguage });
       }
-      addToHistory(chatId, 'user', messageText, { language: dialogLanguage });
+      addToHistory(chatId, 'user', effectiveMessageText, { language: dialogLanguage });
       
       // Получаем ответ от AI
       console.log(`🤖 Запрос к AI для ${chatId} (язык диалога: ${dialogLanguage})`);
@@ -5580,8 +5839,8 @@ async function handleIncomingMessage(msg, options = {}) {
         const preDialog = analyzeConversation(history, dialogLanguage);
         const { userMessageHasPropertyLink } = require('./property-interest');
         const skipListingBridge =
-          wantsPropertyPhotos(messageText) ||
-          userMessageHasPropertyLink(messageText) ||
+          wantsPropertyPhotos(effectiveMessageText) ||
+          userMessageHasPropertyLink(effectiveMessageText) ||
           preDialog.hasPropertyInterest ||
           preDialog.wantsPhotos;
         const willShowListings =
@@ -5933,6 +6192,7 @@ registerAdminRoutes(app, {
   sendManagerMessage,
   syncMissedChatsFromWhatsApp,
   syncOneChatMissedFromWhatsApp,
+  downloadChatImagesForDisplay,
   catchUpBotReply,
   listCatchUpInbox,
   ensureLidPhoneResolved,

@@ -40,7 +40,33 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+function requireAdminTokenOrQuery(req, res, next) {
+  const auth = req.headers.authorization || '';
+  let token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!token) token = String(req.query.token || '').trim();
+  const session = getSession(token);
+  if (!session) {
+    return res.status(401).json({ success: false, message: 'Требуется авторизация' });
+  }
+  req.managerSession = session;
+  next();
+}
+
 function registerAdminRoutes(app, state) {
+  app.get('/api/admin/chat-media/:file', requireAdminTokenOrQuery, (req, res) => {
+    try {
+      const { resolveMediaAbsPath } = require('./chat-media');
+      const abs = resolveMediaAbsPath(req.params.file);
+      if (!abs) {
+        return res.status(404).json({ success: false, message: 'Файл не найден' });
+      }
+      res.setHeader('Cache-Control', 'private, max-age=86400');
+      return res.sendFile(abs);
+    } catch (e) {
+      return res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
   app.post('/api/admin/login', (req, res) => {
     const code = String(req.body?.code || '').trim();
     const manager = findManagerByCode(code);
@@ -449,6 +475,15 @@ function registerAdminRoutes(app, state) {
           message: 'WhatsApp сейчас занят — повторите через минуту',
         });
       }
+      let mediaDownloaded = 0;
+      if (typeof state.downloadChatImagesForDisplay === 'function') {
+        try {
+          const mediaResult = await state.downloadChatImagesForDisplay(chatId, { limit: 50 });
+          mediaDownloaded = mediaResult?.images || 0;
+        } catch (e) {
+          console.warn('⚠️ downloadChatImagesForDisplay:', e.message);
+        }
+      }
       const messages = getMessages(chatId);
       const imported = result?.imported || 0;
       const scanned = result?.scanned || 0;
@@ -457,13 +492,14 @@ function registerAdminRoutes(app, state) {
         chatId,
         imported,
         scanned,
+        mediaDownloaded,
         messageCount: messages.length,
         focusIds: result?.focusIds || [],
         message:
           imported > 0
-            ? `Подтянуто ${imported} новых из ${scanned} найденных в WhatsApp (всего в чате ${messages.length})`
+            ? `Подтянуто ${imported} новых из ${scanned} найденных в WhatsApp (всего в чате ${messages.length})${mediaDownloaded ? `, фото: ${mediaDownloaded}` : ''}`
             : scanned > 0
-              ? `В WhatsApp найдено ${scanned}, новых нет — в панели сейчас ${messages.length}`
+              ? `В WhatsApp найдено ${scanned}, новых нет — в панели сейчас ${messages.length}${mediaDownloaded ? `, фото: ${mediaDownloaded}` : ''}`
               : `В WhatsApp по этому чату ничего не нашли (проверьте, что сессия онлайн). В панели ${messages.length}`,
       });
     } catch (e) {

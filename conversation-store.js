@@ -3,6 +3,7 @@
 const path = require('path');
 const { getDb } = require('./db');
 const { ensureUserStub } = require('./clients-store');
+// path used for mediaUrl basename
 
 const MAX_MESSAGES_PER_CHAT = parseInt(process.env.CONVERSATION_MESSAGES_LIMIT, 10) || 500;
 
@@ -19,7 +20,7 @@ const CONVERSATIONS_PATH = resolveConversationPath();
 
 /**
  * @param {string} chatId
- * @param {{ role: 'user'|'assistant'|'manager', text: string, managerId?: string, managerName?: string, kind?: string, language?: string, waMessageId?: string }} payload
+ * @param {{ role: 'user'|'assistant'|'manager', text: string, managerId?: string, managerName?: string, kind?: string, language?: string, waMessageId?: string, mediaPath?: string }} payload
  */
 function recordMessage(chatId, payload = {}) {
   if (!chatId) return null;
@@ -37,14 +38,15 @@ function recordMessage(chatId, payload = {}) {
     language: payload.language || null,
     managerId: payload.managerId || '',
     managerName: payload.managerName || '',
+    mediaPath: payload.mediaPath || null,
     at: now,
   };
 
   database
     .prepare(
       `INSERT INTO messages (
-        id, user_id, role, body, kind, language, manager_id, manager_name, wa_message_id, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        id, user_id, role, body, kind, language, manager_id, manager_name, wa_message_id, media_path, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       message.id,
@@ -56,6 +58,7 @@ function recordMessage(chatId, payload = {}) {
       message.managerId,
       message.managerName,
       payload.waMessageId || null,
+      message.mediaPath,
       message.at
     );
 
@@ -129,10 +132,40 @@ function getMessages(chatId, { excludeAssistant = false } = {}) {
       language: m.language || null,
       managerId: m.manager_id || '',
       managerName: m.manager_name || '',
+      waMessageId: m.wa_message_id || null,
+      mediaPath: m.media_path || null,
+      mediaUrl: m.media_path
+        ? `/api/admin/chat-media/${encodeURIComponent(path.basename(m.media_path))}`
+        : null,
       at: m.created_at,
     });
   }
   return out;
+}
+
+function updateMessageByWaId(waMessageId, patch = {}) {
+  const waId = String(waMessageId || '').trim();
+  if (!waId) return false;
+  const database = getDb();
+  const row = database
+    .prepare(`SELECT id, body, media_path, kind FROM messages WHERE wa_message_id = ? LIMIT 1`)
+    .get(waId);
+  if (!row) return false;
+  const body = patch.text != null ? String(patch.text).slice(0, 4000) : row.body;
+  const mediaPath = patch.mediaPath != null ? patch.mediaPath : row.media_path;
+  const kind = patch.kind != null ? patch.kind : row.kind;
+  database
+    .prepare(`UPDATE messages SET body = ?, media_path = ?, kind = ? WHERE wa_message_id = ?`)
+    .run(body, mediaPath, kind, waId);
+  return true;
+}
+
+function findMessageByWaId(waMessageId) {
+  const waId = String(waMessageId || '').trim();
+  if (!waId) return null;
+  return getDb()
+    .prepare(`SELECT * FROM messages WHERE wa_message_id = ? LIMIT 1`)
+    .get(waId);
 }
 
 /** Перенести сообщения alias-чатов в primaryId (после резолва LID↔телефон). */
@@ -339,6 +372,8 @@ module.exports = {
   recordMessage,
   getMessages,
   mergeMessagesIntoChat,
+  updateMessageByWaId,
+  findMessageByWaId,
   getLastActivityAt,
   hasWaMessageId,
   hasSimilarUserMessage,

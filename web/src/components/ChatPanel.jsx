@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../api/client';
+import { api, getToken } from '../api/client';
 import { IconClose } from './Icons';
 
 function formatDate(iso) {
@@ -74,6 +74,32 @@ function linkifyText(text) {
   );
 }
 
+/** Текст для панели: без служебных блоков vision/ссылок, которые нужны только ИИ. */
+function displayBubbleText(text) {
+  return String(text || '')
+    .replace(/\[описание фото\][\s\S]*?(?=\n\[|$)/gi, '')
+    .replace(/\[содержимое ссылки\][\s\S]*?(?=\n\[|$)/gi, '')
+    .replace(/\[фото без подписи\]\s*/gi, '')
+    .replace(/^\[фото\]\s*/i, '')
+    .replace(/^\[image\]\s*/i, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function mediaSrc(url) {
+  if (!url) return '';
+  const token = getToken();
+  if (!token) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
+}
+
+function isNoiseUserMessage(m) {
+  const t = String(m?.text || '').trim();
+  if (!t) return true;
+  return /^\[e2e_notification\]$/i.test(t);
+}
+
 function bubbleRole(m) {
   if (m.role === 'manager') return 'manager';
   if (m.role === 'assistant') return 'bot';
@@ -108,14 +134,15 @@ function lastMessageNeedsBotReply(messages) {
   return false;
 }
 
-/** Сколько подряд сообщений клиента в хвосте без ответа бота/менеджера. */
+/** Сколько подряд сообщений клиента в хвосте без ответа бота/менеджера.
+ * Число на кнопке «ответить (N)» = размер пачки; ИИ даёт один ответ на все N. */
 function countPendingUserMessages(messages) {
   if (!messages?.length) return 0;
   let count = 0;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const role = messages[i]?.role;
     if (role === 'user') {
-      if (String(messages[i]?.text || '').trim()) count += 1;
+      if (!isNoiseUserMessage(messages[i])) count += 1;
       continue;
     }
     if (role === 'assistant' || role === 'manager') break;
@@ -403,7 +430,25 @@ export default function ChatPanel({
                     className={`chat-bubble chat-bubble--${bubbleRole(row.message)}`}
                   >
                     <span className="chat-bubble__author">{bubbleLabel(row.message)}</span>
-                    <p className="chat-bubble__text">{linkifyText(row.message.text)}</p>
+                    {(row.message.mediaUrl ||
+                      row.message.kind === 'image' ||
+                      /^\[(image|фото)/i.test(String(row.message.text || ''))) &&
+                      row.message.mediaUrl && (
+                        <img
+                          className="chat-bubble__media"
+                          src={mediaSrc(row.message.mediaUrl)}
+                          alt="Фото из чата"
+                          loading="lazy"
+                        />
+                      )}
+                    {displayBubbleText(row.message.text) ? (
+                      <p className="chat-bubble__text">
+                        {linkifyText(displayBubbleText(row.message.text))}
+                      </p>
+                    ) : !row.message.mediaUrl &&
+                      /^\[(image|фото)/i.test(String(row.message.text || '')) ? (
+                      <p className="chat-bubble__text">[фото]</p>
+                    ) : null}
                     <span className="chat-bubble__meta">
                       <span className="chat-bubble__time">{formatBubbleTime(row.message.at)}</span>
                       {bubbleRole(row.message) !== 'user' && (
@@ -428,7 +473,7 @@ export default function ChatPanel({
                 ? settings.aiDisabled
                   ? 'ИИ выключен — клиент ждёт ответа.'
                   : pendingUserCount > 1
-                    ? `Клиент написал ${pendingUserCount} сообщ., пока бот не отвечал. ИИ обработает все.`
+                    ? `Клиент написал ${pendingUserCount} сообщ. без ответа. Число на кнопке — размер пачки: ИИ даст один ответ по всем.`
                     : 'Клиент написал, пока бот не отвечал.'
                 : `В истории ${messages.length || 0} сообщ. Если чего-то не хватает — подтяните из WhatsApp.`}
           </p>
@@ -439,7 +484,7 @@ export default function ChatPanel({
               onClick={syncHistoryFromWhatsApp}
               disabled={syncingHistory || catchingUp}
             >
-              {syncingHistory ? 'Собираю…' : 'Подтянуть историю из WhatsApp'}
+              {syncingHistory ? 'Собираю…' : 'Подтянуть историю'}
             </button>
             {awaitingBot && (
               <button
@@ -447,11 +492,16 @@ export default function ChatPanel({
                 className="btn btn--primary chat-panel__catchup-btn"
                 onClick={handleEnableAiAndReply}
                 disabled={catchingUp || syncingHistory}
+                title={
+                  pendingUserCount > 1
+                    ? `Один ответ ИИ на ${pendingUserCount} сообщений клиента`
+                    : 'Включить ИИ и ответить'
+                }
               >
                 {catchingUp
-                  ? 'Собираю сообщения и отвечаю…'
+                  ? 'ИИ отвечает…'
                   : pendingUserCount > 1
-                    ? `Включить ИИ и ответить (${pendingUserCount})`
+                    ? `Один ответ ИИ (${pendingUserCount})`
                     : 'Включить ИИ и ответить'}
               </button>
             )}

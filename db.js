@@ -103,6 +103,19 @@ function initSchema(database) {
       value TEXT
     );
   `);
+
+  // Мягкие миграции колонок
+  try {
+    const cols = database.prepare(`PRAGMA table_info(messages)`).all().map((c) => c.name);
+    if (!cols.includes('media_path')) {
+      database.exec(`ALTER TABLE messages ADD COLUMN media_path TEXT`);
+    }
+    if (!cols.includes('wa_message_id')) {
+      database.exec(`ALTER TABLE messages ADD COLUMN wa_message_id TEXT`);
+    }
+  } catch (e) {
+    console.warn('⚠️ messages schema migrate:', e.message);
+  }
 }
 
 function getMeta(key) {
