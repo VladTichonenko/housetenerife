@@ -41,9 +41,18 @@ function setupAdminPanel(app) {
 
   app.use(
     express.static(distPath, {
-      index: 'index.html',
-      maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0,
-      fallthrough: true
+      index: false,
+      fallthrough: true,
+      setHeaders(res, filePath) {
+        // Хэшированные ассеты можно кэшировать долго; index.html — никогда.
+        if (filePath.endsWith('index.html')) {
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+          return;
+        }
+        if (process.env.NODE_ENV === 'production' && /[/\\]assets[/\\]/.test(filePath)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      },
     })
   );
 
@@ -57,6 +66,7 @@ function setupAdminPanel(app) {
     if (/\.[a-z0-9]+$/i.test(req.path)) {
       return res.status(404).type('text/plain').send('Not found');
     }
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.sendFile(indexHtml, (err) => {
       if (err) {
         console.error('[web] sendFile:', err.message);

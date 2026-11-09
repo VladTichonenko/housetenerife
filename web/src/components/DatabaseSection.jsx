@@ -19,6 +19,32 @@ function formatDate(iso) {
   }
 }
 
+function formatBubbleTime(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleTimeString('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
+
+function avatarInitials(value) {
+  const parts = String(value || '')
+    .replace(/[^\p{L}\p{N}\s+]/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts[0].startsWith('+')) return '#';
+  return parts
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() || '')
+    .join('') || '?';
+}
+
 function formatBytes(bytes) {
   const n = Number(bytes) || 0;
   if (n < 1024) return `${n} Б`;
@@ -83,6 +109,21 @@ function UserDetail({ userId, onClose }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  const title =
+    (user?.name && !/whatsapp id/i.test(user.name) ? user.name : '') ||
+    (user?.phoneDisplay && !/whatsapp id/i.test(user.phoneDisplay) ? user.phoneDisplay : '') ||
+    user?.phoneDisplay ||
+    userId;
+  const phone =
+    user?.phoneDisplay && !/whatsapp id/i.test(user.phoneDisplay) ? user.phoneDisplay : '';
+  const subtitle = [
+    phone && phone !== title ? phone : null,
+    languagesText(user || {}),
+    user?.waLink ? 'WhatsApp' : null,
+  ]
+    .filter((v) => v && v !== '—')
+    .join(' · ');
+
   return (
     <div className="modal modal--chat" role="dialog" aria-modal="true" aria-labelledby="db-user-title">
       <button type="button" className="modal__backdrop" onClick={onClose} aria-label="Закрыть" />
@@ -92,59 +133,37 @@ function UserDetail({ userId, onClose }) {
             ←
           </button>
           <div className="chat-panel__avatar" aria-hidden>
-            {(user?.name || user?.phoneDisplay || '?')
-              .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-              .trim()
-              .split(/\s+/)
-              .slice(0, 2)
-              .map((p) => p[0]?.toUpperCase() || '')
-              .join('') || '?'}
+            {avatarInitials(title)}
           </div>
           <div className="chat-panel__topbar-info">
             <h2 id="db-user-title" className="chat-panel__topbar-title">
-              {(user?.name && !/whatsapp id/i.test(user.name) ? user.name : '') ||
-                (user?.phoneDisplay && !/whatsapp id/i.test(user.phoneDisplay)
-                  ? user.phoneDisplay
-                  : '') ||
-                user?.phoneDisplay ||
-                userId}
+              {title}
             </h2>
-            <p className="chat-panel__topbar-sub">
-              {[
-                user?.phoneDisplay && !/whatsapp id/i.test(user.phoneDisplay)
-                  ? user.phoneDisplay
-                  : null,
-                user?.countryName || user?.country,
-                languagesText(user || {}),
-              ]
-                .filter((v) => v && v !== '—')
-                .join(' · ')}
-            </p>
+            {subtitle && <p className="chat-panel__topbar-sub">{subtitle}</p>}
           </div>
+          {user?.waLink && (
+            <a
+              className="chat-panel__icon-btn"
+              href={user.waLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Открыть WhatsApp"
+              title="WhatsApp"
+            >
+              ✆
+            </a>
+          )}
           <button type="button" className="chat-panel__icon-btn modal__close--chat" onClick={onClose} aria-label="Закрыть">
             <IconClose />
           </button>
         </header>
 
-        {user && (
-          <div className="db-user-meta">
-            <span>Сообщений: {user.messageCount || messages.length}</span>
-            <span>Первый визит: {formatDate(user.firstSeenAt)}</span>
-            <span>Последний: {formatDate(user.lastSeenAt)}</span>
-            {user.waLink && (
-              <a href={user.waLink} target="_blank" rel="noopener noreferrer">
-                WhatsApp
-              </a>
-            )}
-          </div>
-        )}
-
         <div className="chat-panel__body">
           <div className="chat-panel__messages">
             {loading && !messages.length ? (
-              <p className="handoff-modal__loading">Загрузка…</p>
+              <p className="chat-panel__empty">Загрузка…</p>
             ) : error ? (
-              <p className="form-error">{error}</p>
+              <p className="chat-panel__empty">{error}</p>
             ) : messages.length === 0 ? (
               <p className="chat-panel__empty">Истории пока нет</p>
             ) : (
@@ -153,15 +172,23 @@ function UserDetail({ userId, onClose }) {
                   <span className="chat-bubble__author">{bubbleLabel(m)}</span>
                   <p className="chat-bubble__text">{m.text}</p>
                   <span className="chat-bubble__meta">
-                    <span className="chat-bubble__time">
-                      {formatDate(m.at)}
-                      {m.language ? ` · ${m.language}` : ''}
-                    </span>
+                    <span className="chat-bubble__time">{formatBubbleTime(m.at)}</span>
+                    {bubbleRole(m) !== 'user' && (
+                      <span className="chat-bubble__ticks" aria-hidden>
+                        ✓✓
+                      </span>
+                    )}
                   </span>
                 </div>
               ))
             )}
             <div ref={endRef} />
+          </div>
+        </div>
+
+        <div className="chat-panel__composer chat-panel__composer--readonly" aria-hidden>
+          <div className="chat-panel__input chat-panel__input--readonly">
+            Просмотр истории · ответ из вкладки «Чаты»
           </div>
         </div>
       </div>
