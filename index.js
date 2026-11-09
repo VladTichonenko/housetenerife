@@ -3293,11 +3293,11 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
 
   missedSyncInFlight = (async () => {
     const softTimeoutMs = Math.max(
-      20000,
-      parseInt(process.env.CATCHUP_SYNC_TIMEOUT_MS, 10) || 120000
+      45000,
+      parseInt(process.env.CATCHUP_SYNC_TIMEOUT_MS, 10) || 180000
     );
     try {
-      pauseMessagePolling(Math.min(softTimeoutMs + 5000, 130000));
+      pauseMessagePolling(Math.min(softTimeoutMs + 5000, 200000));
       const snapshots = await runExclusiveCdp(
         'admin.syncMissed',
         () =>
@@ -3305,12 +3305,12 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
             maxAgeMs,
             maxItems,
             perChatLimit,
-            budgetMs: softTimeoutMs - 15000,
+            budgetMs: Math.min(60000, softTimeoutMs - 20000),
           }),
-        softTimeoutMs
+        Math.min(90000, softTimeoutMs)
       );
 
-      const { imported, touched } = importMissedSnapshots(snapshots);
+      let { imported, touched } = importMissedSnapshots(snapshots);
 
       // Также пометить чаты из БД, где последнее — от клиента
       try {
@@ -3339,6 +3339,60 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
         console.warn('⚠️ syncMissed lid phones:', e.message);
       }
 
+      // Deep-sync: для чатов «ждут ответа» выгрузить ПОЛНУЮ историю через WAWebChatLoadMessages
+      try {
+        const { getChatAliases } = require('./clients-store');
+        const pendingIds = [
+          ...new Set([
+            ...touched.keys(),
+            ...listMarkedCatchUp().map((x) => x.chatId),
+          ]),
+        ]
+          .filter(Boolean)
+          .slice(0, 40);
+
+        let deepImported = 0;
+        let deepScanned = 0;
+        const deepBudgetUntil = Date.now() + Math.max(30000, softTimeoutMs - 20000);
+        for (const chatId of pendingIds) {
+          if (Date.now() > deepBudgetUntil) break;
+          const aliases = getChatAliases(chatId);
+          // eslint-disable-next-line no-await-in-loop
+          const deepSnaps = await runExclusiveCdp(
+            `admin.syncMissed.deep:${chatId}`,
+            () =>
+              fetchInboundHistoryForChatIds(aliases.length ? aliases : [chatId], {
+                maxAgeMs,
+                limit: perChatLimit,
+              }),
+            40000
+          ).catch((e) => {
+            console.warn(`⚠️ deep sync ${chatId}:`, e.message || e);
+            return [];
+          });
+          deepScanned += (deepSnaps || []).length;
+          const deepResult = importMissedSnapshots(deepSnaps || []);
+          deepImported += deepResult.imported || 0;
+          for (const [cid, info] of deepResult.touched.entries()) {
+            const prev = touched.get(cid);
+            touched.set(cid, {
+              count: (prev?.count || 0) + (info.count || 0),
+              lastText: info.lastText || prev?.lastText || '',
+              lastAt: info.lastAt || prev?.lastAt || null,
+              name: info.name || prev?.name || '',
+              language: info.language || prev?.language || '',
+              texts: [...new Set([...(prev?.texts || []), ...(info.texts || [])])].slice(-30),
+            });
+          }
+        }
+        imported += deepImported;
+        console.log(
+          `📥 Sync missed deep: chats=${pendingIds.length}, scanned=${deepScanned}, imported+=${deepImported}`
+        );
+      } catch (e) {
+        console.warn('⚠️ syncMissed deep pass:', e.message);
+      }
+
       const stats = {
         scanned: (snapshots || []).length,
         imported,
@@ -3358,7 +3412,7 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
         meta: getSyncMeta(),
         message:
           imported > 0
-            ? `Импортировано ${imported} сообщ. в ${touched.size} чатах (все пропущенные в окне). Можно догнать ботом.`
+            ? `Импортировано ${imported} сообщ. в ${touched.size} чатах (полная история из WhatsApp). Можно догнать ботом.`
             : touched.size || listMarkedCatchUp().length
               ? 'Новых из WhatsApp нет, но есть чаты без ответа бота.'
               : 'Пропущенных сообщений не найдено.',
@@ -3388,6 +3442,194 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
 /**
  * Перед догоном — догрузить ВСЕ пропущенные входящие именно этого чата из WhatsApp.
  */
+/**
+ * Надёжная выгрузка входящих из конкретного чата через WAWebChatLoadMessages
+ * (тот же путь, что Chat.fetchMessages в whatsapp-web.js).
+ */
+async function fetchInboundHistoryForChatIds(chatIds = [], { maxAgeMs, limit = 200 } = {}) {
+  const ids = [...new Set((chatIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length || !client?.pupPage) return [];
+
+  const ageMs = Math.max(60 * 60 * 1000, Number(maxAgeMs) || 30 * 24 * 60 * 60 * 1000);
+  const cutoffSeconds = Math.floor((Date.now() - ageMs) / 1000);
+  const perChat = Math.min(500, Math.max(20, Number(limit) || 200));
+
+  return client.pupPage.evaluate(
+    async (focusIds, cutoff, limitPerChat) => {
+      const collections = window.require?.('WAWebCollections');
+      if (!collections?.Chat) throw new Error('WAWebCollections.Chat unavailable');
+
+      const seen = new Set();
+      const out = [];
+
+      const extractBody = (message) => {
+        const raw =
+          message?.body ||
+          message?.caption ||
+          message?.text ||
+          message?.matchedText ||
+          message?._data?.body ||
+          message?._data?.caption ||
+          message?._data?.matchedText ||
+          (Array.isArray(message?.links) && (message.links[0]?.link || message.links[0]?.url)) ||
+          (Array.isArray(message?._data?.links) &&
+            (message._data.links[0]?.link || message._data.links[0]?.url)) ||
+          '';
+        const text = String(raw || '').trim();
+        if (text) return text.slice(0, 4000);
+        const type = String(message?.type || '');
+        if (type && type !== 'chat') return `[${type}]`;
+        return '';
+      };
+
+      const resolvePhoneDigits = (remote) => {
+        try {
+          if (!remote) return null;
+          if (String(remote).endsWith('@c.us') || String(remote).endsWith('@s.whatsapp.net')) {
+            const d = String(remote).replace(/@.*$/, '').replace(/\D/g, '');
+            return d.length >= 8 && d.length <= 15 ? d : null;
+          }
+          if (!String(remote).endsWith('@lid')) return null;
+          const WidFactory = window.require('WAWebWidFactory');
+          const wid = WidFactory.createWid(remote);
+          let phone = null;
+          try {
+            const { toPn } = window.require('WAWebLidMigrationUtils') || {};
+            const mapped = typeof toPn === 'function' ? toPn(wid) : null;
+            phone = mapped?._serialized || mapped?.user || null;
+          } catch {
+            /* ignore */
+          }
+          if (!phone) {
+            try {
+              const phoneWid = window.require('WAWebApiContact')?.getPhoneNumber?.(wid);
+              phone = phoneWid?._serialized || phoneWid?.user || null;
+            } catch {
+              /* ignore */
+            }
+          }
+          if (!phone) return null;
+          const d = String(phone).replace(/@.*$/, '').replace(/\D/g, '');
+          return d.length >= 8 && d.length <= 15 ? d : null;
+        } catch {
+          return null;
+        }
+      };
+
+      const getChatModel = async (chatId) => {
+        try {
+          if (window.WWebJS?.getChat) {
+            const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
+            if (chat) return chat;
+          }
+        } catch {
+          /* ignore */
+        }
+        try {
+          return collections.Chat.get(chatId) || null;
+        } catch {
+          return null;
+        }
+      };
+
+      const msgFilter = (m) =>
+        Boolean(m?.id) && !m.id.fromMe && !m.isNotification && !m.isStatusV3;
+
+      for (const chatId of focusIds) {
+        // eslint-disable-next-line no-await-in-loop
+        let chat = await getChatModel(chatId);
+        if (!chat) {
+          const digits = resolvePhoneDigits(chatId);
+          if (digits) {
+            // eslint-disable-next-line no-await-in-loop
+            chat = await getChatModel(`${digits}@c.us`);
+          }
+        }
+        if (!chat) continue;
+
+        let msgs = [];
+        try {
+          msgs = (chat.msgs?.getModelsArray?.() || []).filter(msgFilter);
+        } catch {
+          msgs = [];
+        }
+
+        // Правильный API WhatsApp Web (как в wwebjs Chat.fetchMessages)
+        for (let pass = 0; pass < 50 && msgs.length < limitPerChat; pass += 1) {
+          let loaded = null;
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            loaded = await window.require('WAWebChatLoadMessages').loadEarlierMsgs({ chat });
+          } catch {
+            try {
+              if (typeof chat.loadEarlierMsgs === 'function') {
+                // eslint-disable-next-line no-await-in-loop
+                loaded = await chat.loadEarlierMsgs();
+              } else if (typeof chat.msgs?.loadEarlierMsgs === 'function') {
+                // eslint-disable-next-line no-await-in-loop
+                loaded = await chat.msgs.loadEarlierMsgs();
+              }
+            } catch {
+              loaded = null;
+            }
+          }
+          if (!loaded || !loaded.length) break;
+          const older = loaded.filter(msgFilter);
+          msgs = [...older, ...msgs];
+          let oldest = 0;
+          for (const m of msgs) {
+            const t = Number(m?.t || m?.timestamp || 0);
+            if (t && (!oldest || t < oldest)) oldest = t;
+          }
+          if (oldest && oldest <= cutoff) break;
+          if (chat.msgs?.msgLoadState?.noEarlierMsgs) break;
+        }
+
+        if (msgs.length > limitPerChat) {
+          msgs = msgs
+            .slice()
+            .sort((a, b) => Number(a.t || 0) - Number(b.t || 0))
+            .slice(-limitPerChat);
+        }
+
+        for (const message of msgs) {
+          const timestamp = Number(message.t || message.timestamp || 0);
+          if (!timestamp || timestamp < cutoff) continue;
+          const remote =
+            message.id?.remote?._serialized ??
+            message.id?.remote?.$1 ??
+            message.id?.remote ??
+            chatId;
+          const serialized =
+            message.id?._serialized ||
+            message.id?.$1 ||
+            `${message.id?.fromMe ? 'true' : 'false'}_${remote}_${message.id?.id || ''}`;
+          if (!serialized || seen.has(serialized)) continue;
+          seen.add(serialized);
+          const body = extractBody(message);
+          if (!body) continue;
+          out.push({
+            waMessageId: serialized,
+            chatId: remote || chatId,
+            body,
+            timestamp,
+            notifyName: String(
+              message.notifyName || message._data?.notifyName || message.pushname || ''
+            ).slice(0, 120),
+            type: String(message.type || 'chat'),
+            phoneDigits: resolvePhoneDigits(remote || chatId),
+          });
+        }
+      }
+
+      return out.sort((a, b) => a.timestamp - b.timestamp);
+    },
+    ids,
+    cutoffSeconds,
+    perChat
+  );
+}
+
 async function syncOneChatMissedFromWhatsApp(chatId) {
   const id = String(chatId || '');
   if (!id || !botReady || !client?.pupPage) {
@@ -3397,17 +3639,21 @@ async function syncOneChatMissedFromWhatsApp(chatId) {
     return { imported: 0, scanned: 0, skipped: true };
   }
 
-  const { getChatAliases } = require('./clients-store');
+  const { getChatAliases, normalizePhoneDigits, getClient } = require('./clients-store');
   const { mergeMessagesIntoChat } = require('./conversation-store');
-  let focusIds = getChatAliases(id);
   if (isLidChatId(id)) {
     try {
       await ensureLidPhoneResolved(id);
-      focusIds = getChatAliases(id);
     } catch {
       /* ignore */
     }
   }
+  let focusIds = getChatAliases(id);
+  const clientInfo = getClient(id);
+  const digits =
+    normalizePhoneDigits(clientInfo?.waMeta?.resolvedPhone) ||
+    normalizePhoneDigits(clientInfo?.phone);
+  if (digits) focusIds = [...new Set([...focusIds, `${digits}@c.us`])];
 
   const maxAgeMs = Math.max(
     60 * 60 * 1000,
@@ -3418,26 +3664,41 @@ async function syncOneChatMissedFromWhatsApp(chatId) {
     Math.max(40, parseInt(process.env.CATCHUP_PER_CHAT_LIMIT, 10) || 200)
   );
   const softTimeoutMs = Math.max(
-    20000,
-    parseInt(process.env.CATCHUP_SYNC_TIMEOUT_MS, 10) || 60000
+    25000,
+    parseInt(process.env.CATCHUP_SYNC_TIMEOUT_MS, 10) || 70000
   );
 
-  pauseMessagePolling(Math.min(softTimeoutMs + 5000, 70000));
+  pauseMessagePolling(Math.min(softTimeoutMs + 5000, 80000));
   try {
-    const snapshots = await runExclusiveCdp(
-      `admin.syncMissedChat:${id}`,
-      () =>
-        fetchMissedInboundSnapshots({
-          maxAgeMs,
-          maxItems: perChatLimit * 2,
-          perChatLimit,
-          focusChatId: id,
-          focusChatIds: focusIds,
-          budgetMs: softTimeoutMs - 8000,
-        }),
-      softTimeoutMs
-    );
-    const { imported } = importMissedSnapshots(snapshots);
+    let snapshots = [];
+    try {
+      snapshots = await runExclusiveCdp(
+        `admin.syncChatHistory:${id}`,
+        () =>
+          fetchInboundHistoryForChatIds(focusIds, {
+            maxAgeMs,
+            limit: perChatLimit,
+          }),
+        softTimeoutMs
+      );
+    } catch (e) {
+      console.warn(`⚠️ syncChatHistory primary failed (${id}):`, e.message || e);
+      snapshots = await runExclusiveCdp(
+        `admin.syncMissedChatFallback:${id}`,
+        () =>
+          fetchMissedInboundSnapshots({
+            maxAgeMs,
+            maxItems: perChatLimit * 2,
+            perChatLimit,
+            focusChatId: id,
+            focusChatIds: focusIds,
+            budgetMs: softTimeoutMs - 8000,
+          }),
+        softTimeoutMs
+      );
+    }
+
+    const { imported } = importMissedSnapshots(snapshots || []);
     try {
       mergeMessagesIntoChat(id, getChatAliases(id));
     } catch {

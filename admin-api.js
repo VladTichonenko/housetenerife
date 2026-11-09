@@ -450,16 +450,21 @@ function registerAdminRoutes(app, state) {
         });
       }
       const messages = getMessages(chatId);
+      const imported = result?.imported || 0;
+      const scanned = result?.scanned || 0;
       res.json({
         success: true,
         chatId,
-        imported: result?.imported || 0,
-        scanned: result?.scanned || 0,
+        imported,
+        scanned,
         messageCount: messages.length,
+        focusIds: result?.focusIds || [],
         message:
-          (result?.imported || 0) > 0
-            ? `Подтянуто ${result.imported} сообщ. из WhatsApp`
-            : 'Новых сообщений из WhatsApp нет — показана текущая история',
+          imported > 0
+            ? `Подтянуто ${imported} новых из ${scanned} найденных в WhatsApp (всего в чате ${messages.length})`
+            : scanned > 0
+              ? `В WhatsApp найдено ${scanned}, новых нет — в панели сейчас ${messages.length}`
+              : `В WhatsApp по этому чату ничего не нашли (проверьте, что сессия онлайн). В панели ${messages.length}`,
       });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
