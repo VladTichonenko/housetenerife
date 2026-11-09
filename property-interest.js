@@ -139,6 +139,18 @@ function extractPropertyIdsFromText(text) {
 /**
  * Блок для промпта ИИ: карточка объекта, который клиент прислал ссылкой.
  */
+/** Строка для промпта, если объект продан / зарезервирован (не рекомендовать). */
+function unavailableNote(item) {
+  try {
+    const { getAvailability } = require('./property-status');
+    const a = getAvailability(item);
+    if (a === 'available') return null;
+    return `   STATUS: ${a.toUpperCase()} — this listing is NOT available (shown as "${a}" on the website). Tell the client honestly it is no longer available and offer to find similar AVAILABLE options; never recommend it.`;
+  } catch {
+    return null;
+  }
+}
+
 function formatLinkedPropertiesForPrompt(items, lang = 'ru') {
   if (!items?.length) return '';
   const l = normalizeLang(lang);
@@ -213,6 +225,7 @@ function formatLinkedPropertiesForPrompt(items, lang = 'ru') {
       areaNote ? `   ${F.area}: ${areaNote}` : null,
       overview ? `   ${F.overview}: ${overview}` : null,
       desc && desc !== overview ? `   ${F.desc}: ${desc}${desc.length >= 520 ? '…' : ''}` : null,
+      unavailableNote(item),
       `   URL: ${share}`
     ]
       .filter(Boolean)
@@ -688,6 +701,7 @@ async function bindWebchatPageProperty(chatId, { pageUrl = '', pageTitle = '', l
     item?.id ? `ID: ${item.id}` : null,
     price ? `Price: ${price}` : null,
     overview ? `Overview: ${overview}` : null,
+    item ? (unavailableNote(item) || '').trim() || null : null,
     `URL: ${share}`,
     'The client opened the website chat on THIS property page. Treat it as the selected listing unless they clearly ask for other options.',
   ].filter(Boolean);

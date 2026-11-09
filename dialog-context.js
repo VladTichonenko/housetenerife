@@ -887,7 +887,7 @@ function extractBudgetRange(text) {
 
   // от X до Y [единица]
   const range = s.match(
-    /(?:от|from|desde)\s*(\d+(?:[.,]\d+)?)\s*(?:до|–|-|to|hasta)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к)?/i
+    /(?:от|from|desde)\s*(\d+(?:[.,]\d+)?)\s*(?:до|–|-|to|hasta)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million(?:en|es|s)?|millon[a-z]*|milion[a-zó]*|miljoen|milh[aã]o|mio|mln|тыс[а-яё]*|thousand|tausend|tsd|tys[a-zęąó]*|tis[ií]c[a-z]*|duizend|mille|mil|k|к|m(?![a-zа-яё0-9²³]|\s+(?:from|away|walk|to\s+the)))?/i
   );
   if (range) {
     take(range[1], range[3], 'min');
@@ -898,7 +898,7 @@ function extractBudgetRange(text) {
   // до / hasta / up to / максимум — берём ПОСЛЕДНЕЕ «до X» в реплике (повысили бюджет)
   const upToAll = [
     ...s.matchAll(
-      /(?:до|макс(?:имум)?|не\s*более|up\s*to|hasta|under|below|bis|jusqu.?à|maximum)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к|tausend)?/gi
+      /(?:до|макс(?:имум)?|не\s*более|up\s*to|hasta|under|below|bis|jusqu.?à|maximum|max\.?|maks\w*|maximal|maximaal|tot|(?<![a-zа-яё])do)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million(?:en|es|s)?|millon[a-z]*|milion[a-zó]*|miljoen|milh[aã]o|mio|mln|тыс[а-яё]*|thousand|tausend|tsd|tys[a-zęąó]*|tis[ií]c[a-z]*|duizend|mille|mil|k|к|m(?![a-zа-яё0-9²³]|\s+(?:from|away|walk|to\s+the)))?/gi
     )
   ];
   if (upToAll.length) {
@@ -909,7 +909,7 @@ function extractBudgetRange(text) {
   // от / from / минимум — последнее
   const fromAll = [
     ...s.matchAll(
-      /(?:от|from|минимум|desde|starting|ab)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к)?/gi
+      /(?:от|from|минимум|desde|starting|ab|od|min\.?|minimum|à\s+partir\s+de|a\s+partir\s+de)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million(?:en|es|s)?|millon[a-z]*|milion[a-zó]*|miljoen|milh[aã]o|mio|mln|тыс[а-яё]*|thousand|tausend|tsd|tys[a-zęąó]*|tis[ií]c[a-z]*|duizend|mille|mil|k|к|m(?![a-zа-яё0-9²³]|\s+(?:from|away|walk|to\s+the)))?/gi
     )
   ];
   if (fromAll.length) {
@@ -919,13 +919,13 @@ function extractBudgetRange(text) {
 
   // около / в районе / around / alrededor / ~
   const around = s.match(
-    /(?:около|примерно|в\s+районе|around|about|cerca\s+de|alrededor(?:\s+de)?|en\s+torno\s+a|~\s*)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к)?/i
+    /(?:около|примерно|в\s+районе|around|about|cerca\s+de|alrededor(?:\s+de)?|en\s+torno\s+a|~\s*)\s*(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million(?:en|es|s)?|millon[a-z]*|milion[a-zó]*|miljoen|milh[aã]o|mio|mln|тыс[а-яё]*|thousand|tausend|tsd|tys[a-zęąó]*|tis[ií]c[a-z]*|duizend|mille|mil|k|к|m(?![a-zа-яё0-9²³]|\s+(?:from|away|walk|to\s+the)))?/i
   );
   if (around) take(around[1], around[2], 'around');
 
   // «бюджет 2 миллиона» / «2 млн» / «500к» / «2.5 million» / «600000»
   const withUnit = [...s.matchAll(
-    /(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million[a-z]*|millon[a-z]*|тыс[а-яё]*|thousand|k|к)(?![а-яёa-z])/gi
+    /(\d+(?:[.,]\d+)?)\s*(млн|миллион[а-яё]*|million(?:en|es|s)?|millon[a-z]*|milion[a-zó]*|miljoen|milh[aã]o|mio|mln|тыс[а-яё]*|thousand|tausend|tsd|tys[a-zęąó]*|tis[ií]c[a-z]*|duizend|mille|mil|k|к|m(?![a-zа-яё0-9²³]|\s+(?:from|away|walk|to\s+the)))(?![а-яёa-z])/gi
   )];
   if (withUnit.length) {
     const m = withUnit[withUnit.length - 1];
@@ -1023,8 +1023,10 @@ function parseBudgetNumber(numStr, unit, fullText) {
   if (!Number.isFinite(v) || v <= 0) return null;
 
   const u = String(unit || '').toLowerCase();
-  if (/млн|миллион|million|millon/.test(u)) return Math.round(v * 1_000_000);
-  if (/тыс|thousand|^k$|^к$/.test(u)) return Math.round(v * 1000);
+  if (/^(?:млн|миллион|million|millon|milion|miljoen|milh|mio|mln)/.test(u)) return Math.round(v * 1_000_000);
+  if (/^(?:тыс|thousand|tausend|tsd|tys|tis[ií]c|duizend|mille?$|k$|к$)/.test(u)) return Math.round(v * 1000);
+  // «1.2m» / «2m» — только малое число (не «100 m» метров)
+  if (u === 'm') return v < 100 ? Math.round(v * 1_000_000) : null;
 
   // Голые числа без единицы
   if (v >= 50000) return Math.round(v); // 350000
@@ -1163,7 +1165,7 @@ function applyMoreExpensiveIntent(lastUser, budget, userMsgs) {
 function budgetHasSignal(text, budget) {
   if (budget?.minPrice != null || budget?.maxPrice != null) return true;
   const lower = String(text || '').toLowerCase();
-  return /€|eur|euro|евро|бюджет|budget|presupuesto|budgetrahmen|\d+\s*(?:тыс|тысяч|млн|миллион|million|millon|\bk\b|\bк\b|tausend)|(?:до|от|up\s*to|around|около|hasta|under|bis|jusqu.?à|ab)\s*\d/i.test(
+  return /€|eur|euro|евро|бюджет|budget|presupuesto|budgetrahmen|\d+\s*(?:тыс|тысяч|млн|миллион|million|millon|\bk\b|\bк\b|tausend|tsd|tys|mio|mln|\bmil\b|mille|tis[ií]c)|\d(?:[.,]\d+)?\s*m(?![a-zа-яё0-9²³])|(?:до|от|up\s*to|around|около|hasta|under|bis|jusqu.?à|ab)\s*\d/i.test(
     lower
   );
 }

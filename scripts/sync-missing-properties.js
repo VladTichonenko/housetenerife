@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { extractStatusFromHtml, statusFieldsFromExtract, mergeStatusFields } = require('../property-status');
 
 const BASE = 'https://housetenerife.eu';
 const DELAY_MS = parseInt(process.env.SYNC_DELAY_MS, 10) || 800;
@@ -85,7 +86,8 @@ function parseProperty(html, url) {
     title: title || url,
     price: price || '',
     overview: overview || '',
-    description: description || ''
+    description: description || '',
+    statusFields: statusFieldsFromExtract(extractStatusFromHtml(html))
   };
 }
 
@@ -181,7 +183,8 @@ async function main() {
         urls,
         titles: { [lang]: parsed.title },
         descriptions: { [lang]: parsed.description },
-        overviews: { [lang]: parsed.overview }
+        overviews: { [lang]: parsed.overview },
+        ...parsed.statusFields
       };
       for (const s of Object.values(urls).map(slugFrom).filter(Boolean)) {
         processed.add(s);
@@ -200,7 +203,8 @@ async function main() {
           descriptions: { ...(prev.descriptions || {}), ...item.descriptions },
           overviews: { ...(prev.overviews || {}), ...item.overviews },
           id: prev.id || id,
-          price: prev.price || item.price
+          price: prev.price || item.price,
+          ...mergeStatusFields(prev.availability ? prev : null, parsed.statusFields)
         });
         merged++;
       } else {

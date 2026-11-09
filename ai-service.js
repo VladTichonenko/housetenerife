@@ -35,7 +35,8 @@ const {
   getShareUrl,
   stripNonCatalogUrls
 } = require('./property-share');
-const { itemMatchesPropertyTypes } = require('./property-types');
+const { itemMatchesPropertyTypes, typeFamilyFor } = require('./property-types');
+const { isListingAvailable } = require('./property-status');
 const {
   fixPhoneticTransliterations,
   replyMismatchesLanguage,
@@ -668,19 +669,28 @@ ${blocks.managerHandoff}`;
           ? `${linkedStageBlock}\n\n${funnelGlueByLang[salesLang] || funnelGlueByLang.en}`
           : dialog.stageInstruction;
 
-  const hasVisionNote = /\[описание фото\]|\[foto\]|\[photo description\]/i.test(lastRaw) ||
-    /\[фото/i.test(lastRaw);
+  const historyBlob = limitedHistory.map((m) => String(m?.text || '')).join('\n');
+  const hasVisionNote =
+    /\[описание фото\]|\[foto\]|\[photo description\]/i.test(lastRaw) ||
+    /\[фото/i.test(lastRaw) ||
+    /\[описание фото\]/i.test(historyBlob) ||
+    /\[содержимое ссылки\]/i.test(historyBlob);
   const photoVisionBlock = hasVisionNote
     ? salesLang === 'es'
-      ? '\n**FOTO DEL CLIENTE:** Hay un bloque «описание фото» / visión. Úsalo como si hubieras visto la imagen. Relaciónalo con búsqueda de inmuebles; una pregunta clara.\n'
+      ? '\n**FOTO/ENLACE DEL CLIENTE:** Usa bloques «описание фото» / «содержимое ссылки» como si hubieras visto la imagen o abierto el enlace. Relaciónalo con búsqueda; una pregunta clara.\n'
       : salesLang === 'en'
-        ? '\n**CLIENT PHOTO:** There is a vision description block. Use it as if you saw the image. Tie it to property search; ask one clear question.\n'
-        : salesLang === 'de'
-          ? '\n**KUNDENFOTO:** Es gibt einen Vision-Beschreibungblock. Nutze ihn, als hättest du das Bild gesehen. Beziehe es auf Immobiliensuche; eine klare Frage.\n'
-          : salesLang === 'nl'
-            ? '\n**KLANTFOTO:** Er is een vision-beschrijvingsblok. Gebruik het alsof je de foto zag. Koppel aan vastgoedzoektocht; één duidelijke vraag.\n'
-            : '\n**ФОТО КЛИЕНТА:** В сообщении есть блок «описание фото» (vision). Опирайся на него как на то, что ты «увидел». Свяжи с поиском недвижимости; один понятный вопрос.\n'
+        ? '\n**CLIENT PHOTO/LINK:** Use «описание фото» / link-content blocks as if you saw the image or opened the link. Tie to property search; one clear question.\n'
+        : '\n**ФОТО/ССЫЛКА КЛИЕНТА:** Опирайся на блоки «описание фото» и «содержимое ссылки» как на то, что ты реально увидел/открыл. Свяжи с поиском; один понятный вопрос.\n'
     : '';
+  const catchUpCount = Math.max(0, parseInt(runtimeContext.catchUpPendingCount, 10) || 0);
+  const catchUpBlock =
+    catchUpCount > 1
+      ? salesLang === 'es'
+        ? `\n**CATCH-UP:** El cliente envió ${catchUpCount} mensajes seguidos sin respuesta. Da UNA sola respuesta de WhatsApp que tenga en cuenta TODOS (texto, fotos, enlaces). No respondas mensaje por mensaje.\n`
+        : salesLang === 'en'
+          ? `\n**CATCH-UP:** The client sent ${catchUpCount} messages in a row with no reply. Give ONE WhatsApp reply covering ALL of them (text, photos, links). Do not answer each separately.\n`
+          : `\n**ДОГОН:** Клиент прислал ${catchUpCount} сообщений подряд без ответа. Дай ОДИН ответ в WhatsApp по ВСЕМ сообщениям сразу (текст, фото, ссылки). Не отвечай на каждое отдельно.\n`
+      : '';
   const photoSendBlock =
     dialog.wantsPhotos || showingListings || hasLinkedProperty
       ? salesLang === 'es'
@@ -708,7 +718,7 @@ ${coreRulesBlock}
 
 ${stageHeader}
 ${stageBlock}
-${photoVisionBlock}${photoSendBlock}
+${catchUpBlock}${photoVisionBlock}${photoSendBlock}
 ${mortgageOpeningInstruction ? `\n${mortgageOpeningInstruction}\n` : ''}
 
 ${criteriaBlock}
@@ -1076,14 +1086,25 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fal
     )
   );
 
+  /** Объекты, реально попавшие в последний собранный список (для заголовка «типы»). */
+  let shownItems = [];
   const collectLines = (typeFilter) => {
     const lines = [];
     const seen = new Set();
+    // Точный запрошенный тип (вилла) — выше «ближайших альтернатив» (дом/таунхаус)
+    const exactRank = (raw) => {
+      if (!wanted.length) return 0;
+      const it = findItemByUrl(raw);
+      return it && itemMatchesPropertyTypes(it, wanted) ? 0 : 1;
+    };
     const ranked = [...(urls || [])].sort((a, b) => {
+      const ex = exactRank(a) - exactRank(b);
+      if (ex) return ex;
       const aAvoid = avoidKeys.has(String(a || '').toLowerCase().replace(/\/+$/, '')) ? 1 : 0;
       const bAvoid = avoidKeys.has(String(b || '').toLowerCase().replace(/\/+$/, '')) ? 1 : 0;
       return aAvoid - bAvoid;
     });
+    shownItems = [];
     const { itemMatchesRegions } = require('./catalog-regions');
     const { itemMatchesBusinessSectors } = require('./business-sectors');
     const wantedRegions = dialog.macroRegions || [];
@@ -1091,6 +1112,8 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fal
     for (const raw of ranked) {
       const item = findItemByUrl(raw);
       if (!item) continue;
+      // Проданное / зарезервированное никогда не показываем
+      if (!isListingAvailable(item)) continue;
       if (wantedRegions.length && !itemMatchesRegions(item, wantedRegions)) continue;
       if (typeFilter.length && !itemMatchesPropertyTypes(item, typeFilter)) continue;
       if (
@@ -1123,6 +1146,7 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fal
       lines.push(
         `• *${loc.title || 'Object'}*${price ? ` — ${price}` : ''}\n${desc}${desc ? '\n' : ''}${share}`
       );
+      shownItems.push(item);
       if (lines.length >= 5) break;
     }
     return lines;
@@ -1141,17 +1165,19 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fal
     if (lines.length) usedTypeFamilyFallback = true;
   }
   if (!lines.length) {
-    lines = collectLines([]);
+    // Последний шаг — только «семья» запроса: вилла/дом/квартира не получают бизнес и землю
+    lines = collectLines(typeFamilyFor(wanted));
   }
 
   if (!lines.length) return '';
 
   const { formatDetectedTypes, getItemPropertyCategories } = require('./property-types');
+  // Заголовок описывает ТОЛЬКО показанные объекты (раньше брались все найденные URL)
   const resultCats = [];
-  for (const raw of urls || []) {
-    const item = findItemByUrl(raw);
-    if (!item) continue;
+  const wantedFamily = typeFamilyFor(wanted);
+  for (const item of shownItems) {
     for (const c of getItemPropertyCategories(item)) {
+      if (wantedFamily.length && !wantedFamily.includes(c)) continue;
       if (!resultCats.includes(c)) resultCats.push(c);
     }
     if (resultCats.length >= 4) break;
@@ -1179,6 +1205,11 @@ function buildDeterministicListingsReply(urls, lang, dialog, avoidUrls = [], fal
                     ? ' (без ограничения цены)'
                     : ' (any price)'
     : '';
+
+  // Предупреждение «точного типа нет» — только если среди показанных реально нет точного типа
+  if (wanted.length && shownItems.length) {
+    usedTypeFamilyFallback = !shownItems.some((it) => itemMatchesPropertyTypes(it, wanted));
+  }
 
   let intro = listingIntroForLang(copyLang, typeLabel, area, budgetNote);
 
@@ -1537,7 +1568,7 @@ function stripPropertyLinksKeepText(text) {
  * @param {string} userLanguage
  * @param {{ chatId?: string, userProfile?: object }} [options]
  */
-async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
+async function askAICore(conversationHistory, userLanguage = 'ru', options = {}) {
   const salesLangEarly = normalizeSalesLang(userLanguage);
   let dialog = analyzeConversation(conversationHistory, userLanguage);
   let userProfile = options.userProfile || null;
@@ -1606,6 +1637,7 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
         chatId: options.chatId,
         pagePropertyUrl: options.pagePropertyUrl || '',
         pagePropertyTitle: options.pagePropertyTitle || '',
+        catchUpPendingCount: options.catchUpPendingCount || 0,
       }
     );
     let reply = await callAI(messages, 'chat');
@@ -2272,6 +2304,117 @@ async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
   }
 }
 
+/**
+ * Публичная точка входа. Поверх askAICore:
+ *  1) вопрос про язык («Do you speak English?») — отвечаем коротко и ДО воронки, без подборки;
+ *  2) защитная live-проверка: ссылка на «Продано» не уходит клиенту (кэш, fail-open).
+ */
+async function askAI(conversationHistory, userLanguage = 'ru', options = {}) {
+  const history = Array.isArray(conversationHistory) ? conversationHistory : [];
+  let lastIdx = -1;
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    if (history[i]?.sender === 'user') {
+      lastIdx = i;
+      break;
+    }
+  }
+  const lastText = lastIdx >= 0 ? String(history[lastIdx].text || '') : '';
+  const {
+    detectLanguageQuestion,
+    buildLanguageAnswer,
+    buildLanguageFollowUp,
+    prependLanguageAnswer,
+    stripListingDump,
+  } = require('./language-question');
+  const lq = lastIdx >= 0 ? detectLanguageQuestion(lastText) : { asked: false };
+
+  let workHistory = history;
+  let languageAnswer = '';
+  let followUp = '';
+  if (lq.asked) {
+    languageAnswer = buildLanguageAnswer(userLanguage, { askedLangs: lq.askedLangs });
+    // Воронка видит сообщение без фразы про язык
+    workHistory = history.map((m, i) => (i === lastIdx ? { ...m, text: lq.rest } : m));
+    let known = { hasType: false, hasBudget: false, hasPurpose: false };
+    try {
+      known = analyzeConversation(lq.only ? history.slice(0, lastIdx) : workHistory, userLanguage);
+    } catch {
+      /* ignore */
+    }
+    followUp = buildLanguageFollowUp(userLanguage, {
+      hasCriteria: Boolean(known.hasType || known.hasBudget),
+      hasPurpose: Boolean(known.hasPurpose),
+    });
+    if (lq.only) return prependLanguageAnswer(languageAnswer, followUp);
+  }
+
+  let reply = await askAICore(workHistory, userLanguage, options);
+
+  if (lq.asked) {
+    let body = reply;
+    if (!lq.wantsListings) body = stripListingDump(body);
+    // Пустой/только вводный ответ → мягкий следующий шаг воронки
+    if (!String(body || '').trim()) body = followUp;
+    return prependLanguageAnswer(languageAnswer, body);
+  }
+
+  try {
+    reply = await guardUnavailableListings(reply, {
+      lastUserText: lastText,
+      pagePropertyUrl: options.pagePropertyUrl || '',
+      userLanguage,
+      rerun: () => askAICore(workHistory, userLanguage, options),
+    });
+  } catch (e) {
+    console.warn('⚠️ guardUnavailableListings:', e.message);
+  }
+  return reply;
+}
+
+/** Убирает из ответа ссылки на проданные/зарезервированные объекты (кроме присланных клиентом). */
+async function guardUnavailableListings(reply, ctx = {}) {
+  const { extractPropertyUrls, dropListingBlocks } = require('./reply-guards');
+  const { verifyListingUrlsAvailable } = require('./property-live-fetch');
+  const urls = extractPropertyUrls(reply);
+  if (!urls.length) return reply;
+
+  const clientBlob = `${ctx.lastUserText || ''} ${ctx.pagePropertyUrl || ''}`.toLowerCase();
+  const slugOf = (u) => (String(u).match(/\/property\/([^/?#\s]+)/i) || [])[1]?.toLowerCase() || '';
+  const candidates = urls.filter((u) => {
+    const slug = slugOf(u);
+    return !(slug && clientBlob.includes(slug));
+  });
+  if (!candidates.length) return reply;
+
+  const { blocked } = await verifyListingUrlsAvailable(candidates);
+  if (!blocked.length) return reply;
+  console.warn(
+    `⚠️ В ответе были недоступные объекты (${blocked.map((b) => `${b.availability}:${b.url}`).join(', ')}) — убираю`
+  );
+
+  let cleaned = dropListingBlocks(reply, blocked.map((b) => b.url));
+  if (!extractPropertyUrls(cleaned).length && ctx.rerun) {
+    // Все карточки были проданы: runtime-пометка уже исключает их из поиска — пересобираем ответ
+    try {
+      const again = await ctx.rerun();
+      const check = await verifyListingUrlsAvailable(
+        extractPropertyUrls(again).filter((u) => {
+          const slug = slugOf(u);
+          return !(slug && clientBlob.includes(slug));
+        })
+      );
+      cleaned = dropListingBlocks(again, check.blocked.map((b) => b.url));
+    } catch (e) {
+      console.warn('⚠️ guardUnavailableListings rerun:', e.message);
+    }
+  }
+  if (!String(cleaned || '').trim()) {
+    const { buildLanguageFollowUp } = require('./language-question');
+    return buildLanguageFollowUp(ctx.userLanguage || 'en', { hasCriteria: true, hasPurpose: true });
+  }
+  return cleaned;
+}
+
 /** Короткая проверка для Telegram /ai и мониторинга. */
 async function checkAIHealth() {
   const model = resolveGptModel(process.env.AI_MODEL || AI_MODEL);
@@ -2347,4 +2490,5 @@ module.exports = {
   getCatalogItemBedroomCount,
   buildDeterministicListingsReply,
   buildLanguageSafetyReply,
+  guardUnavailableListings,
 };

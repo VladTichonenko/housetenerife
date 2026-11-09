@@ -1,6 +1,7 @@
 'use strict';
 
 const { franc } = require('franc-min');
+const { detectLanguageQuestion, detectExplicitLanguageRequest } = require('./language-question');
 
 /** ISO 639-3 → коды бота */
 const ISO3_TO_CODE = {
@@ -642,6 +643,12 @@ function detectLanguageFromText(text) {
     return 'en';
   }
 
+  // «Do you speak english» (без «?») раньше уходило в PL: язык вопроса = язык клиента
+  const langQ = detectLanguageQuestion(trimmed);
+  if (langQ.asked && langQ.only && langQ.questionLang && SUPPORTED_DETECT.includes(langQ.questionLang)) {
+    return langQ.questionLang;
+  }
+
   const detectBody = prepareDetectBody(trimmed) || trimmed;
   const words = tokenize(detectBody);
 
@@ -743,6 +750,10 @@ function resolveConversationLanguage({
   }
 
   if (!current) return historyLanguage || sticky || fallback || 'en';
+
+  // «English please» / «по-немецки пожалуйста» — явная просьба важнее sticky языка страницы
+  const explicitRequest = detectExplicitLanguageRequest(current);
+  if (explicitRequest) return explicitRequest;
 
   const detected = detectLanguageFromText(current);
   if (isAmbiguousShortReply(current) || isMostlyPlaceName(current) || isBudgetAmountReply(current)) {

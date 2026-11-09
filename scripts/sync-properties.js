@@ -10,6 +10,7 @@ const path = require('path');
 
 const BASE = 'https://housetenerife.eu';
 const { SYNC_SEED_INDEX_URLS } = require('../catalog-regions');
+const { extractStatusFromHtml, statusFieldsFromExtract, mergeStatusFields } = require('../property-status');
 const USER_AGENT = 'HouseTenerifeBot/1.0 (property catalog sync; contact agency)';
 const DELAY_MS = parseInt(process.env.SYNC_DELAY_MS, 10) || 2000;
 const MAX_INDEX_PAGES = parseInt(process.env.SYNC_MAX_INDEX_PAGES, 10) || 800;
@@ -269,6 +270,9 @@ function mergePropertyItems(base, extra) {
   merged.overviews = { ...(base.overviews || {}), ...(extra.overviews || {}) };
   if (!merged.id && extra.id) merged.id = extra.id;
   if (!merged.price && extra.price) merged.price = extra.price;
+  if (base.availability || extra.availability) {
+    Object.assign(merged, mergeStatusFields(base, extra));
+  }
   if (merged.urls?.ru) {
     merged.url = merged.urls.ru;
     merged.title = merged.titles?.ru || merged.title;
@@ -314,6 +318,8 @@ function parseProperty(html, url) {
     overview: overview || '',
     description: description || '',
     ogImage: ogAbs || '',
+    // Бейдж «Продано / Sold / Vendido…» главного объекта (не «Similar Listings»)
+    statusFields: statusFieldsFromExtract(extractStatusFromHtml(html)),
   };
 }
 
@@ -352,7 +358,14 @@ function buildMultilingualItem(ruParsed, ruHtml, extraByLang, alternates = {}) {
     urls,
     titles,
     descriptions,
-    overviews
+    overviews,
+    // Худший статус по всем языковым страницам (sold на любой → не рекомендуем)
+    ...mergeStatusFields(
+      ruParsed.statusFields,
+      ...Object.entries(extraByLang)
+        .filter(([lang]) => !lang.startsWith('_'))
+        .map(([, data]) => data.statusFields)
+    )
   };
 }
 
@@ -518,7 +531,11 @@ async function main() {
   );
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
+
+module.exports = { parseProperty, buildMultilingualItem, mergePropertyItems };

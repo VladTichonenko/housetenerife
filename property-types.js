@@ -539,6 +539,22 @@ function expandLastResortPropertyTypes(wantedTypes) {
   return [...out];
 }
 
+/**
+ * «Семья» типов запроса: жильё ↔ жильё, бизнес ↔ коммерция, земля отдельно.
+ * Нужна, чтобы финальный fallback «любой тип» не подмешивал бизнес/землю к вилле
+ * (и наоборот). Пусто = ограничений нет.
+ */
+const RESIDENTIAL_TYPES = ['apartments', 'villas', 'houses'];
+function typeFamilyFor(wantedTypes) {
+  if (!wantedTypes?.length) return [];
+  if (wantedTypes.every((t) => RESIDENTIAL_TYPES.includes(t))) return [...RESIDENTIAL_TYPES];
+  if (wantedTypes.every((t) => t === 'business' || t === 'commercial')) return ['business', 'commercial'];
+  if (wantedTypes.every((t) => t === 'land')) return ['land'];
+  if (wantedTypes.every((t) => t === 'parking')) return ['parking'];
+  if (wantedTypes.every((t) => t === 'investment')) return ['investment'];
+  return [];
+}
+
 function formatPropertyTypeOptions(lang = 'ru') {
   const l = TYPE_OPTIONS_PROMPT[lang] ? lang : 'ru';
   return TYPE_OPTIONS_PROMPT[l];
@@ -562,6 +578,8 @@ module.exports = {
   scorePropertyTypeFit,
   expandSoftPropertyTypes,
   expandLastResortPropertyTypes,
+  typeFamilyFor,
+  RESIDENTIAL_TYPES,
   formatPropertyTypeOptions,
   formatDetectedTypes
 };

@@ -11,6 +11,12 @@ const fs = require('fs');
 const path = require('path');
 const { findItemByUrl, findItemByPropertyId, invalidateUrlIndex } = require('./property-share');
 const { reload } = require('./property-catalog');
+const {
+  extractStatusFromHtml,
+  statusFieldsFromExtract,
+  getAvailability,
+  markRuntimeAvailability,
+} = require('./property-status');
 
 const BASE = 'https://housetenerife.eu';
 const USER_AGENT = 'HouseTenerifeBot/1.0 (property live fetch; contact agency)';
@@ -95,6 +101,7 @@ function parseProperty(html, url) {
     overview: overview || '',
     description: description || '',
     ogImage,
+    statusFields: statusFieldsFromExtract(extractStatusFromHtml(html)),
   };
 }
 
@@ -204,6 +211,7 @@ async function fetchPropertyFromUrl(url) {
     descriptions: { [lang]: parsed.description },
     overviews: { [lang]: parsed.overview },
     liveFetchedAt: new Date().toISOString(),
+    ...parsed.statusFields,
     ogImage: parsed.ogImage || '',
     images: parsed.ogImage ? [parsed.ogImage] : [],
   };
@@ -241,7 +249,130 @@ async function resolvePropertyItemsFromText(text) {
   return found;
 }
 
+// ---------------------------------------------------------------------------
+// Защитная live-проверка статуса: ссылка, которую бот собирается показать,
+// ещё раз проверяется на «Продано» (кэш, короткий таймаут, fail-open).
+// ---------------------------------------------------------------------------
+
+const STATUS_TTL_MS =
+  Math.max(1, parseInt(process.env.PROPERTY_STATUS_TTL_MIN, 10) || 360) * 60 * 1000;
+const STATUS_ERROR_TTL_MS = 5 * 60 * 1000;
+const STATUS_TIMEOUT_MS = Math.min(
+  8000,
+  Math.max(1000, parseInt(process.env.PROPERTY_STATUS_TIMEOUT_MS, 10) || 3500)
+);
+const STATUS_MAX_URLS = 8;
+/** url → { at, ttl, availability } */
+const statusCache = new Map();
+
+function liveStatusCheckEnabled() {
+  return process.env.PROPERTY_LIVE_STATUS_CHECK !== '0';
+}
+
+async function fetchHtmlForStatus(url) {
+  const res = await axios.get(url, {
+    timeout: STATUS_TIMEOUT_MS,
+    headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' },
+    maxRedirects: 3,
+    maxContentLength: 4 * 1024 * 1024,
+    validateStatus: (s) => s >= 200 && s < 400,
+  });
+  return String(res.data || '');
+}
+
+function statusCacheKey(url) {
+  return String(url || '')
+    .toLowerCase()
+    .replace(/[?#].*$/, '')
+    .replace(/\/+$/, '');
+}
+
+function clearStatusCache() {
+  statusCache.clear();
+}
+
+/**
+ * @param {string} url ссылка на объект housetenerife.eu
+ * @param {{ fetchHtmlFn?: (url:string)=>Promise<string>, now?: number }} [opts]
+ * @returns {Promise<{ availability: string, fromCache: boolean, error?: boolean }>}
+ */
+async function checkUrlAvailability(url, opts = {}) {
+  const now = opts.now ?? Date.now();
+  const key = statusCacheKey(url);
+  const hit = statusCache.get(key);
+  if (hit && now - hit.at < hit.ttl) {
+    return { availability: hit.availability, fromCache: true };
+  }
+  const fn = opts.fetchHtmlFn || fetchHtmlForStatus;
+  try {
+    const html = await fn(url);
+    const st = extractStatusFromHtml(html);
+    statusCache.set(key, { at: now, ttl: STATUS_TTL_MS, availability: st.availability });
+    return { availability: st.availability, fromCache: false };
+  } catch (e) {
+    // fail-open: сайт недоступен — не блокируем ответ, повторим позже
+    statusCache.set(key, { at: now, ttl: STATUS_ERROR_TTL_MS, availability: 'available' });
+    return { availability: 'available', fromCache: false, error: true };
+  }
+}
+
+/**
+ * Проверяет, что показываемые ссылки не «Продано».
+ * Дёшево: записи каталога с недавним statusCheckedAt и без флага — без запроса;
+ * известный sold — без запроса; остальное — кэшируемый GET с таймаутом.
+ * Найденное sold помечается в runtime (исключается из поиска до рестарта).
+ *
+ * @param {string[]} urls
+ * @param {{ fetchHtmlFn?: Function, now?: number, force?: boolean }} [opts]
+ * @returns {Promise<{ ok: string[], blocked: Array<{url:string, availability:string}> }>}
+ */
+async function verifyListingUrlsAvailable(urls, opts = {}) {
+  const list = [...new Set((urls || []).filter(Boolean))].slice(0, STATUS_MAX_URLS);
+  const ok = [];
+  const blocked = [];
+  if (!list.length) return { ok, blocked };
+  const now = opts.now ?? Date.now();
+
+  await Promise.all(
+    list.map(async (url) => {
+      let item = null;
+      try {
+        item = findItemByUrl(url);
+      } catch {
+        item = null;
+      }
+      if (item) {
+        const known = getAvailability(item);
+        if (known !== 'available') {
+          blocked.push({ url, availability: known });
+          return;
+        }
+        const checkedAt = Date.parse(item.statusCheckedAt || '') || 0;
+        if (!opts.force && checkedAt && now - checkedAt < STATUS_TTL_MS) {
+          ok.push(url);
+          return;
+        }
+      }
+      if (!opts.fetchHtmlFn && !liveStatusCheckEnabled()) {
+        ok.push(url);
+        return;
+      }
+      const res = await checkUrlAvailability(url, opts);
+      if (res.availability !== 'available') {
+        blocked.push({ url, availability: res.availability });
+        markRuntimeAvailability(item || url, res.availability);
+      } else {
+        ok.push(url);
+      }
+    })
+  );
+  return { ok, blocked };
+}
+
 module.exports = {
+  verifyListingUrlsAvailable,
+  checkUrlAvailability,
+  clearStatusCache,
   fetchPropertyFromUrl,
   resolvePropertyItemsFromText,
   propertyUrlFromText,

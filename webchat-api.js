@@ -1,5 +1,7 @@
 'use strict';
 
+const { sanitizeWebReply } = require('./reply-guards');
+
 const ALLOWED_ORIGINS = String(
   process.env.WEBCHAT_ALLOWED_ORIGINS ||
     'https://housetenerife.eu,https://www.housetenerife.eu'
@@ -83,7 +85,8 @@ function registerWebchatRoutes(app, { processWebMessage }) {
       });
       return res.json({
         success: true,
-        reply: reply.text,
+        // Внутренние токены промпта ([Website page property…], [Full catalog…]) клиенту не отдаём
+        reply: sanitizeWebReply(reply.text, reply.language),
         language: reply.language,
         chatId,
       });

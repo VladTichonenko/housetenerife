@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { derivePriceTarget } = require('./dialog-context');
+const { isListingAvailable } = require('./property-status');
+const { detectFeatureWishes, scoreFeatureFit } = require('./property-features');
 const {
   itemMatchesMicroAreas,
   scoreMicroAreaFit,
@@ -776,6 +778,11 @@ function scoreItem(item, tokens, options = {}) {
     sc += scoreBusinessSectorFit(item, options.businessSectors);
   }
 
+  // «вид на море», «бассейн», «первая линия» — мягкий буст
+  if (options.featureWishes?.length) {
+    sc += scoreFeatureFit(blob, options.featureWishes);
+  }
+
   return sc;
 }
 
@@ -1102,7 +1109,9 @@ function searchForContext(query, limit = 8, options = {}) {
 
   const lang = normalizeLang(options.lang);
   const data = load();
-  const totalInDb = data.items.length;
+  // Проданные / зарезервированные / снятые объекты не рекомендуем (поиск, похожие, fallback).
+  const availableItems = data.items.filter(isListingAvailable);
+  const totalInDb = availableItems.length;
   if (!totalInDb) {
     return {
       found: false,
@@ -1133,10 +1142,11 @@ function searchForContext(query, limit = 8, options = {}) {
     businessSectors,
     macroRegions,
     microDetection,
-    contextText: options.contextText || query || ''
+    contextText: options.contextText || query || '',
+    featureWishes: detectFeatureWishes(options.contextText || query || '')
   };
 
-  let ranked = data.items.map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }));
+  let ranked = availableItems.map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }));
   let usedAreaFallback = false;
   let usedBudgetFallback = false;
 
@@ -1148,11 +1158,11 @@ function searchForContext(query, limit = 8, options = {}) {
     else if (priceTarget || scoreOpts.minPrice || scoreOpts.maxPrice) {
       ranked = filterByPriceTarget(ranked, priceTarget || derivePriceTarget(scoreOpts));
       if (!ranked.length) {
-        ranked = data.items.map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }));
+        ranked = availableItems.map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }));
       }
     }
   } else {
-    ranked = data.items
+    ranked = availableItems
       .map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }))
       .filter((x) => x.s > -15);
   }
@@ -1247,7 +1257,7 @@ function searchForContext(query, limit = 8, options = {}) {
   ranked = pickPriceTierListings(ranked, limit, priceTarget);
 
   if (!ranked.length) {
-    ranked = data.items
+    ranked = availableItems
       .map((item) => ({ item, s: scoreItem(item, tokens, scoreOpts) }))
       .sort((a, b) => b.s - a.s);
     if (macroRegions.length) {
@@ -1322,6 +1332,16 @@ function searchForContext(query, limit = 8, options = {}) {
       }
     }
     ranked = ranked.slice(0, Math.max(limit, 1));
+  }
+
+  // Пожелание «вид на море / бассейн» — карточки с этим признаком выше (порядок ценовых уровней сохраняется)
+  if (scoreOpts.featureWishes.length && ranked.length > 1) {
+    const hasFeature = (r) =>
+      scoreFeatureFit(itemSearchBlob(r.item), scoreOpts.featureWishes) > 0 ? 0 : 1;
+    ranked = ranked
+      .map((r, i) => ({ r, i }))
+      .sort((a, b) => hasFeature(a.r) - hasFeature(b.r) || a.i - b.i)
+      .map((x) => x.r);
   }
 
   if (!ranked.length) {
