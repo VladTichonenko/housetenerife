@@ -303,6 +303,8 @@ const R = (m) => require(path.join(__dirname, '..', m));
       ['budżet 800 tys.', 800000],
       ['budget 800 mille euros', 800000],
       ['rozpočet 800 tisíc', 800000],
+      ['3000-5000 euro per month rent', 5000],
+      ['€3,000–€5,000/month range, right', 5000],
       ['villa 250 m2, 4 bedrooms', null],
       ['100 m from the sea', null],
     ];
@@ -317,6 +319,79 @@ const R = (m) => require(path.join(__dirname, '..', m));
     ok(full.propertyTypes.length === 1 && full.propertyTypes[0] === 'villas', 'тип = villas (не business/land)', JSON.stringify(full.propertyTypes));
     ok(full.budget.maxPrice === 800000, 'бюджет 800k распознан в полном сообщении');
     ok(full.microAreaGroupIds.includes('costa_adeje'), 'район Costa Adeje');
+    const rental = D.analyzeConversation(
+      [
+        { sender: 'user', text: 'I need a finca or villa near Wingate School' },
+        { sender: 'assistant', text: 'What budget range in € should we use?' },
+        { sender: 'user', text: '3000-5000 euro per month rent' },
+        { sender: 'user', text: 'i am flexible' },
+      ],
+      'en'
+    );
+    ok(
+      rental.hasBudget && rental.budget.minPrice === 3000 && rental.budget.maxPrice === 5000,
+      'арендный бюджет из реального диалога не теряется',
+      JSON.stringify(rental.budget)
+    );
+    const photoOnly = D.analyzeConversation(
+      [
+        {
+          sender: 'user',
+          text:
+            '[фото без подписи]\n[VISION_CONTEXT] На скриншоте объекта указана цена €950,000 [/VISION_CONTEXT]',
+        },
+      ],
+      'en'
+    );
+    ok(
+      !photoOnly.hasBudget,
+      'техническое vision-описание не становится бюджетом клиента',
+      JSON.stringify(photoOnly.budget)
+    );
+    ok(
+      AI.replyRepeatsKnownBudgetQuestion('What budget range in € should we use?'),
+      'guard распознаёт повторный вопрос о бюджете'
+    );
+    ok(
+      !/what budget range/i.test(AI.buildNextQuestionAfterKnownBudget('en', rental)),
+      'guard после известного бюджета задаёт другой вопрос'
+    );
+    const TM = R('topic-memory');
+    const mergedSummary = TM.mergeTopicSummaries(
+      {
+        purpose: 'living',
+        budget: { minPrice: 3000, maxPrice: 5000, label: '€3,000–€5,000' },
+        finance: { mortgageAnswered: true, needsMortgage: false },
+      },
+      {
+        purpose: null,
+        budget: null,
+        propertyTypes: ['villas'],
+        finance: { mortgageAnswered: false, needsMortgage: null },
+      }
+    );
+    ok(
+      mergedSummary.budget?.maxPrice === 5000 &&
+        mergedSummary.finance?.mortgageAnswered === true,
+      'topic summary не теряет бюджет/финансы после обрезки истории'
+    );
+    const profileSeed = AI.buildProfileAnalysisSeed({
+      lastCriteria: {
+        purpose: 'living',
+        propertyTypes: ['villas'],
+        regions: ['tenerife'],
+        budget: { minPrice: 3000, maxPrice: 5000, ignoreBudget: false },
+      },
+    });
+    const fromProfile = D.analyzeConversation(
+      [profileSeed, { sender: 'user', text: 'Show me suitable options' }],
+      'en'
+    );
+    ok(
+      fromProfile.hasBudget && fromProfile.budget.maxPrice === 5000,
+      'profile budget участвует в state machine',
+      JSON.stringify(fromProfile.budget)
+    );
   }
   {
     const F = R('property-features');

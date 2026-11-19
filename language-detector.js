@@ -189,7 +189,14 @@ function stripCatalogTitleNoise(text) {
 
 /** Текст для детекта языка: без URL и без «шума» каталога. */
 function prepareDetectBody(text) {
-  return stripCatalogTitleNoise(stripUrls(text));
+  return stripCatalogTitleNoise(
+    stripUrls(
+      String(text || '')
+        .replace(/\[VISION_CONTEXT\][\s\S]*?\[\/VISION_CONTEXT\]/gi, '')
+        .replace(/\n?\[описание фото\][\s\S]*/gi, '')
+        .replace(/^\[(?:image|photo|video|audio|ptt|sticker|document|фото|изображение)[^\]]*\]\s*/i, '')
+    )
+  );
 }
 
 function isUrlOnlyMessage(text) {
@@ -548,11 +555,28 @@ function isBudgetAmountReply(text) {
 }
 
 /**
+ * Техническое содержимое медиа не является языком клиента.
+ * В истории встречаются наши русские метки vision и, после старых импортов,
+ * сырой base64 — они не должны переключать EN/RU/другой диалог.
+ */
+function isSyntheticMediaContext(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return false;
+  if (
+    /^\[(?:image|photo|video|audio|ptt|sticker|document|фото|изображение)[^\]]*\]/i.test(trimmed) &&
+    !prepareDetectBody(trimmed).trim()
+  ) return true;
+  const compact = trimmed.replace(/\s+/g, '');
+  return compact.length > 300 && /^[a-z0-9+/=]+$/i.test(compact);
+}
+
+/**
  * Короткие реплики вроде ok / yes / да — слишком слабый сигнал, чтобы менять язык диалога.
  */
 function isAmbiguousShortReply(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return true;
+  if (isSyntheticMediaContext(trimmed)) return true;
   if (isUrlOnlyMessage(trimmed)) return true;
   if (isMostlyPlaceName(trimmed)) return true;
   if (isBudgetAmountReply(trimmed)) return true;
@@ -584,6 +608,16 @@ function isStrongLanguageSignal(text, detectedLang) {
   if (isBudgetAmountReply(trimmed)) return false;
 
   const body = prepareDetectBody(trimmed) || trimmed;
+  // Короткие, но однозначные EN-реплики должны перебивать provisional язык
+  // номера (+7→RU, +48→PL). «yes/ok» остаются неоднозначными выше.
+  if (
+    detectedLang === 'en' &&
+    /^(?:interested|photos?|send (?:a |the )?photos?|this one|i want (?:this|it)|show me|looks good)$/i.test(
+      body.trim()
+    )
+  ) {
+    return true;
+  }
   // После вырезания «à vendre» почти ничего не осталось — не переключаем sticky
   if (tokenize(body).length < 2 && /à\s+vendre|en\s+venta|housetenerife/i.test(trimmed)) {
     return false;
@@ -756,7 +790,7 @@ function resolveConversationLanguage({
   let historyLanguage = null;
   for (let i = (historyTexts || []).length - 1; i >= 0; i -= 1) {
     const text = String(historyTexts[i] || '').trim();
-    if (!text || text.startsWith('[') || isContactGateMessage(text) || isAmbiguousShortReply(text)) continue;
+    if (!text || isSyntheticMediaContext(text) || isContactGateMessage(text) || isAmbiguousShortReply(text)) continue;
     historyLanguage = detectLanguageFromText(text);
     if (historyLanguage) break;
   }
@@ -809,6 +843,7 @@ module.exports = {
   isMostlyPlaceName,
   isBudgetAmountReply,
   isUrlOnlyMessage,
+  isSyntheticMediaContext,
   stripUrls,
   stripCatalogTitleNoise,
   prepareDetectBody,

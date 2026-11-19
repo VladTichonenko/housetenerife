@@ -90,8 +90,41 @@ function deriveStatus(financeStage, handoffId) {
   return 'draft';
 }
 
+function resolvedContactForItem(item) {
+  const fallback = formatContactDisplay(item.chatId || item.phone || '');
+  try {
+    const { getClient } = require('./clients-store');
+    const client = getClient(item.chatId);
+    const digits = String(client?.phone || '').replace(/\D/g, '');
+    if (digits && client?.phoneDisplay && !/whatsapp id/i.test(client.phoneDisplay)) {
+      return {
+        ...fallback,
+        isLid: false,
+        phone: digits,
+        display: client.phoneDisplay,
+        waLink: client.waLink || `https://wa.me/${digits}`,
+      };
+    }
+  } catch {
+    /* keep stored contact */
+  }
+  if (fallback.isLid) {
+    return { ...fallback, display: 'Номер WhatsApp определяется' };
+  }
+  return fallback;
+}
+
+function refreshSummaryPhone(summary, phoneDisplay) {
+  const text = String(summary || '');
+  if (!text || !phoneDisplay || /whatsapp id/i.test(phoneDisplay)) return text;
+  if (/^Тел:\s*.+$/im.test(text)) {
+    return text.replace(/^Тел:\s*.+$/im, `Тел: ${phoneDisplay}`);
+  }
+  return `${text}\nТел: ${phoneDisplay}`.trim();
+}
+
 function publicItem(item) {
-  const contact = formatContactDisplay(item.chatId || item.phone || '');
+  const contact = resolvedContactForItem(item);
   return {
     ...item,
     isLid: contact.isLid,
@@ -99,6 +132,7 @@ function publicItem(item) {
     phone: contact.phone,
     phoneDisplay: contact.display,
     waLink: contact.waLink,
+    summary: refreshSummaryPhone(item.summary, contact.display),
     statusLabel: STATUS_LABELS[item.status] || item.status,
   };
 }

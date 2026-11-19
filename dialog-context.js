@@ -76,13 +76,25 @@ function detectPurposeKind(text) {
   return null;
 }
 
+function stripSyntheticVisionContext(text) {
+  return String(text || '')
+    .replace(/\[VISION_CONTEXT\][\s\S]*?\[\/VISION_CONTEXT\]/gi, '')
+    .replace(/\n?\[описание фото\][\s\S]*/gi, '')
+    .trim();
+}
+
 /**
  * @param {Array<{sender:string,text:string}>} history
  * @param {string} [lang]
  */
 function analyzeConversation(history, lang = 'ru') {
+  history = (history || []).map((message) =>
+    message?.sender === 'user'
+      ? { ...message, text: stripSyntheticVisionContext(message.text) }
+      : message
+  );
   const salesLang = normalizeSalesLang(lang);
-  const userMsgs = (history || []).filter((m) => m.sender === 'user');
+  const userMsgs = history.filter((m) => m.sender === 'user');
   const allUserText = userMsgs.map((m) => m.text).join('\n');
   const lower = allUserText.toLowerCase();
   const lastUser = userMsgs[userMsgs.length - 1]?.text || '';
@@ -870,7 +882,7 @@ function extractBudgetRange(text) {
   let maxPrice = null;
 
   const take = (num, unit, mode) => {
-    const v = parseBudgetNumber(num, unit, s);
+    const v = parseBudgetNumber(String(num || '').replace(/(?<=\d)[.,](?=\d{3}(?:\D|$))/g, ''), unit, s);
     if (v == null) return;
     if (mode === 'max') maxPrice = maxPrice == null ? v : Math.max(maxPrice, v);
     else if (mode === 'min') minPrice = minPrice == null ? v : Math.min(minPrice, v);
@@ -884,6 +896,21 @@ function extractBudgetRange(text) {
       minPrice = null;
     }
   };
+
+  // Диапазон без «от/from»: «3000-5000 euro per month»,
+  // «€3,000–€5,000/month». Это типичный бюджет аренды из WhatsApp.
+  const bareCurrencyRange = s.match(
+    /(?:€\s*)?(\d{1,3}(?:[.,]\d{3})+|\d{3,7})\s*(?:€|eur(?:o)?s?)?\s*(?:–|—|-|to|до|hasta)\s*(?:€\s*)?(\d{1,3}(?:[.,]\d{3})+|\d{3,7})\s*(?:€|eur(?:o)?s?|евро)?(?:\s*(?:\/|per|a|в)\s*(?:month|monthly|mes|monat|mois|miesiąc|месяц[а-яё]*))?/i
+  );
+  if (
+    bareCurrencyRange &&
+    (/(?:€|eur(?:o)?s?|евро|\/\s*month|per\s+month|monthly|rent|rental|аренд)/i.test(s) ||
+      Number(String(bareCurrencyRange[2]).replace(/\D/g, '')) >= 1000)
+  ) {
+    take(bareCurrencyRange[1], '', 'min');
+    take(bareCurrencyRange[2], '', 'max');
+    return { minPrice, maxPrice };
+  }
 
   // от X до Y [единица]
   const range = s.match(

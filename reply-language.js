@@ -6,7 +6,7 @@
  */
 
 const { normalizeSalesLang } = require('./sales-localization');
-const { detectLanguageFromText } = require('./language-detector');
+const { detectLanguageFromText, isStrongLanguageSignal } = require('./language-detector');
 
 /** Границы слова с учётом кириллицы (JS \\b на кириллице не работает). */
 const WB = '(?<![\\p{L}\\p{N}])';
@@ -256,6 +256,14 @@ function replyMismatchesLanguage(text, lang) {
 
   if (salesLang === 'en') {
     if (ES_MARKER_RE.test(body) || /¿/.test(body)) return true;
+    const detected = detectLanguageFromText(body);
+    if (
+      detected !== 'en' &&
+      ['pl', 'de', 'fr', 'es', 'nl', 'pt', 'it', 'tr', 'ru', 'uk'].includes(detected) &&
+      isStrongLanguageSignal(body, detected)
+    ) {
+      return true;
+    }
     return false;
   }
 

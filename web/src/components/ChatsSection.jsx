@@ -20,7 +20,7 @@ function contactLabel(item) {
   if (name) return name;
   if (chatName) return chatName;
   if (phone) return phone;
-  if (item.phoneDisplay) return item.phoneDisplay;
+  if (item.phoneDisplay) return isWhatsAppIdLabel(item.phoneDisplay) ? 'Номер определяется' : item.phoneDisplay;
   return item.chatId || '—';
 }
 
@@ -34,7 +34,9 @@ export default function ChatsSection({ showToast }) {
   const [items, setItems] = useState([]);
   const [meta, setMeta] = useState({ total: 0, page: 1, totalPages: 1 });
   const [syncMeta, setSyncMeta] = useState(null);
-  const [filter, setFilter] = useState('pending');
+  // По умолчанию показываем и новые диалоги, на которые бот уже ответил.
+  // Иначе свежий клиент визуально «пропадает» сразу после автоответа.
+  const [filter, setFilter] = useState('all');
   const [searchInput, setSearchInput] = useState('');
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
@@ -71,6 +73,13 @@ export default function ChatsSection({ showToast }) {
     load();
   }, [load]);
 
+  useEffect(() => {
+    const unresolved = items.some((item) => isWhatsAppIdLabel(item.phoneDisplay));
+    if (!unresolved) return undefined;
+    const timer = window.setTimeout(() => load(), 4000);
+    return () => window.clearTimeout(timer);
+  }, [items, load]);
+
   const handleSearch = (e) => {
     e.preventDefault();
     setPage(1);
@@ -84,7 +93,7 @@ export default function ChatsSection({ showToast }) {
       const data = await api.syncMissedChats();
       showToast?.(data.message || 'Синхронизация завершена', 'success');
       setSyncMeta(data.meta || syncMeta);
-      setFilter('pending');
+      setFilter('all');
       setPage(1);
       await load();
     } catch (err) {
@@ -217,7 +226,9 @@ export default function ChatsSection({ showToast }) {
                     <td>
                       <span className="lead-table__name">{contactLabel(item)}</span>
                       <span className="lead-table__sub">
-                        {item.phoneDisplay || item.chatId}
+                        {isWhatsAppIdLabel(item.phoneDisplay)
+                          ? 'Номер WhatsApp определяется'
+                          : item.phoneDisplay || item.chatId}
                         {item.languageLabel ? ` · ${item.languageLabel}` : ''}
                       </span>
                     </td>
@@ -262,7 +273,9 @@ export default function ChatsSection({ showToast }) {
           subtitle={
             selected?.phoneDisplay && !isWhatsAppIdLabel(selected.phoneDisplay)
               ? selected.phoneDisplay
-              : selected?.phoneDisplay || selectedChatId
+              : selected?.phoneDisplay
+                ? 'Номер WhatsApp определяется'
+                : selectedChatId
           }
           needsCatchUp={Boolean(selected?.needsCatchUp || selected?.aiDisabled)}
           showToast={showToast}

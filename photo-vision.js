@@ -151,10 +151,13 @@ async function describeIncomingWhatsAppPhoto(msg, caption = '', lang = 'ru') {
 function formatPhotoUserLine(caption, visionText) {
   const cap = String(caption || '').trim();
   const vision = String(visionText || '').trim();
+  const visionContext = vision
+    ? `[VISION_CONTEXT] ${vision.replace(/\s+/g, ' ')} [/VISION_CONTEXT]`
+    : '';
   if (vision && cap) {
-    return `[фото] ${cap}\n[описание фото] ${vision}`;
+    return `[фото] ${cap}\n${visionContext}`;
   }
-  if (vision) return `[фото без подписи]\n[описание фото] ${vision}`;
+  if (vision) return `[фото без подписи]\n${visionContext}`;
   if (cap) return `[фото] ${cap}`;
   return '[фото] (не удалось распознать изображение — ответь коротко и спроси, что на фото / какой объект ищут)';
 }

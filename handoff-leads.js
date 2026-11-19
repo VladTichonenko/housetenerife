@@ -394,20 +394,46 @@ function getHandoff(id) {
 }
 
 function publicLead(item) {
+  let phone = item.phone;
+  let phoneDisplay = item.phoneDisplay || formatPhoneDisplay(item.phone, { isLid: item.isLid });
+  let waLink = item.isLid ? null : item.waLink || waMeLink(item.phone, { isLid: item.isLid });
+  let isLid = Boolean(item.isLid);
+  try {
+    const { getClient } = require('./clients-store');
+    const client = getClient(item.chatId);
+    const digits = String(client?.phone || '').replace(/\D/g, '');
+    if (digits && client?.phoneDisplay && !/whatsapp id/i.test(client.phoneDisplay)) {
+      phone = digits;
+      phoneDisplay = client.phoneDisplay;
+      waLink = client.waLink || `https://wa.me/${digits}`;
+      isLid = false;
+    }
+  } catch {
+    /* keep stored contact */
+  }
+  if (isLid && /whatsapp id/i.test(phoneDisplay)) {
+    phoneDisplay = 'Номер WhatsApp определяется';
+  }
+  let summary = String(item.summary || '');
+  if (summary && phoneDisplay && !/whatsapp id/i.test(phoneDisplay)) {
+    summary = /^Тел:\s*.+$/im.test(summary)
+      ? summary.replace(/^Тел:\s*.+$/im, `Тел: ${phoneDisplay}`)
+      : `${summary}\nТел: ${phoneDisplay}`;
+  }
   return {
     id: item.id,
     chatId: item.chatId,
-    phone: item.phone,
-    phoneDisplay: item.phoneDisplay || formatPhoneDisplay(item.phone, { isLid: item.isLid }),
-    waLink: item.isLid ? null : item.waLink || waMeLink(item.phone, { isLid: item.isLid }),
-    isLid: Boolean(item.isLid),
+    phone,
+    phoneDisplay,
+    waLink,
+    isLid,
     language: item.language,
     languageLabel: item.languageLabel || item.language,
     clientName: item.clientName || '',
     reasonKey: item.reasonKey,
     reasonLabel: item.reasonLabel,
     preview: item.preview,
-    summary: item.summary,
+    summary,
     summaryStatus: item.summaryStatus,
     createdAt: item.createdAt,
     summaryReadyAt: item.summaryReadyAt || null,

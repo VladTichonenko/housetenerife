@@ -279,7 +279,7 @@ function listChatsAwaitingBotReply({ page = 1, limit = 50, q = '' } = {}) {
   }
 
   const p = Math.max(1, parseInt(page, 10) || 1);
-  const lim = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
+  const lim = Math.min(1000, Math.max(1, parseInt(limit, 10) || 50));
   const total = items.length;
   const totalPages = Math.max(1, Math.ceil(total / lim));
   const start = (p - 1) * lim;
@@ -311,6 +311,32 @@ function listConversationChats({ page = 1, limit = 24, q = '' } = {}) {
     )
     .all();
 
+  // Пользователь может быть уже записан в users, но его message ещё не попал в
+  // messages (команда, старый non-text путь, частичный импорт). Такой новый
+  // контакт всё равно должен присутствовать в режиме «Все чаты».
+  const knownChatIds = new Set(rows.map((row) => String(row.chatId)));
+  const userOnlyRows = database
+    .prepare(
+      `SELECT id AS chatId, last_seen_at AS lastActivityAt,
+              message_count AS userMessageCount, last_message AS userLastMessage
+       FROM users
+       ORDER BY COALESCE(last_seen_at, '') DESC`
+    )
+    .all();
+  for (const row of userOnlyRows) {
+    if (knownChatIds.has(String(row.chatId))) continue;
+    rows.push({
+      chatId: row.chatId,
+      lastActivityAt: row.lastActivityAt || null,
+      messageCount: 0,
+      userMessageCount: row.userMessageCount || 0,
+      userLastMessage: row.userLastMessage || '',
+    });
+  }
+  rows.sort((a, b) =>
+    String(b.lastActivityAt || '').localeCompare(String(a.lastActivityAt || ''))
+  );
+
   const getLastVisible = database.prepare(
     `SELECT body, created_at, role FROM messages
      WHERE user_id = ? AND role != 'assistant'
@@ -333,7 +359,7 @@ function listConversationChats({ page = 1, limit = 24, q = '' } = {}) {
       lastActivityAt: row.lastActivityAt || null,
       messageCount: row.messageCount || 0,
       userMessageCount: row.userMessageCount || 0,
-      lastMessage: lastVisible?.body || lastUser?.body || '',
+      lastMessage: lastVisible?.body || lastUser?.body || row.userLastMessage || '',
       lastMessageAt: lastVisible?.created_at || lastUser?.created_at || row.lastActivityAt,
     };
   });
@@ -345,7 +371,7 @@ function listConversationChats({ page = 1, limit = 24, q = '' } = {}) {
   }
 
   const p = Math.max(1, parseInt(page, 10) || 1);
-  const lim = Math.min(100, Math.max(1, parseInt(limit, 10) || 24));
+  const lim = Math.min(1000, Math.max(1, parseInt(limit, 10) || 24));
   const total = items.length;
   const totalPages = Math.max(1, Math.ceil(total / lim));
   const start = (p - 1) * lim;

@@ -1552,6 +1552,84 @@ function buildAskBudgetInsteadOfListingsReply(lang, dialog) {
   return byLang[salesLang] || byLang.en;
 }
 
+function replyRepeatsKnownBudgetQuestion(text) {
+  const value = String(text || '');
+  if (!/[?？]/.test(value)) return false;
+  return /(?:what|which).{0,35}(?:budget|price range|investment size)|(?:budget|price range).{0,35}(?:should we use|are you considering|do you have)|какой.{0,30}(?:бюджет|размер инвестиц)|(?:бюджет|размер инвестиц).{0,30}(?:какой|уточните|подскажите)|(?:cu[aá]l|qu[eé]).{0,30}(?:presupuesto|inversi[oó]n)|(?:welch|wie hoch).{0,30}(?:budget|investitions)|(?:quelle|quel).{0,30}(?:budget|fourchette|investissement)|jaki.{0,30}(?:budżet|inwestycj)|welk.{0,30}(?:budget|prijsbereik)/i.test(value);
+}
+
+function buildNextQuestionAfterKnownBudget(lang, dialog) {
+  const code = normalizeSalesLang(lang);
+  const label = dialog?.budgetLabel || formatBudgetLabel(dialog?.budget, code) || '';
+  const prefix = {
+    ru: `Отлично${label ? ` — ориентир ${label}` : ', бюджет понятен'}.`,
+    en: `Great${label ? ` — we’ll use ${label}` : ', the budget is clear'}.`,
+    es: `Perfecto${label ? ` — tomamos ${label}` : ', el presupuesto está claro'}.`,
+    de: `Perfekt${label ? ` — wir orientieren uns an ${label}` : ', der Budgetrahmen ist klar'}.`,
+    fr: `Parfait${label ? ` — on part sur ${label}` : ', le budget est clair'}.`,
+    pl: `Świetnie${label ? ` — przyjmujemy ${label}` : ', budżet jest jasny'}.`,
+    nl: `Prima${label ? ` — we houden ${label} aan` : ', het budget is duidelijk'}.`,
+  }[code] || `Great${label ? ` — we’ll use ${label}` : ', the budget is clear'}.`;
+  const questions = {
+    NEED_PURPOSE: {
+      ru: 'Это для собственного проживания или как инвестиция?',
+      en: 'Is this for your own stay, or as an investment?',
+      es: '¿Es para vivir usted o como inversión?',
+      de: 'Ist das für den Eigenbedarf oder als Investment?',
+      fr: 'Est-ce pour y vivre ou comme investissement ?',
+      pl: 'To zakup dla siebie czy jako inwestycja?',
+      nl: 'Is dit voor eigen gebruik of als investering?',
+    },
+    NEED_REGION: {
+      ru: 'Какой регион рассматриваете: Тенерифе, Дубай, Ибица, Марбелья или другой?',
+      en: 'Which region should we focus on: Tenerife, Dubai, Ibiza, Marbella, or another one?',
+      es: '¿En qué región nos centramos: Tenerife, Dubái, Ibiza, Marbella u otra?',
+      de: 'Welche Region passt: Teneriffa, Dubai, Ibiza, Marbella oder eine andere?',
+      fr: 'Quelle région visez-vous : Tenerife, Dubaï, Ibiza, Marbella ou une autre ?',
+      pl: 'Na jakim regionie się skupiamy: Teneryfa, Dubaj, Ibiza, Marbella czy innym?',
+      nl: 'Op welke regio richten we ons: Tenerife, Dubai, Ibiza, Marbella of een andere?',
+    },
+    NEED_PROPERTY_TYPE: {
+      ru: 'Что предпочитаете: виллу, финку, дом или апартаменты?',
+      en: 'What do you prefer: a villa, finca, house, or apartment?',
+      es: '¿Qué prefiere: villa, finca, casa o apartamento?',
+      de: 'Was bevorzugen Sie: Villa, Finca, Haus oder Apartment?',
+      fr: 'Que préférez-vous : villa, finca, maison ou appartement ?',
+      pl: 'Co Państwo wolą: willę, fincę, dom czy apartament?',
+      nl: 'Wat heeft uw voorkeur: villa, finca, huis of appartement?',
+    },
+    NEED_FUNDS_NOW: {
+      ru: 'Покупка полностью за свои средства или нужна ипотека?',
+      en: 'Would this be fully cash-funded, or would you need a mortgage?',
+      es: '¿La compra sería al contado o necesitaría hipoteca?',
+      de: 'Erfolgt der Kauf aus Eigenmitteln oder benötigen Sie eine Finanzierung?',
+      fr: 'L’achat serait comptant ou avec un prêt ?',
+      pl: 'Zakup za środki własne czy z kredytem?',
+      nl: 'Wordt het volledig uit eigen middelen betaald, of is een hypotheek nodig?',
+    },
+    NEED_TIMELINE: {
+      ru: 'Когда планируете покупку?',
+      en: 'When are you planning to buy?',
+      es: '¿Cuándo planea comprar?',
+      de: 'Wann planen Sie den Kauf?',
+      fr: 'Quand prévoyez-vous d’acheter ?',
+      pl: 'Kiedy planują Państwo zakup?',
+      nl: 'Wanneer wilt u kopen?',
+    },
+  };
+  const fallback = {
+    ru: 'Какой следующий критерий для вас важнее всего?',
+    en: 'Which remaining preference matters most to you?',
+    es: '¿Qué criterio restante es el más importante para usted?',
+    de: 'Welches weitere Kriterium ist Ihnen am wichtigsten?',
+    fr: 'Quel autre critère est le plus important pour vous ?',
+    pl: 'Które pozostałe kryterium jest dla Państwa najważniejsze?',
+    nl: 'Welk ander criterium is voor u het belangrijkst?',
+  };
+  const question = questions[dialog?.stage]?.[code] || fallback[code] || fallback.en;
+  return `${prefix}\n\n${question}`;
+}
+
 function stripPropertyLinksKeepText(text) {
   return String(text || '')
     .replace(
@@ -1560,6 +1638,34 @@ function stripPropertyLinksKeepText(text) {
     )
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function buildProfileAnalysisSeed(profile) {
+  const criteria = profile?.lastCriteria;
+  if (!criteria) return null;
+  const parts = [];
+  if (criteria.purpose === 'investment') parts.push('purpose: investment');
+  else if (criteria.purpose === 'living') parts.push('purpose: live in');
+  if (criteria.propertyTypes?.length) {
+    parts.push(`property type: ${criteria.propertyTypes.join(', ')}`);
+  }
+  if (criteria.regions?.length) parts.push(`region: ${criteria.regions.join(', ')}`);
+  const budget = criteria.budget;
+  if (budget?.ignoreBudget) parts.push('any budget');
+  else if (budget?.minPrice != null && budget?.maxPrice != null) {
+    parts.push(`budget from ${budget.minPrice} to ${budget.maxPrice} EUR`);
+  } else if (budget?.maxPrice != null) {
+    parts.push(`budget up to ${budget.maxPrice} EUR`);
+  } else if (budget?.minPrice != null) {
+    parts.push(`budget from ${budget.minPrice} EUR`);
+  }
+  if (!parts.length) return null;
+  return {
+    sender: 'user',
+    text: `[STRUCTURED USER PROFILE] ${parts.join('; ')}`,
+    timestamp: 0,
+    kind: 'profile_summary',
+  };
 }
 
 /**
@@ -1591,6 +1697,11 @@ async function askAICore(conversationHistory, userLanguage = 'ru', options = {})
       conversationHistory = topicContext.history;
       analysisHistory = topicContext.analysisHistory;
       topicSummary = topicContext.summary;
+      const profileSeed =
+        intentGate.action !== 'new_topic' && intentGate.scenario !== 'support_other'
+          ? buildProfileAnalysisSeed(previousProfile)
+          : null;
+      if (profileSeed) analysisHistory = [profileSeed, ...analysisHistory];
       dialog = analyzeConversation(analysisHistory, userLanguage);
       userProfile = updateUserProfileFromConversation(
         options.chatId,
@@ -2082,6 +2193,13 @@ async function askAICore(conversationHistory, userLanguage = 'ru', options = {})
       }
     }
 
+    // Модель не имеет права снова спрашивать уже названный бюджет.
+    // Это финальный детерминированный guard, а не только рекомендация в prompt.
+    if (dialog.hasBudget && replyRepeatsKnownBudgetQuestion(reply)) {
+      console.warn('⚠️ Повторный вопрос о известном бюджете заменён следующим шагом воронки');
+      reply = buildNextQuestionAfterKnownBudget(userLanguage, dialog);
+    }
+
     // Перезапись языка тоже не имеет права оставить несколько карточек с
     // одной ссылкой.
     if (
@@ -2482,6 +2600,9 @@ module.exports = {
   checkAIHealth,
   hasUnsupportedDelayedListingPromise,
   buildAskBudgetInsteadOfListingsReply,
+  replyRepeatsKnownBudgetQuestion,
+  buildNextQuestionAfterKnownBudget,
+  buildProfileAnalysisSeed,
   countDescribedListingCards,
   countKnownCatalogPropertyLinks,
   shortlistMissesPerObjectLinks,

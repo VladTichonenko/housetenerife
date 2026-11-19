@@ -215,6 +215,32 @@ function resolveReportClientName(clientName, waName) {
   return spoken || wa || 'не назвал';
 }
 
+function resolveReportContact(chatId) {
+  const fallback = formatContactDisplay(chatId);
+  try {
+    const { getClient } = require('./clients-store');
+    const client = getClient(chatId);
+    const display = String(client?.phoneDisplay || '');
+    const digits = String(client?.phone || '').replace(/\D/g, '');
+    if (digits && display && !/whatsapp id/i.test(display)) {
+      return {
+        ...fallback,
+        display,
+        phone: digits,
+        isLid: false,
+        waLink: client.waLink || `https://wa.me/${digits}`,
+        rawId: digits,
+      };
+    }
+  } catch {
+    /* clients-store optional during early startup */
+  }
+  if (fallback.isLid) {
+    return { ...fallback, display: 'Номер WhatsApp определяется' };
+  }
+  return fallback;
+}
+
 function formatMortgageLine(dialog) {
   if (dialog?.hasMortgageAnswered) {
     if (dialog.needsMortgage === true) return 'нужна';
@@ -325,7 +351,7 @@ async function queueManagerDialogReport(payload = {}) {
     return null;
   }
 
-  const contact = formatContactDisplay(chatId);
+  const contact = resolveReportContact(chatId);
   contact.chatId = chatId;
   let waName = '';
   try {

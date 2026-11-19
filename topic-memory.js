@@ -161,10 +161,51 @@ function buildStructuredTopicSummary(messages, language = 'ru', now = new Date()
   };
 }
 
+function mergeTopicSummaries(previous, next) {
+  if (!previous) return next;
+  if (!next) return previous;
+  const prevFinance = previous.finance || {};
+  const nextFinance = next.finance || {};
+  return {
+    ...previous,
+    ...next,
+    purpose: next.purpose || previous.purpose || null,
+    propertyTypes: next.propertyTypes?.length
+      ? next.propertyTypes
+      : previous.propertyTypes || [],
+    regions: next.regions?.length ? next.regions : previous.regions || [],
+    microAreas: next.microAreas?.length ? next.microAreas : previous.microAreas || [],
+    microAreaLabel: next.microAreaLabel || previous.microAreaLabel || '',
+    // Старая подтверждённая сумма не исчезает после обрезки окна сообщений.
+    // Явная новая сумма уже присутствует в next и имеет приоритет.
+    budget: next.budget || previous.budget || null,
+    finance: {
+      ...prevFinance,
+      ...nextFinance,
+      hasPropertyInterest:
+        Boolean(nextFinance.hasPropertyInterest) || Boolean(prevFinance.hasPropertyInterest),
+      hasFundsNow: Boolean(nextFinance.hasFundsNow) || Boolean(prevFinance.hasFundsNow),
+      fundsNow:
+        nextFinance.fundsNow != null ? nextFinance.fundsNow : prevFinance.fundsNow ?? null,
+      mortgageAnswered:
+        Boolean(nextFinance.mortgageAnswered) || Boolean(prevFinance.mortgageAnswered),
+      needsMortgage:
+        nextFinance.mortgageAnswered
+          ? nextFinance.needsMortgage
+          : prevFinance.needsMortgage ?? null,
+      documentsDiscussed:
+        Boolean(nextFinance.documentsDiscussed) || Boolean(prevFinance.documentsDiscussed),
+    },
+  };
+}
+
 function refreshTopicSummary(topic, now = new Date().toISOString()) {
   if (!topic || (topic.messages || []).length <= TOPIC_SUMMARY_TRIGGER) return topic;
   const language = topic.criteria?.language || 'ru';
-  const summary = buildStructuredTopicSummary(topic.messages, language, now);
+  const summary = mergeTopicSummaries(
+    topic.summary && typeof topic.summary === 'object' ? topic.summary : null,
+    buildStructuredTopicSummary(topic.messages, language, now)
+  );
   if (summary) {
     summary.scenario = topic.scenario;
     topic.summary = summary;
@@ -426,6 +467,7 @@ module.exports = {
   mergeMessages,
   getCurrentUserTurn,
   buildStructuredTopicSummary,
+  mergeTopicSummaries,
   refreshTopicSummary,
   getTopicContextHistory,
   buildTopicSummarySeedMessage,

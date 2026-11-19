@@ -9,6 +9,8 @@ const {
   isStrongLanguageSignal,
   isAmbiguousShortReply,
   isUrlOnlyMessage,
+  isSyntheticMediaContext,
+  resolveConversationLanguage,
   prepareDetectBody,
   SUPPORTED_DETECT,
   getLanguageName,
@@ -214,6 +216,47 @@ function main() {
   check(
     'FR bonjour — strong fr',
     isStrongLanguageSignal('Bonjour, je cherche un appartement à Adeje', 'fr')
+  );
+  check('base64 фото — neutral', isSyntheticMediaContext('/9j/4AAQSkZJRgABAQ'.repeat(30)));
+  check(
+    'фото не переключает EN→PL/RU',
+    resolveConversationLanguage({
+      sticky: 'en',
+      currentText: '[image]',
+      historyTexts: [
+        'I am looking for a villa near the school',
+        '[фото без подписи]\n[описание фото] Клиент прислал дом с садом',
+      ],
+      fallback: 'ru',
+    }) === 'en'
+  );
+  check(
+    'EN-подпись к фото учитывается, vision-контекст нейтрален',
+    resolveConversationLanguage({
+      sticky: 'ru',
+      currentText:
+        '[фото] I am interested in this villa\n[VISION_CONTEXT] На изображении современный дом [/VISION_CONTEXT]',
+      historyTexts: [],
+      fallback: 'ru',
+    }) === 'en'
+  );
+  check(
+    '+7 provisional RU + «Photo» → EN',
+    resolveConversationLanguage({
+      sticky: 'ru',
+      currentText: 'Photo',
+      historyTexts: [],
+      fallback: 'ru',
+    }) === 'en'
+  );
+  check(
+    '+48 provisional PL + «Interested» → EN',
+    resolveConversationLanguage({
+      sticky: 'pl',
+      currentText: 'Interested',
+      historyTexts: [],
+      fallback: 'pl',
+    }) === 'en'
   );
 
   console.log('\n────────────────────────────');
