@@ -524,6 +524,33 @@ const R = (m) => require(path.join(__dirname, '..', m));
     ok(body && body.success && body.reply === 'Yes, of course 🙂', 'POST /api/webchat/message отдаёт очищенный reply', JSON.stringify(body));
   }
 
+  // =========================================================================
+  section('6) Предварительная карточка webchat');
+  {
+    const { resolveDialogCardFacts } = R('webchat-lead-notify');
+    const facts = resolveDialogCardFacts({
+      chatId: 'web:qa-card-123456',
+      history: [
+        {
+          sender: 'user',
+          text:
+            "My name is Anna\nPhone: +49 1573 8468032\nI'm looking at this property: https://housetenerife.eu/property/villa-ocean-views-costa-adeje-9003/",
+        },
+        { sender: 'assistant', text: 'Thank you, Anna. What budget should we use?' },
+        { sender: 'user', text: 'My budget is 800000 euros.' },
+      ],
+      language: 'en',
+    });
+    ok(facts.name === 'Anna', 'webchat-карточка извлекает имя', facts.name);
+    ok(facts.phone?.digits === '4915738468032', 'webchat-карточка извлекает телефон', facts.phone?.display);
+    ok(
+      facts.properties?.[0]?.siteUrl ===
+        'https://housetenerife.eu/property/villa-ocean-views-costa-adeje-9003',
+      'webchat-карточка содержит объект HT',
+      JSON.stringify(facts.properties)
+    );
+  }
+
   // ---------------------------------------------------------------------------
   console.log(`\n────────────────────────────\nИтого: ${pass} PASS / ${fail} FAIL\n`);
   try {

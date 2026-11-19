@@ -104,7 +104,10 @@ const {
   managerWhatsAppChatId,
   reportsEnabled,
 } = require('./manager-dialog-report');
-const { maybeNotifyWebchatLead } = require('./webchat-lead-notify');
+const {
+  maybeNotifyWebchatLead,
+  getWebchatPanelPreview,
+} = require('./webchat-lead-notify');
 
 try {
   getDb();
@@ -2732,10 +2735,7 @@ async function fetchMissedInboundSnapshots({
 
       const isDmRemote = (remote) =>
         typeof remote === 'string' &&
-        remote &&
-        !remote.includes('@broadcast') &&
-        remote !== 'status@broadcast' &&
-        !remote.endsWith('@g.us');
+        /@(?:c\.us|s\.whatsapp\.net|lid)$/i.test(remote);
 
       const phoneCache = new Map();
       const resolvePhoneDigits = (remote) => {
@@ -2806,6 +2806,7 @@ async function fetchMissedInboundSnapshots({
       };
 
       const extractBody = (message) => {
+        const type = String(message?.type || 'chat');
         const raw =
           message?.body ||
           message?.caption ||
@@ -2819,14 +2820,21 @@ async function fetchMissedInboundSnapshots({
             (message._data.links[0]?.link || message._data.links[0]?.url)) ||
           '';
         const text = String(raw || '').trim();
+        const compact = text.replace(/\s+/g, '');
+        if (
+          type !== 'chat' &&
+          compact.length > 300 &&
+          /^[a-z0-9+/=]+$/i.test(compact)
+        ) {
+          return `[${type}]`;
+        }
         if (text) return text.slice(0, 4000);
-        const type = String(message?.type || 'chat');
         if (type && type !== 'chat') return `[${type}]`;
         return '';
       };
 
       const pushMsg = (message) => {
-        if (!message?.id || message.id.fromMe || message.isStatusV3) return false;
+        if (!message?.id || message.isNotification || message.isStatusV3) return false;
         const timestamp = Number(message.t || message.timestamp || 0);
         if (!timestamp || timestamp < cutoffSeconds) return false;
         const remote =
@@ -2857,6 +2865,7 @@ async function fetchMissedInboundSnapshots({
           ).slice(0, 120),
           type: String(message.type || 'chat'),
           phoneDigits: resolvePhoneDigits(remote),
+          fromMe: Boolean(message.id.fromMe || message.fromMe),
         });
         chatIds.add(remote);
         return true;
@@ -2931,7 +2940,7 @@ async function fetchMissedInboundSnapshots({
       const start = Math.max(0, all.length - Math.max(maxTotal * 8, 800));
       for (let i = all.length - 1; i >= start; i -= 1) {
         const message = all[i];
-        if (!message?.id || message.id.fromMe) continue;
+        if (!message?.id || message.isNotification || message.isStatusV3) continue;
         const remote =
           message.id.remote?._serialized ??
           message.id.remote?.$1 ??
@@ -3011,7 +3020,10 @@ function importMissedSnapshots(snapshots = []) {
     resolveImportChatId,
     getChatAliases,
   } = require('./clients-store');
-  const { mergeMessagesIntoChat } = require('./conversation-store');
+  const {
+    mergeMessagesIntoChat,
+    recomputeUserConversationMetadata,
+  } = require('./conversation-store');
 
   // Даже для уже известных сообщений сохраняем найденный MSISDN у @lid.
   for (const snap of snapshots || []) {
@@ -3043,6 +3055,8 @@ function importMissedSnapshots(snapshots = []) {
     }
 
     const chatId = resolveImportChatId(rawChatId, snap.phoneDigits || '');
+    const fromMe = Boolean(snap.fromMe);
+    const role = fromMe ? 'assistant' : 'user';
     const text =
       String(snap.body || '').trim() ||
       (snap.type && snap.type !== 'chat' ? `[${snap.type}]` : '');
@@ -3052,43 +3066,50 @@ function importMissedSnapshots(snapshots = []) {
       snap.timestamp < 1000000000000 ? snap.timestamp * 1000 : snap.timestamp
     ).toISOString();
 
-    if (hasSimilarUserMessage(chatId, text, atIso)) {
+    if (!fromMe && hasSimilarUserMessage(chatId, text, atIso)) {
       processedMessageIds.set(waMessageId, Date.now());
       continue;
     }
 
-    const previousUserTexts = getPersistedMessages(chatId)
-      .filter((m) => m.role === 'user')
-      .map((m) => m.text);
-    const detectedLang = resolveConversationLanguage({
-      sticky: getStickyDialogLanguage(chatId),
-      currentText: text,
-      historyTexts: previousUserTexts,
-      fallback: 'en',
-    });
+    const stickyLanguage = getStickyDialogLanguage(chatId);
+    const previousUserTexts = fromMe
+      ? []
+      : getPersistedMessages(chatId)
+          .filter((m) => m.role === 'user')
+          .map((m) => m.text);
+    const detectedLang = fromMe
+      ? stickyLanguage || ''
+      : resolveConversationLanguage({
+          sticky: stickyLanguage,
+          currentText: text,
+          historyTexts: previousUserTexts,
+          fallback: 'en',
+        });
     const languageName = getLanguageName(detectedLang);
 
-    try {
-      recordClientMessage({
-        chatId,
-        senderId: chatId,
-        chatName: snap.notifyName || '',
-        messageText: text.slice(0, 500),
-        language: detectedLang,
-        languageLabel: languageName,
-        country: '',
-        isGroup: false,
-        kind: snap.type && snap.type !== 'chat' ? snap.type : 'text',
-        resolvedPhone: snap.phoneDigits || '',
-      });
-      setStickyDialogLanguage(chatId, detectedLang);
-    } catch (e) {
-      console.warn('⚠️ syncMissed client:', e.message);
+    if (!fromMe) {
+      try {
+        recordClientMessage({
+          chatId,
+          senderId: chatId,
+          chatName: snap.notifyName || '',
+          messageText: text.slice(0, 500),
+          language: detectedLang,
+          languageLabel: languageName,
+          country: '',
+          isGroup: false,
+          kind: snap.type && snap.type !== 'chat' ? snap.type : 'text',
+          resolvedPhone: snap.phoneDigits || '',
+        });
+        setStickyDialogLanguage(chatId, detectedLang);
+      } catch (e) {
+        console.warn('⚠️ syncMissed client:', e.message);
+      }
     }
 
     try {
       persistMessage(chatId, {
-        role: 'user',
+        role,
         text,
         kind: snap.type && snap.type !== 'chat' ? snap.type : 'text',
         language: detectedLang,
@@ -3098,12 +3119,6 @@ function importMissedSnapshots(snapshots = []) {
         getDb()
           .prepare(`UPDATE messages SET created_at = ?, language = ? WHERE wa_message_id = ?`)
           .run(atIso, detectedLang, waMessageId);
-        getDb()
-          .prepare(
-            `UPDATE users SET last_seen_at = ?, last_message = ?, last_language = ?
-             WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at <= ?)`
-          )
-          .run(atIso, text.slice(0, 500), detectedLang, chatId, atIso);
       } catch {
         /* ignore timestamp patch errors */
       }
@@ -3117,19 +3132,25 @@ function importMissedSnapshots(snapshots = []) {
 
     const prev = touched.get(chatId) || {
       count: 0,
+      userCount: 0,
       lastText: '',
       lastAt: atIso,
+      lastUserAt: null,
       name: '',
       language: detectedLang,
       texts: [],
     };
-    const texts = [...(prev.texts || []), text].slice(-30);
+    const texts = fromMe
+      ? prev.texts || []
+      : [...(prev.texts || []), text].slice(-30);
     touched.set(chatId, {
       count: prev.count + 1,
-      lastText: text,
+      userCount: (prev.userCount || 0) + (fromMe ? 0 : 1),
+      lastText: fromMe ? prev.lastText : text,
       lastAt: atIso,
-      name: snap.notifyName || prev.name || '',
-      language: detectedLang,
+      lastUserAt: fromMe ? prev.lastUserAt || null : atIso,
+      name: fromMe ? prev.name || '' : snap.notifyName || prev.name || '',
+      language: detectedLang || prev.language || '',
       texts,
     });
   }
@@ -3139,6 +3160,7 @@ function importMissedSnapshots(snapshots = []) {
     try {
       const aliases = getChatAliases(chatId);
       mergeMessagesIntoChat(chatId, aliases);
+      recomputeUserConversationMetadata(chatId);
     } catch {
       /* ignore */
     }
@@ -3157,8 +3179,8 @@ function importMissedSnapshots(snapshots = []) {
     if (lastRole === 'user') {
       markNeedsCatchUp(chatId, {
         lastUserMessage: info.lastText,
-        lastUserAt: info.lastAt,
-        importedDelta: info.count,
+        lastUserAt: info.lastUserAt || info.lastAt,
+        importedDelta: info.userCount || 0,
         chatName: info.name,
         pendingTexts: info.texts,
       });
@@ -3376,15 +3398,31 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
     );
     try {
       pauseMessagePolling(Math.min(softTimeoutMs + 5000, 200000));
+      let discoveredChatIds = [];
       // Discovery bootstrap: getChats гидратирует лениво загруженные новые чаты
       // в WA Store. Без этого первый snapshot видел только уже известные Msg/Chat,
       // а deep-sync не мог начать работу для совершенно нового chatId.
       try {
-        await runExclusiveCdp(
+        const discoveredChats = await runExclusiveCdp(
           'sync.missed.discoverChats',
           () => client.getChats(),
           30000
         );
+        const cutoffMs = Date.now() - maxAgeMs;
+        discoveredChatIds = (discoveredChats || [])
+          .map((chat) => {
+            const id = String(chat?.id?._serialized || chat?.id || '');
+            const timestamp = Number(chat?.timestamp || chat?.lastMessage?.timestamp || 0);
+            return { id, timestamp: timestamp < 1000000000000 ? timestamp * 1000 : timestamp };
+          })
+          .filter(
+            (chat) =>
+              chat.id &&
+              /@(?:c\.us|s\.whatsapp\.net|lid)$/i.test(chat.id) &&
+              (!chat.timestamp || chat.timestamp >= cutoffMs)
+          )
+          .sort((a, b) => b.timestamp - a.timestamp)
+          .map((chat) => chat.id);
       } catch (e) {
         console.warn('⚠️ syncMissed chat discovery:', e.message || e);
       }
@@ -3429,17 +3467,20 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
         console.warn('⚠️ syncMissed lid phones:', e.message);
       }
 
-      // Deep-sync: для чатов «ждут ответа» выгрузить ПОЛНУЮ историю через WAWebChatLoadMessages
+      // Deep-sync: выгрузить полную историю не только для «ждут ответа», но и
+      // для всех обнаруженных личных чатов в выбранном периоде. Так панель
+      // восстанавливает обе стороны старых диалогов, даже если бот уже ответил.
       try {
         const { getChatAliases } = require('./clients-store');
         const pendingIds = [
           ...new Set([
             ...touched.keys(),
             ...listMarkedCatchUp().map((x) => x.chatId),
+            ...discoveredChatIds,
           ]),
         ]
           .filter(Boolean)
-          .slice(0, 40);
+          .slice(0, 80);
 
         let deepImported = 0;
         let deepScanned = 0;
@@ -3467,8 +3508,10 @@ async function syncMissedChatsFromWhatsApp(opts = {}) {
             const prev = touched.get(cid);
             touched.set(cid, {
               count: (prev?.count || 0) + (info.count || 0),
+              userCount: (prev?.userCount || 0) + (info.userCount || 0),
               lastText: info.lastText || prev?.lastText || '',
               lastAt: info.lastAt || prev?.lastAt || null,
+              lastUserAt: info.lastUserAt || prev?.lastUserAt || null,
               name: info.name || prev?.name || '',
               language: info.language || prev?.language || '',
               texts: [...new Set([...(prev?.texts || []), ...(info.texts || [])])].slice(-30),
@@ -3553,6 +3596,7 @@ async function fetchInboundHistoryForChatIds(chatIds = [], { maxAgeMs, limit = 2
       const out = [];
 
       const extractBody = (message) => {
+        const type = String(message?.type || 'chat');
         const raw =
           message?.body ||
           message?.caption ||
@@ -3566,8 +3610,15 @@ async function fetchInboundHistoryForChatIds(chatIds = [], { maxAgeMs, limit = 2
             (message._data.links[0]?.link || message._data.links[0]?.url)) ||
           '';
         const text = String(raw || '').trim();
+        const compact = text.replace(/\s+/g, '');
+        if (
+          type !== 'chat' &&
+          compact.length > 300 &&
+          /^[a-z0-9+/=]+$/i.test(compact)
+        ) {
+          return `[${type}]`;
+        }
         if (text) return text.slice(0, 4000);
-        const type = String(message?.type || '');
         if (type && type !== 'chat') return `[${type}]`;
         return '';
       };
@@ -3623,7 +3674,7 @@ async function fetchInboundHistoryForChatIds(chatIds = [], { maxAgeMs, limit = 2
       };
 
       const msgFilter = (m) =>
-        Boolean(m?.id) && !m.id.fromMe && !m.isNotification && !m.isStatusV3;
+        Boolean(m?.id) && !m.isNotification && !m.isStatusV3;
 
       for (const chatId of focusIds) {
         // eslint-disable-next-line no-await-in-loop
@@ -3708,6 +3759,7 @@ async function fetchInboundHistoryForChatIds(chatIds = [], { maxAgeMs, limit = 2
             ).slice(0, 120),
             type: String(message.type || 'chat'),
             phoneDigits: resolvePhoneDigits(remote || chatId),
+            fromMe: Boolean(message.id?.fromMe || message.fromMe),
           });
         }
       }
@@ -4226,8 +4278,11 @@ function listCatchUpInbox({ page = 1, limit = 50, q = '', filter = 'pending' } =
 
   items = items.map((item) => {
     const clientInfo = getClient(item.chatId);
+    const webchatPreview = String(item.chatId || '').startsWith('web:')
+      ? getWebchatPanelPreview(item.chatId)
+      : null;
     const lastText = String(item.lastMessage || clientInfo?.lastMessage || '').trim();
-    let language = clientInfo?.language || '';
+    let language = webchatPreview?.language || clientInfo?.language || '';
     // Sync раньше писал language=ru по умолчанию — чиним по тексту последнего сообщения
     if (lastText && (!language || language === 'ru')) {
       const detected = detectLanguageFromText(lastText);
@@ -4262,19 +4317,35 @@ function listCatchUpInbox({ page = 1, limit = 50, q = '', filter = 'pending' } =
 
     return {
       ...item,
-      phoneDisplay: clientInfo?.phoneDisplay || '',
-      name: clientInfo?.name || item.chatName || '',
-      chatName: clientInfo?.name || item.chatName || '',
+      needsCatchUp: webchatPreview ? false : Boolean(item.needsCatchUp),
+      sourceType: webchatPreview ? 'webchat' : 'whatsapp',
+      sourceLabel: webchatPreview?.sourceLabel || 'WhatsApp',
+      phoneDisplay: webchatPreview?.phoneDisplay || clientInfo?.phoneDisplay || '',
+      name: webchatPreview?.name || clientInfo?.name || item.chatName || '',
+      chatName: webchatPreview?.name || clientInfo?.name || item.chatName || '',
       language,
       languageLabel: language ? getLanguageName(language) : clientInfo?.languageLabel || '',
+      leadPreview: webchatPreview?.preview || '',
+      propertyTitle: webchatPreview?.propertyTitle || '',
+      propertyUrl: webchatPreview?.propertyUrl || '',
+      hasLeadCard: Boolean(webchatPreview?.hasLeadCard),
       aiDisabled: isAiDisabled(item.chatId),
-      pendingCount,
+      pendingCount: webchatPreview ? 0 : pendingCount,
     };
   });
 
   if (query) {
     items = items.filter((item) =>
-      [item.chatId, item.phoneDisplay, item.name, item.chatName, item.lastMessage]
+      [
+        item.chatId,
+        item.phoneDisplay,
+        item.name,
+        item.chatName,
+        item.lastMessage,
+        item.leadPreview,
+        item.propertyTitle,
+        item.sourceLabel,
+      ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()

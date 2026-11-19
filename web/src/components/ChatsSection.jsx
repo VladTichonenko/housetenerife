@@ -206,11 +206,14 @@ export default function ChatsSection({ showToast }) {
                 {items.map((item) => (
                   <tr
                     key={item.chatId}
-                    className="lead-table__row"
+                    className={`lead-table__row${item.sourceType === 'webchat' ? ' lead-table__row--webchat' : ''}`}
                     onClick={() => setSelectedChatId(item.chatId)}
                   >
                     <td>
-                      {item.needsCatchUp ? (
+                      {item.sourceType === 'webchat' ? (
+                        <span className="lead-status lead-status--webchat">Webchat HT</span>
+                      ) : null}
+                      {item.sourceType === 'webchat' ? null : item.needsCatchUp ? (
                         <span className="lead-status lead-status--new">
                           {item.pendingCount > 1
                             ? `Ждёт ответа · ${item.pendingCount}`
@@ -228,11 +231,16 @@ export default function ChatsSection({ showToast }) {
                       <span className="lead-table__sub">
                         {isWhatsAppIdLabel(item.phoneDisplay)
                           ? 'Номер WhatsApp определяется'
-                          : item.phoneDisplay || item.chatId}
+                          : item.phoneDisplay || item.sourceLabel || item.chatId}
                         {item.languageLabel ? ` · ${item.languageLabel}` : ''}
                       </span>
                     </td>
-                    <td className="lead-table__reason">{previewText(item.lastMessage)}</td>
+                    <td className="lead-table__reason">
+                      {item.propertyTitle ? (
+                        <span className="lead-table__sub">{previewText(item.propertyTitle, 70)}</span>
+                      ) : null}
+                      {previewText(item.leadPreview || item.lastMessage)}
+                    </td>
                     <td className="lead-table__date">{formatDate(item.lastMessageAt)}</td>
                   </tr>
                 ))}
@@ -275,9 +283,10 @@ export default function ChatsSection({ showToast }) {
               ? selected.phoneDisplay
               : selected?.phoneDisplay
                 ? 'Номер WhatsApp определяется'
-                : selectedChatId
+                : selected?.sourceLabel || selectedChatId
           }
           needsCatchUp={Boolean(selected?.needsCatchUp || selected?.aiDisabled)}
+          leadCard={selected?.sourceType === 'webchat' ? selected : null}
           showToast={showToast}
           onCatchUpDone={() => load()}
           onClose={() => {

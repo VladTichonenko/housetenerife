@@ -185,6 +185,46 @@ function mergeMessagesIntoChat(primaryChatId, aliasChatIds = []) {
   return moved;
 }
 
+function recomputeUserConversationMetadata(chatId) {
+  const id = String(chatId || '');
+  if (!id) return false;
+  const database = getDb();
+  const stats = database
+    .prepare(
+      `SELECT MAX(created_at) AS last_seen_at,
+              SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) AS user_count
+       FROM messages
+       WHERE user_id = ?`
+    )
+    .get(id);
+  const lastUser = database
+    .prepare(
+      `SELECT body, language
+       FROM messages
+       WHERE user_id = ? AND role = 'user'
+       ORDER BY created_at DESC, rowid DESC
+       LIMIT 1`
+    )
+    .get(id);
+  database
+    .prepare(
+      `UPDATE users
+       SET last_seen_at = COALESCE(?, last_seen_at),
+           last_message = COALESCE(?, last_message),
+           last_language = COALESCE(?, last_language),
+           message_count = ?
+       WHERE id = ?`
+    )
+    .run(
+      stats?.last_seen_at || null,
+      lastUser?.body || null,
+      lastUser?.language || null,
+      Number(stats?.user_count || 0),
+      id
+    );
+  return true;
+}
+
 function getLastActivityAt(chatId) {
   const row = getDb()
     .prepare(
@@ -398,6 +438,7 @@ module.exports = {
   recordMessage,
   getMessages,
   mergeMessagesIntoChat,
+  recomputeUserConversationMetadata,
   updateMessageByWaId,
   findMessageByWaId,
   getLastActivityAt,

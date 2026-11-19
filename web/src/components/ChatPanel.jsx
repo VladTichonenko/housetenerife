@@ -198,6 +198,7 @@ export default function ChatPanel({
   needsCatchUp = false,
   onCatchUpDone,
   showToast,
+  leadCard = null,
 }) {
   const [messages, setMessages] = useState([]);
   const [interestedProperties, setInterestedProperties] = useState([]);
@@ -213,6 +214,7 @@ export default function ChatPanel({
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const autoSyncedRef = useRef('');
+  const isWebchat = String(chatId || '').startsWith('web:');
 
   const load = useCallback(async () => {
     if (!chatId) return;
@@ -256,7 +258,7 @@ export default function ChatPanel({
   // При открытии чата один раз подтянуть полную историю из WhatsApp
   // (иначе в панели часто остаётся только последнее сообщение).
   useEffect(() => {
-    if (!chatId || loading || autoSyncedRef.current === chatId) return undefined;
+    if (isWebchat || !chatId || loading || autoSyncedRef.current === chatId) return undefined;
     autoSyncedRef.current = chatId;
     let cancelled = false;
     (async () => {
@@ -273,7 +275,7 @@ export default function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [chatId, loading, load]);
+  }, [chatId, isWebchat, loading, load]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -294,7 +296,7 @@ export default function ChatPanel({
 
   const pendingUserCount = countPendingUserMessages(messages);
   const awaitingBot =
-    !catchUpDone && (needsCatchUp || lastMessageNeedsBotReply(messages));
+    !isWebchat && !catchUpDone && (needsCatchUp || lastMessageNeedsBotReply(messages));
 
   const resolvedPhone =
     client?.phoneDisplay && !/whatsapp id/i.test(client.phoneDisplay)
@@ -405,6 +407,23 @@ export default function ChatPanel({
         </header>
 
         <div className="chat-panel__body">
+          {isWebchat && leadCard && (
+            <div className="chat-panel__lead-card">
+              <span className="lead-status lead-status--webchat">Webchat HT</span>
+              <strong>{leadCard.name || 'Предварительная карточка клиента'}</strong>
+              {leadCard.phoneDisplay ? <span>{leadCard.phoneDisplay}</span> : null}
+              {leadCard.propertyTitle ? (
+                leadCard.propertyUrl ? (
+                  <a href={leadCard.propertyUrl} target="_blank" rel="noopener noreferrer">
+                    {leadCard.propertyTitle}
+                  </a>
+                ) : (
+                  <span>{leadCard.propertyTitle}</span>
+                )
+              ) : null}
+              {leadCard.leadPreview ? <p>{leadCard.leadPreview}</p> : null}
+            </div>
+          )}
           {interestedProperties?.length > 0 && (
             <div className="chat-panel__props">
               <PropertyLinks properties={interestedProperties} compact />
@@ -475,17 +494,21 @@ export default function ChatPanel({
                   : pendingUserCount > 1
                     ? `Клиент написал ${pendingUserCount} сообщ. без ответа. Число на кнопке — размер пачки: ИИ даст один ответ по всем.`
                     : 'Клиент написал, пока бот не отвечал.'
-                : `В истории ${messages.length || 0} сообщ. Если чего-то не хватает — подтяните из WhatsApp.`}
+                : isWebchat
+                  ? `В истории webchat ${messages.length || 0} сообщ.`
+                  : `В истории ${messages.length || 0} сообщ. Если чего-то не хватает — подтяните из WhatsApp.`}
           </p>
           <div className="chat-panel__catchup-actions">
-            <button
-              type="button"
-              className="btn btn--outline chat-panel__catchup-btn"
-              onClick={syncHistoryFromWhatsApp}
-              disabled={syncingHistory || catchingUp}
-            >
-              {syncingHistory ? 'Собираю…' : 'Подтянуть историю'}
-            </button>
+            {!isWebchat && (
+              <button
+                type="button"
+                className="btn btn--outline chat-panel__catchup-btn"
+                onClick={syncHistoryFromWhatsApp}
+                disabled={syncingHistory || catchingUp}
+              >
+                {syncingHistory ? 'Собираю…' : 'Подтянуть историю'}
+              </button>
+            )}
             {awaitingBot && (
               <button
                 type="button"
@@ -508,26 +531,28 @@ export default function ChatPanel({
           </div>
         </div>
 
-        <form className="chat-panel__composer" onSubmit={handleSend}>
-          <textarea
-            ref={inputRef}
-            className="chat-panel__input"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={handleComposerKeyDown}
-            placeholder="Введите сообщение"
-            rows={1}
-            disabled={sending || catchingUp}
-          />
-          <button
-            type="submit"
-            className="chat-panel__send"
-            disabled={sending || catchingUp || !text.trim()}
-            aria-label="Отправить"
-          >
-            {sending ? '…' : <IconSend />}
-          </button>
-        </form>
+        {!isWebchat && (
+          <form className="chat-panel__composer" onSubmit={handleSend}>
+            <textarea
+              ref={inputRef}
+              className="chat-panel__input"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={handleComposerKeyDown}
+              placeholder="Введите сообщение"
+              rows={1}
+              disabled={sending || catchingUp}
+            />
+            <button
+              type="submit"
+              className="chat-panel__send"
+              disabled={sending || catchingUp || !text.trim()}
+              aria-label="Отправить"
+            >
+              {sending ? '…' : <IconSend />}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

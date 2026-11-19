@@ -216,9 +216,9 @@ function isContextLine(text) {
 function pickClientName(userLines, savedName = '') {
   const lines = (userLines || []).map((s) => String(s || '').trim()).filter(Boolean);
   for (const line of lines) {
-    if (isContextLine(line)) continue;
     const intro = extractIntroName(line);
     if (intro) return intro;
+    if (isContextLine(line)) continue;
   }
   const saved = cleanPersonName(savedName);
   if (saved) return saved;
@@ -771,6 +771,49 @@ function rememberPanelBrief(chatId, msgCount, card) {
   saveState(state);
 }
 
+function getWebchatPanelPreview(chatId) {
+  const id = String(chatId || '').trim();
+  if (!id.startsWith('web:')) return null;
+  try {
+    const { getMessages } = require('./conversation-store');
+    const { buildRuntimeHistory } = require('./conversation-history');
+    const messages = getMessages(id);
+    const history = buildRuntimeHistory(messages, 200);
+    const state = loadState().chats[id] || {};
+    const facts = resolveDialogCardFacts({
+      chatId: id,
+      history,
+      savedName: state.name || '',
+      savedPhone: state.phone || '',
+    });
+    const lastUserText =
+      history
+        .slice()
+        .reverse()
+        .find((message) => message?.sender === 'user' && !isContextLine(message.text))?.text || '';
+    return {
+      source: 'webchat',
+      sourceLabel: 'Webchat HT',
+      name: facts.name || state.name || '',
+      phoneDisplay: facts.phone?.display || state.phone || '',
+      propertyTitle: facts.properties[0]?.title || '',
+      propertyUrl: facts.properties[0]?.siteUrl || '',
+      briefPreview: String(state.briefPreview || '').trim(),
+      preview: String(state.briefPreview || lastUserText || '').trim(),
+      hasLeadCard: Boolean(facts.phone || state.phone || state.briefPreview),
+    };
+  } catch {
+    return {
+      source: 'webchat',
+      sourceLabel: 'Webchat HT',
+      name: '',
+      phoneDisplay: '',
+      preview: '',
+      hasLeadCard: false,
+    };
+  }
+}
+
 /**
  * Выжимка по запросу из панели: имя, телефон с кодом страны, ссылка на объект, текст «о разговоре».
  */
@@ -866,6 +909,7 @@ module.exports = {
   buildWebchatLeadMessage,
   buildWebchatBriefMessage,
   resolveDialogCardFacts,
+  getWebchatPanelPreview,
   buildDialogBriefCard,
   hasSubstanceForBrief,
   maybeNotifyWebchatLead,
