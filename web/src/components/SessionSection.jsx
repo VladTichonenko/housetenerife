@@ -9,6 +9,7 @@ export default function SessionSection({ session, qr, loading, onRefresh, onLogo
   }
 
   const ready = session?.ready;
+  const checking = session?.sessionStatus === 'checking';
   const account = session?.account;
 
   const handleLogout = async () => {
@@ -59,7 +60,18 @@ export default function SessionSection({ session, qr, loading, onRefresh, onLogo
           </div>
         </div>
         <div className="session-status">
-          {ready ? (
+          {checking ? (
+            <div className="session-qr">
+              <div className="app-loading__spinner" />
+              <div>
+                <h3 className="session-qr__title">Статус сессии уточняется</h3>
+                <p className="session-qr__text">
+                  Последнее состояние — {session?.clientState || 'неизвестно'}, но свежая
+                  проверка WhatsApp пока недоступна. Нажмите «Обновить статус» ещё раз.
+                </p>
+              </div>
+            </div>
+          ) : ready ? (
             <div className="session-connected">
               <div className="session-connected__icon">
                 <IconCheck />

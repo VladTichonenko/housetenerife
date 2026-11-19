@@ -12,6 +12,7 @@ const { enqueueForChat } = require('./chat-queue');
 const {
   classifyObservedState,
   isDefinitiveLogoutReason,
+  deriveAdminSessionStatus,
 } = require('./whatsapp-session-state');
 const {
   scheduleReplyBatch,
@@ -5173,7 +5174,9 @@ async function getClientStateFast(timeoutMs = 2500) {
     if (state === 'CONNECTED' && !botReady) botReady = true;
     return {
       state: state || cachedState,
-      ready: state === 'CONNECTED' || botReady,
+      // Свежий ответ getState важнее старого botReady. Иначе после удаления
+      // связанного устройства UNPAIRED продолжал отображаться как CONNECTED.
+      ready: state === 'CONNECTED',
       cached: false,
     };
   } catch (err) {
@@ -5199,11 +5202,21 @@ async function getClientStateFast(timeoutMs = 2500) {
 }
 
 async function getAdminSessionSnapshot() {
-  const cachedState = waWatchState || (botReady ? 'CONNECTED' : 'unknown');
+  const snap = await getClientStateFast(3500);
+  const state = snap.state || waWatchState || (botReady ? 'CONNECTED' : 'unknown');
+  const ready = !snap.cached && snap.ready === true && state === 'CONNECTED';
+  const sessionStatus = deriveAdminSessionStatus({
+    state,
+    cached: Boolean(snap.cached),
+    ready,
+  });
   return {
-    ready: Boolean(botReady || cachedState === 'CONNECTED'),
-    clientState: cachedState,
-    stateCached: true,
+    // Закэшированный CONNECTED больше не выдаём за подтверждённую активную
+    // сессию. UI покажет «проверяется», пока CDP не даст свежий ответ.
+    ready,
+    sessionStatus,
+    clientState: state,
+    stateCached: Boolean(snap.cached),
     hasQr: Boolean(currentQr),
     account: accountInfo,
   };

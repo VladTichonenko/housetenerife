@@ -99,6 +99,7 @@ function registerAdminRoutes(app, state) {
     let ready = Boolean(state.botReady);
     let clientState = state.waWatchState || (ready ? 'CONNECTED' : 'unknown');
     let stateCached = true;
+    let sessionStatus = ready ? 'checking' : 'disconnected';
 
     try {
       if (typeof state.getAdminSessionSnapshot === 'function') {
@@ -106,6 +107,7 @@ function registerAdminRoutes(app, state) {
         ready = Boolean(snap.ready);
         clientState = snap.clientState || clientState;
         stateCached = Boolean(snap.stateCached);
+        sessionStatus = snap.sessionStatus || (ready ? 'connected' : 'disconnected');
       } else if (state.client) {
         // Fallback: короткий race, без ожидания protocolTimeout (минуты)
         const timeoutMs = 2500;
@@ -115,14 +117,17 @@ function registerAdminRoutes(app, state) {
         ]);
         stateCached = clientState === (state.waWatchState || clientState);
         ready = clientState === 'CONNECTED' || ready;
+        sessionStatus = stateCached ? 'checking' : ready ? 'connected' : 'disconnected';
       }
     } catch {
       clientState = state.waWatchState || 'error';
+      sessionStatus = clientState === 'CONNECTED' ? 'checking' : 'disconnected';
     }
 
     res.json({
       success: true,
       ready,
+      sessionStatus,
       clientState,
       stateCached,
       hasQr: Boolean(state.currentQr),

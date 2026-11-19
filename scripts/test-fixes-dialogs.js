@@ -63,6 +63,7 @@ const {
 const {
   classifyObservedState,
   isDefinitiveLogoutReason,
+  deriveAdminSessionStatus,
 } = require('../whatsapp-session-state');
 const {
   REPLY_WAIT_MS,
@@ -1717,6 +1718,19 @@ https://housetenerife.eu/ru/property/villa-na-prodazhu-v-kaldera-del-rej-kosta-a
   check('session: UNPAIRED ждёт QR/disconnected', classifyObservedState('UNPAIRED') === 'transient');
   check('session: только LOGOUT окончательно завершает авторизацию', isDefinitiveLogoutReason('LOGOUT'));
   check('session: DISCONNECTED не маскируется как LOGOUT', !isDefinitiveLogoutReason('DISCONNECTED'));
+  check(
+    'session: свежий UNPAIRED не считается активной сессией',
+    deriveAdminSessionStatus({ state: 'UNPAIRED', cached: false, ready: false }) ===
+      'disconnected'
+  );
+  check(
+    'session: закэшированный CONNECTED показывается как проверка, не активная сессия',
+    deriveAdminSessionStatus({ state: 'CONNECTED', cached: true, ready: true }) === 'checking'
+  );
+  check(
+    'session: активна только после свежего CONNECTED',
+    deriveAdminSessionStatus({ state: 'CONNECTED', cached: false, ready: true }) === 'connected'
+  );
   check('batch: пауза после последнего ≤ 3 с', REPLY_WAIT_MS <= 3000, REPLY_WAIT_MS);
   check('batch: max окно пачки ≤ 6 с', REPLY_BATCH_WAIT_MS <= 6000, REPLY_BATCH_WAIT_MS);
 

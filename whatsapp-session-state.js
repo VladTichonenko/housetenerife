@@ -20,7 +20,15 @@ function isDefinitiveLogoutReason(reason) {
   return String(reason || '').toUpperCase() === 'LOGOUT';
 }
 
+function deriveAdminSessionStatus({ state, cached = true, ready = false } = {}) {
+  const connected = String(state || '').toUpperCase() === 'CONNECTED';
+  if (!cached && connected && ready) return 'connected';
+  if (cached && connected) return 'checking';
+  return 'disconnected';
+}
+
 module.exports = {
   classifyObservedState,
   isDefinitiveLogoutReason,
+  deriveAdminSessionStatus,
 };
