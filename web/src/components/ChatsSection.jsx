@@ -111,8 +111,9 @@ export default function ChatsSection({ showToast }) {
     <div className="chats-section">
       <div className="card chats-section__intro">
         <p className="card__desc">
-          Если сервер был выключен и клиенты писали в WhatsApp — соберите все сообщения от всех клиентов
-          (новых и старых чатов, за последние 30 дней, не только последнее), откройте чат и нажмите «Один ответ ИИ (N)»: число — сколько сообщений клиента без ответа, бот даст один ответ по всей пачке.
+          Если сервер был выключен и клиенты писали в WhatsApp — соберите все сообщения за последние 30 дней.
+          В «Все чаты» список идёт по дате, как в WhatsApp: свежие сверху, статус «Ждёт ответа» остаётся меткой.
+          Откройте чат и нажмите «Один ответ ИИ (N)», если нужен догон.
         </p>
         <div className="chats-section__actions">
           <button
@@ -241,7 +242,7 @@ export default function ChatsSection({ showToast }) {
                       ) : null}
                       {previewText(item.leadPreview || item.lastMessage)}
                     </td>
-                    <td className="lead-table__date">{formatDate(item.lastMessageAt)}</td>
+                    <td className="lead-table__date">{formatDate(item.lastActivityAt || item.lastMessageAt)}</td>
                   </tr>
                 ))}
               </tbody>

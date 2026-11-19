@@ -4247,6 +4247,11 @@ function listCatchUpInbox({ page = 1, limit = 50, q = '', filter = 'pending' } =
       needsCatchUp: true,
       lastMessage: item.lastMessage || prev.lastMessage || '',
       lastMessageAt: item.lastMessageAt || prev.lastMessageAt || null,
+      lastActivityAt:
+        item.lastMessageAt ||
+        prev.lastActivityAt ||
+        prev.lastMessageAt ||
+        null,
       chatName: item.chatName || prev.chatName || '',
       importedCount: item.importedCount || 0,
       source: prev.source === 'db' ? 'both' : 'sync',
@@ -4315,6 +4320,11 @@ function listCatchUpInbox({ page = 1, limit = 50, q = '', filter = 'pending' } =
       /* keep existing pendingCount */
     }
 
+    const lastActivityAt =
+      item.lastActivityAt ||
+      item.lastMessageAt ||
+      clientInfo?.lastSeenAt ||
+      null;
     return {
       ...item,
       needsCatchUp: webchatPreview ? false : Boolean(item.needsCatchUp),
@@ -4331,6 +4341,8 @@ function listCatchUpInbox({ page = 1, limit = 50, q = '', filter = 'pending' } =
       hasLeadCard: Boolean(webchatPreview?.hasLeadCard),
       aiDisabled: isAiDisabled(item.chatId),
       pendingCount: webchatPreview ? 0 : pendingCount,
+      lastActivityAt,
+      lastMessageAt: item.lastMessageAt || lastActivityAt,
     };
   });
 
@@ -4353,11 +4365,13 @@ function listCatchUpInbox({ page = 1, limit = 50, q = '', filter = 'pending' } =
     );
   }
 
+  // Как в WhatsApp: самые свежие чаты сверху по реальной активности,
+  // а не «все ждут ответа» блоком над вчерашними отвеченными диалогами.
   items.sort((a, b) => {
-    if (Boolean(b.needsCatchUp) !== Boolean(a.needsCatchUp)) {
-      return a.needsCatchUp ? -1 : 1;
-    }
-    return String(b.lastMessageAt || '').localeCompare(String(a.lastMessageAt || ''));
+    const aAt = String(a.lastActivityAt || a.lastMessageAt || '');
+    const bAt = String(b.lastActivityAt || b.lastMessageAt || '');
+    if (aAt !== bAt) return bAt.localeCompare(aAt);
+    return Number(Boolean(b.needsCatchUp)) - Number(Boolean(a.needsCatchUp));
   });
 
   const p = Math.max(1, parseInt(page, 10) || 1);
