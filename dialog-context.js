@@ -86,14 +86,18 @@ function stripSyntheticVisionContext(text) {
 /**
  * @param {Array<{sender:string,text:string}>} history
  * @param {string} [lang]
+ * @param {{ chatId?: string, skipMandatoryGreeting?: boolean }} [options]
  */
-function analyzeConversation(history, lang = 'ru') {
+function analyzeConversation(history, lang = 'ru', options = {}) {
   history = (history || []).map((message) =>
     message?.sender === 'user'
       ? { ...message, text: stripSyntheticVisionContext(message.text) }
       : message
   );
   const salesLang = normalizeSalesLang(lang);
+  const isWebChat =
+    options?.skipMandatoryGreeting === true ||
+    String(options?.chatId || '').startsWith('web:');
   const userMsgs = history.filter((m) => m.sender === 'user');
   const allUserText = userMsgs.map((m) => m.text).join('\n');
   const lower = allUserText.toLowerCase();
@@ -532,11 +536,11 @@ function analyzeConversation(history, lang = 'ru') {
 
   // Приветствие — в самом верху stageInstruction (после memory), иначе модель игнорирует
   // Срабатывает: 1-е сообщение ИЛИ клиент снова написал «привет/здравствуйте…» mid-chat
+  // Webchat уже показал приветствие виджета — повторное «Hi! Maxim…» запрещено.
   const clientGreetedNow = lastMessageHasGreeting(lastUser);
   const needsGreetingReply =
-    stage === 'FIRST_CONTACT' ||
-    userTurns <= 1 ||
-    clientGreetedNow;
+    !isWebChat &&
+    (stage === 'FIRST_CONTACT' || userTurns <= 1 || clientGreetedNow);
   if (needsGreetingReply) {
     const greetingMustByLang = {
       ru: `**ПРИВЕТСТВИЕ (обязательно в ЭТОМ ответе — приоритет выше памяти/воронки):** Клиент${clientGreetedNow ? ' поздоровался («привет» / «здравствуйте»…)' : ' пишет первое сообщение'}. ОБЯЗАТЕЛЬНО начни ответ ТОЧНО в духе: «Приветствую! Максим, House Tenerife.» Затем — вопрос текущего этапа (для инвестиций: «Какой у вас размер инвестиций?»). ЗАПРЕЩЕНО: «Спасибо за интерес», «Отлично» / «Понял» без представления, вопрос без приветствия. Всегда на «Вы».`,
@@ -548,6 +552,30 @@ function analyzeConversation(history, lang = 'ru') {
       nl: `**BEGROETING (verplicht in DIT antwoord — voorrang op geheugen/trechter):** De klant${clientGreetedNow ? ' groette («hallo»…)' : ' stuurt het eerste bericht'}. Je MOET openen met: «Hallo! Maxim, House Tenerife.» Daarna de fasevraag. VERBODEN: «Bedankt voor uw interesse», «Top» / «Begrepen» zonder voorstelling.`,
     };
     stageInstruction = `${greetingMustByLang[salesLang] || greetingMustByLang.en}\n\n${stageInstruction}`;
+  } else if (isWebChat) {
+    const webNoRegreetByLang = {
+      ru: `**WEBCHAT — БЕЗ ПОВТОРНОГО ПРИВЕТСТВИЯ:** Сайт уже поздоровался и спросил имя. НЕ начинай с «Приветствую! / Привет! Максим, House Tenerife.» / «Hi! Maxim…». Сразу по делу: один вопрос этапа (для себя или инвестиции / дальше по воронке). ЗАПРЕЩЕНО целиком отдельной фразой: «Принял, спасибо», «Принял», «Понял, спасибо», «Ок, спасибо» — без уточнения *что* принято это звучит странно. Если подтверждаешь контакт/имя — сразу переходи к вопросу, без пустого «принял».`,
+      en: `**WEBCHAT — NO SECOND GREETING:** The website already greeted the client and asked their name. Do NOT open with “Hi! / Hello! Maxim, House Tenerife.” Jump straight to the stage question (live vs invest / next funnel step). FORBIDDEN as a standalone line: “Got it, thanks”, “Accepted, thanks”, “Noted, thanks” — unclear what you accepted. If acknowledging the name/phone, go straight to the next question.`,
+      es: `**WEBCHAT — SIN SEGUNDO SALUDO:** El sitio ya saludó y pidió el nombre. NO empieces con «¡Hola! Maxim, House Tenerife.» Ve directo a la pregunta de etapa. PROHIBIDO como frase suelta: «Recibido, gracias», «Entendido, gracias».`,
+      de: `**WEBCHAT — KEINE ZWEITE BEGRÜSSUNG:** Die Website hat schon gegrüßt und nach dem Namen gefragt. NICHT mit «Hallo! Maxim, House Tenerife.» beginnen. Direkt zur Stufenfrage. VERBOTEN allein: «Alles klar, danke», «Verstanden, danke».`,
+      fr: `**WEBCHAT — PAS DE SECONDE SALUTATION:** Le site a déjà salué et demandé le prénom. Ne commence PAS par «Bonjour! Maxim, House Tenerife.» Va directement à la question d’étape. INTERDIT seul: «Reçu, merci», «Compris, merci».`,
+      pl: `**WEBCHAT — BEZ DRUGIEGO POWITANIA:** Strona już się przywitała i zapytała o imię. NIE zaczynaj od «Dzień dobry! Maxim, House Tenerife.» Od razu pytanie etapu. ZAKAZ osobnej linii: «Przyjąłem, dziękuję», «Rozumiem, dzięki».`,
+      nl: `**WEBCHAT — GEEN TWEEDE BEGROETING:** De site heeft al gegroet en om de naam gevraagd. Begin NIET met «Hallo! Maxim, House Tenerife.» Direct de fasevraag. VERBODEN als losse zin: «Ontvangen, bedankt», «Begrepen, bedankt».`,
+    };
+    // FIRST_CONTACT в локалях требует «Hi! Maxim…» — для webchat это конфликт, подменяем этап.
+    if (stage === 'FIRST_CONTACT') {
+      const webFirstContactByLang = {
+        ru: `Клиент уже на сайте в чате (приветствие виджета было). Без повторного представления. Один короткий вопрос: объект для себя/семьи или под инвестиции? Тон WhatsApp, на «Вы». Объекты и ссылки ЗАПРЕЩЕНЫ. Не пиши «Принял, спасибо».`,
+        en: `Client is already in the website chat (widget already greeted them). No re-intro. One short question: place to live themselves, or mainly investment? Warm WhatsApp tone. No listings/links. Do not write “Got it, thanks”.`,
+        es: `El cliente ya está en el chat del sitio (el widget ya saludó). Sin nueva presentación. Una pregunta breve: ¿para vivir o inversión? Sin fichas. No escribas «Recibido, gracias».`,
+        de: `Kunde ist schon im Website-Chat (Widget hat schon gegrüßt). Keine erneute Vorstellung. Eine kurze Frage: selbst wohnen oder Investition? Keine Objekte. Nicht «Alles klar, danke» schreiben.`,
+        fr: `Le client est déjà dans le chat du site (le widget a déjà salué). Pas de nouvelle présentation. Une question courte: pour habiter ou investir? Pas de fiches. N’écris pas «Reçu, merci».`,
+        pl: `Klient już jest na czacie strony (widget już się przywitał). Bez ponownego przedstawienia. Jedno krótkie pytanie: dla siebie czy inwestycja? Bez ofert. Nie pisz «Przyjąłem, dziękuję».`,
+        nl: `Klant zit al in de websitechat (widget heeft al gegroet). Geen herintroductie. Eén korte vraag: zelf wonen of investering? Geen objecten. Schrijf niet «Ontvangen, bedankt».`,
+      };
+      stageInstruction = webFirstContactByLang[salesLang] || webFirstContactByLang.en;
+    }
+    stageInstruction = `${webNoRegreetByLang[salesLang] || webNoRegreetByLang.en}\n\n${stageInstruction}`;
   }
 
   const financeSummaryBlock = formatFinanceSummaryForPrompt(finance, salesLang);

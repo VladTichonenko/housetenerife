@@ -104,7 +104,9 @@ async function buildPromptParts(
       ? conversationHistory
       : limitedHistory;
 
-  const dialog = analyzeConversation(analysisHistory, userLanguage);
+  const dialog = analyzeConversation(analysisHistory, userLanguage, {
+    chatId: runtimeContext.chatId,
+  });
   const catalogQuery = buildCatalogSearchQuery(analysisHistory) || userQuery;
   const budget = dialog.ignoreBudget
     ? { minPrice: null, maxPrice: null }
@@ -1676,7 +1678,8 @@ function buildProfileAnalysisSeed(profile) {
  */
 async function askAICore(conversationHistory, userLanguage = 'ru', options = {}) {
   const salesLangEarly = normalizeSalesLang(userLanguage);
-  let dialog = analyzeConversation(conversationHistory, userLanguage);
+  const dialogOpts = { chatId: options.chatId };
+  let dialog = analyzeConversation(conversationHistory, userLanguage, dialogOpts);
   let userProfile = options.userProfile || null;
   let intentGate = null;
   let topicSummary = null;
@@ -1702,7 +1705,7 @@ async function askAICore(conversationHistory, userLanguage = 'ru', options = {})
           ? buildProfileAnalysisSeed(previousProfile)
           : null;
       if (profileSeed) analysisHistory = [profileSeed, ...analysisHistory];
-      dialog = analyzeConversation(analysisHistory, userLanguage);
+      dialog = analyzeConversation(analysisHistory, userLanguage, dialogOpts);
       userProfile = updateUserProfileFromConversation(
         options.chatId,
         conversationHistory,

@@ -5818,7 +5818,7 @@ async function handleIncomingMessage(msg, options = {}) {
           historyMessages: history,
           historyText: history.map((h) => h.text).join('\n'),
         });
-        const dialog = analyzeConversation(getHistory(chatId), dialogLanguage);
+        const dialog = analyzeConversation(getHistory(chatId), dialogLanguage, { chatId });
         if (dialog.hasPropertyInterest) {
           const { getInterestedProperties } = require('./property-interest');
           const properties = getInterestedProperties(chatId, dialogLanguage);
@@ -6084,7 +6084,7 @@ async function handleIncomingMessage(msg, options = {}) {
       console.log(`🤖 Запрос к AI для ${chatId} (язык диалога: ${dialogLanguage})`);
       try {
         const history = getHistory(chatId).slice();
-        const preDialog = analyzeConversation(history, dialogLanguage);
+        const preDialog = analyzeConversation(history, dialogLanguage, { chatId });
         const { userMessageHasPropertyLink } = require('./property-interest');
         const skipListingBridge =
           wantsPropertyPhotos(effectiveMessageText) ||
@@ -6137,7 +6137,7 @@ async function handleIncomingMessage(msg, options = {}) {
           console.log(`✅ Ответ от AI отправлен успешно`);
         }
 
-        const dialog = analyzeConversation(getHistory(chatId), dialogLanguage);
+        const dialog = analyzeConversation(getHistory(chatId), dialogLanguage, { chatId });
         const replyHasListingLinks =
           /housetenerife\.eu[^.\s]*\/property\//i.test(String(outgoing || '')) ||
           /\bHZ\d{2,6}\b/i.test(String(outgoing || ''));

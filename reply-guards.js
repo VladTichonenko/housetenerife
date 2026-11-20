@@ -104,6 +104,25 @@ function hasInternalTokens(text) {
  * @param {string} text
  * @param {string} [lang]
  */
+/** Пустые «Принял, спасибо» / «Got it, thanks» без Clarification — убираем ведущую строку. */
+const EMPTY_ACK_LINE_RE =
+  /^\s*(?:принял(?:а)?|понял(?:а)?|принято|принято[,.]?\s*спасибо|принял(?:а)?[,.]?\s*спасибо|got\s*it|noted|accepted|received|understood|ok(?:ay)?|alright)(?:[,.]?\s*(?:thanks|thank\s*you|спасибо|merci|gracias|danke|bedankt|dziękuje|dziekuje))?[.!…]?\s*$/i;
+
+function stripEmptyAckPrefix(text) {
+  const raw = String(text || '');
+  if (!raw.trim()) return raw;
+  const parts = raw.split(/\n+/);
+  while (parts.length > 1 && EMPTY_ACK_LINE_RE.test(parts[0])) {
+    parts.shift();
+  }
+  // Однострочный пустой ack без продолжения — оставляем как есть (лучше fallback ниже),
+  // но если это единственная фраза «Принял, спасибо» — вычищаем.
+  if (parts.length === 1 && EMPTY_ACK_LINE_RE.test(parts[0])) {
+    return '';
+  }
+  return parts.join('\n').trim();
+}
+
 function sanitizeWebReply(text, lang = 'en') {
   let out = String(text || '');
   if (!out) return out;
@@ -111,6 +130,7 @@ function sanitizeWebReply(text, lang = 'en') {
     re.lastIndex = 0;
     out = out.replace(re, '');
   }
+  out = stripEmptyAckPrefix(out);
   out = out
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
